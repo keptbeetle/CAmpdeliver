@@ -1,16 +1,13 @@
 import { createEnv } from "@t3-oss/env-core";
-import { z } from "zod/v4";
+import { z } from "zod";
 
 export function authEnv() {
   return createEnv({
-    server: {
-      AUTH_DISCORD_ID: z.string().min(1),
-      AUTH_DISCORD_SECRET: z.string().min(1),
-      AUTH_SECRET:
-        process.env.NODE_ENV === "production"
-          ? z.string().min(1)
-          : z.string().min(1).optional(),
-      NODE_ENV: z.enum(["development", "production"]).optional(),
+    server: {},
+    clientPrefix: "NEXT_PUBLIC_",
+    client: {
+      NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
     },
     runtimeEnv: process.env,
     skipValidation:

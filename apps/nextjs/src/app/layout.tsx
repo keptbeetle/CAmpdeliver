@@ -16,18 +16,18 @@ export const metadata: Metadata = {
       ? "https://turbo.t3.gg"
       : "http://localhost:3000",
   ),
-  title: "Create T3 Turbo",
-  description: "Simple monorepo with shared backend for web & mobile apps",
+  title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
+  description: "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
   openGraph: {
-    title: "Create T3 Turbo",
-    description: "Simple monorepo with shared backend for web & mobile apps",
-    url: "https://create-t3-turbo.vercel.app",
-    siteName: "Create T3 Turbo",
+    title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
+    description: "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
+    url: "https://campdeliver.vercel.app",
+    siteName: "CAmpDeliver",
   },
   twitter: {
     card: "summary_large_image",
-    site: "@jullerino",
-    creator: "@jullerino",
+    site: "@campdeliver",
+    creator: "@campdeliver",
   },
 };
 

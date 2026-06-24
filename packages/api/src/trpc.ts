@@ -10,7 +10,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { z, ZodError } from "zod/v4";
 
-import type { Auth } from "@acme/auth";
+import { createServerClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { db } from "@acme/db/client";
 
 /**
@@ -28,15 +29,50 @@ import { db } from "@acme/db/client";
 
 export const createTRPCContext = async (opts: {
   headers: Headers;
-  auth: Auth;
 }) => {
-  const authApi = opts.auth.api;
-  const session = await authApi.getSession({
-    headers: opts.headers,
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  // Create client
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        const cookieHeader = opts.headers.get("cookie") ?? "";
+        return cookieHeader.split(";").map((c) => {
+          const [name, ...val] = c.trim().split("=");
+          return { name: name!, value: val.join("=") };
+        });
+      },
+      setAll() {
+        // Read-only context in tRPC request context
+      },
+    },
   });
+
+  // Authenticate user via Authorization Header (Bearer token for Mobile) or Cookies (Web)
+  const authHeader = opts.headers.get("authorization");
+  let user: User | null = null;
+
+  if (authHeader?.startsWith("Bearer ")) {
+    const token = authHeader.substring(7);
+    const { data, error } = await supabase.auth.getUser(token);
+    if (!error && data.user) {
+      user = data.user;
+    }
+  } else {
+    const { data, error } = await supabase.auth.getUser();
+    if (!error && data.user) {
+      user = data.user;
+    }
+  }
+
   return {
-    authApi,
-    session,
+    supabase,
+    user,
     db,
   };
 };
@@ -116,13 +152,12 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
 export const protectedProcedure = t.procedure
   .use(timingMiddleware)
   .use(({ ctx, next }) => {
-    if (!ctx.session?.user) {
+    if (!ctx.user) {
       throw new TRPCError({ code: "UNAUTHORIZED" });
     }
     return next({
       ctx: {
-        // infers the `session` as non-nullable
-        session: { ...ctx.session, user: ctx.session.user },
+        user: ctx.user,
       },
     });
   });
