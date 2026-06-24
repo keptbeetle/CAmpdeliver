@@ -23,14 +23,16 @@ export function AuthForm() {
     setMessage(null);
     setLoading(true);
 
+    const formattedEmail = email.includes("@") ? email.trim() : `${email.trim()}@campus.edu`;
+
     try {
       if (isSignUp) {
         const { data, error: signUpError } = await supabaseClient.auth.signUp({
-          email,
+          email: formattedEmail,
           password,
           options: {
             data: {
-              name: name || email.split("@")[0],
+              name: name || formattedEmail.split("@")[0],
             },
           },
         });
@@ -46,7 +48,7 @@ export function AuthForm() {
       } else {
         const { error: signInError } =
           await supabaseClient.auth.signInWithPassword({
-            email,
+            email: formattedEmail,
             password,
           });
 
@@ -92,11 +94,11 @@ export function AuthForm() {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email" className="text-zinc-300">Email Address</Label>
+          <Label htmlFor="email" className="text-zinc-300">Email Address / Dummy ID</Label>
           <Input
             id="email"
-            type="email"
-            placeholder="alex@campus.edu"
+            type="text"
+            placeholder="alex@campus.edu or 'alex'"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="bg-white/5 border-white/10 text-white placeholder-zinc-500 focus:border-purple-500"

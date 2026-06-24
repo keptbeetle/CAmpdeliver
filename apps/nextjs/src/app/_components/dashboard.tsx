@@ -1,20 +1,38 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Button } from "@acme/ui/button";
 import { supabaseClient } from "~/auth/client";
 import { useTRPC } from "~/trpc/react";
+import { WalletTopUp } from "./WalletTopUp";
+import { CanteenMenu } from "./CanteenMenu";
 
 export function Dashboard() {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   
   // Fetch real-time user profile database info from tRPC
   const { data: profile, isLoading, error } = useQuery(trpc.auth.getMyProfile.queryOptions());
   
   // Fetch orders from tRPC
   const { data: orders, isLoading: isLoadingOrders } = useQuery(trpc.order.myOrders.queryOptions());
+  const { data: availableQuests, isLoading: isLoadingQuests } = useQuery(trpc.order.availableQuests.queryOptions());
+
+  const acceptOrderMutation = useMutation(trpc.order.acceptOrder.mutationOptions({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
+      queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() });
+    }
+  }));
+
+  const confirmAvailabilityMutation = useMutation(trpc.order.confirmAvailability.mutationOptions({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
+      queryClient.invalidateQueries({ queryKey: trpc.auth.getMyProfile.queryKey() });
+    }
+  }));
 
   const handleSignOut = async () => {
     await supabaseClient.auth.signOut();
@@ -77,7 +95,7 @@ export function Dashboard() {
 
       {/* Main dashboard content */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left Column - Digital Wallet */}
+        {/* Left Column - Digital Wallet & TopUp */}
         <div className="md:col-span-1 flex flex-col gap-6">
           <h3 className="text-xl font-bold text-white tracking-wide">Campus Wallet</h3>
           
@@ -114,24 +132,90 @@ export function Dashboard() {
               </div>
             </div>
           </div>
+
+          <WalletTopUp />
         </div>
 
-        {/* Right Column - Side Quest Orders */}
+        {/* Right Column - Ordering and Active Orders */}
         <div className="md:col-span-2 flex flex-col gap-6">
-          <h3 className="text-xl font-bold text-white tracking-wide">Your Active Side Quests</h3>
+          <CanteenMenu />
 
-          <div className="flex-1 flex flex-col items-center justify-center p-12 rounded-3xl border border-white/5 bg-white/5 backdrop-blur-xl min-h-[300px]">
-            {/* Visual placeholder graphic */}
-            <div className="w-20 h-20 rounded-2xl bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center mb-6">
-              <svg className="w-10 h-10 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            
-            <h4 className="text-lg font-bold text-white">No active quests found</h4>
-            <p className="mt-2 text-sm text-zinc-400 text-center max-w-sm">
-              Your dashboard will display orders once you request a delivery, or accept a side quest around campus.
-            </p>
+          <h3 className="text-xl font-bold text-white tracking-wide mt-4">Your Recent Orders</h3>
+
+          <div className="flex flex-col gap-4">
+            {isLoadingOrders ? (
+              <p className="text-zinc-500">Loading orders...</p>
+            ) : orders && orders.length > 0 ? (
+              orders.map((order) => (
+                <div key={order.id} className="bg-white/5 border border-white/10 rounded-xl p-4 flex flex-col gap-3 backdrop-blur-sm">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h5 className="text-white font-semibold">{order.canteenName}</h5>
+                      <p className="text-xs text-zinc-400 mt-1">Status: <span className="text-purple-400 font-bold">{order.status}</span></p>
+                      <p className="text-xs text-zinc-500 mt-1">Role: {order.buyerId === profile.id ? "Buyer" : "Deliverer"}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-white font-bold">{formatCurrency(order.foodPrice + order.deliveryFee)}</p>
+                      <p className="text-xs text-zinc-500">{new Date(order.createdAt).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                  
+                  {/* Action Buttons */}
+                  {order.delivererId === profile.id && order.status === "ACCEPTED" && (
+                    <div className="border-t border-white/10 pt-3 flex justify-end">
+                      <Button
+                        size="sm"
+                        className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                        disabled={confirmAvailabilityMutation.isPending}
+                        onClick={() => confirmAvailabilityMutation.mutate({ orderId: order.id })}
+                      >
+                        {confirmAvailabilityMutation.isPending ? "Confirming..." : "Confirm Item Available"}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 rounded-2xl border border-white/5 bg-white/5 backdrop-blur-xl">
+                <p className="text-sm text-zinc-400 text-center">
+                  No active orders found. Place an order above!
+                </p>
+              </div>
+            )}
+          </div>
+
+          <h3 className="text-xl font-bold text-white tracking-wide mt-4">Available Side Quests</h3>
+
+          <div className="flex flex-col gap-4">
+            {isLoadingQuests ? (
+              <p className="text-zinc-500">Scanning for quests...</p>
+            ) : availableQuests && availableQuests.length > 0 ? (
+              availableQuests.map((quest) => (
+                <div key={quest.id} className="bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-4 flex justify-between items-center backdrop-blur-sm">
+                  <div>
+                    <h5 className="text-white font-semibold">{quest.canteenName}</h5>
+                    <p className="text-xs text-indigo-300 mt-1">To: {quest.deliveryLocationName}</p>
+                  </div>
+                  <div className="flex flex-col items-end gap-2">
+                    <p className="text-emerald-400 font-bold text-sm">Earn {formatCurrency(quest.deliveryFee)}</p>
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white"
+                      disabled={acceptOrderMutation.isPending}
+                      onClick={() => acceptOrderMutation.mutate({ orderId: quest.id })}
+                    >
+                      {acceptOrderMutation.isPending ? "Accepting..." : "Accept Quest"}
+                    </Button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="flex-1 flex flex-col items-center justify-center p-8 rounded-2xl border border-white/5 bg-white/5 backdrop-blur-xl">
+                <p className="text-sm text-zinc-400 text-center">
+                  No open quests right now.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

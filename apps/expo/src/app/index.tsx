@@ -39,14 +39,15 @@ export default function Index() {
   const handleAuth = async () => {
     setAuthError(null);
     setAuthLoading(true);
+    const formattedEmail = email.includes("@") ? email.trim() : `${email.trim()}@campus.edu`;
     try {
       if (isSignUp) {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: formattedEmail,
           password,
           options: {
             data: {
-              name: name || email.split("@")[0],
+              name: name || formattedEmail.split("@")[0],
             },
           },
         });
@@ -56,7 +57,7 @@ export default function Index() {
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({
-          email,
+          email: formattedEmail,
           password,
         });
         if (error) throw error;
@@ -113,10 +114,10 @@ export default function Index() {
             )}
 
             <View className="mb-4">
-              <Text className="text-zinc-300 text-xs font-semibold uppercase tracking-wider mb-2">Email Address</Text>
+              <Text className="text-zinc-300 text-xs font-semibold uppercase tracking-wider mb-2">Email Address / Dummy ID</Text>
               <TextInput
                 className="bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white focus:border-purple-500"
-                placeholder="alex@campus.edu"
+                placeholder="alex@campus.edu or 'alex'"
                 placeholderTextColor="#52525b"
                 keyboardType="email-address"
                 autoCapitalize="none"
