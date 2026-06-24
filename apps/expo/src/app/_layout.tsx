@@ -2,6 +2,7 @@ import { useColorScheme } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { queryClient } from "~/utils/api";
 
@@ -11,23 +12,26 @@ import "../styles.css";
 // It wraps your pages with the providers they need
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+  console.log("RootLayout rendering! Color scheme:", colorScheme);
   return (
     <QueryClientProvider client={queryClient}>
-      {/*
-          The Stack component displays the current page.
-          It also allows you to configure your screens 
-        */}
-      <Stack
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: "#c03484",
-          },
-          contentStyle: {
-            backgroundColor: colorScheme == "dark" ? "#09090B" : "#FFFFFF",
-          },
-        }}
-      />
-      <StatusBar />
+      <SafeAreaProvider>
+        {/*
+            The Stack component displays the current page.
+            It also allows you to configure your screens 
+          */}
+        <Stack
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: "#c03484",
+            },
+            contentStyle: {
+              backgroundColor: colorScheme == "dark" ? "#09090B" : "#FFFFFF",
+            },
+          }}
+        />
+        <StatusBar />
+      </SafeAreaProvider>
     </QueryClientProvider>
   );
 }

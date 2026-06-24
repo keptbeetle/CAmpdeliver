@@ -1,0 +1,59 @@
+/*
+ * Expo / NativeWind-safe theme.
+ * All values are inlined (no var() references) to prevent
+ * circular-resolution stack overflows in react-native-css.
+ */
+
+:root {
+  --radius: 0.75rem;
+  --theme-tracking-normal: 0em;
+
+  /* Shadows — react-native doesn't use box-shadow,
+     but NativeWind may still parse these. Keep them
+     as simple literal strings so the CSS parser
+     doesn't recurse. */
+  --theme-shadow-2xs: 0px 1px 2px 0px rgba(0, 0, 0, 0.03);
+  --theme-shadow-xs: 0px 1px 2px 0px rgba(0, 0, 0, 0.03);
+  --theme-shadow-sm: 0px 1px 3px 0px rgba(0, 0, 0, 0.05),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --theme-shadow: 0px 1px 3px 0px rgba(0, 0, 0, 0.05),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --theme-shadow-md: 0px 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0px 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --theme-shadow-lg: 0px 10px 15px -3px rgba(0, 0, 0, 0.05),
+    0px 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --theme-shadow-xl: 0px 20px 25px -5px rgba(0, 0, 0, 0.05),
+    0px 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --theme-shadow-2xl: 0px 25px 50px -12px rgba(0, 0, 0, 0.13);
+}
+
+@theme inline {
+  /* Border-radius tokens — computed with --radius = 0.75rem (12px) */
+  --radius-sm: 0.5rem;     /* 12px - 4px = 8px */
+  --radius-md: 0.625rem;   /* 12px - 2px = 10px */
+  --radius-lg: 0.75rem;    /* 12px */
+  --radius-xl: 1rem;       /* 12px + 4px = 16px */
+
+  /* Shadow aliases (flattened, no var() references) */
+  --shadow-2xs: 0px 1px 2px 0px rgba(0, 0, 0, 0.03);
+  --shadow-xs: 0px 1px 2px 0px rgba(0, 0, 0, 0.03);
+  --shadow-sm: 0px 1px 3px 0px rgba(0, 0, 0, 0.05),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow: 0px 1px 3px 0px rgba(0, 0, 0, 0.05),
+    0px 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0px 4px 6px -1px rgba(0, 0, 0, 0.05),
+    0px 2px 4px -2px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0px 10px 15px -3px rgba(0, 0, 0, 0.05),
+    0px 4px 6px -4px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0px 20px 25px -5px rgba(0, 0, 0, 0.05),
+    0px 8px 10px -6px rgba(0, 0, 0, 0.05);
+  --shadow-2xl: 0px 25px 50px -12px rgba(0, 0, 0, 0.13);
+
+  /* Tracking / letter-spacing tokens (flattened, --theme-tracking-normal = 0em) */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+}
