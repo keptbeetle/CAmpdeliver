@@ -34,6 +34,13 @@ export function Dashboard() {
     }
   }));
 
+  const rejectOrderMutation = useMutation(trpc.order.rejectOrder.mutationOptions({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
+      queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() });
+    }
+  }));
+
   const handleSignOut = async () => {
     await supabaseClient.auth.signOut();
     router.refresh();
@@ -162,15 +169,38 @@ export function Dashboard() {
                   
                   {/* Action Buttons */}
                   {order.delivererId === profile.id && order.status === "ACCEPTED" && (
-                    <div className="border-t border-white/10 pt-3 flex justify-end">
-                      <Button
-                        size="sm"
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white"
-                        disabled={confirmAvailabilityMutation.isPending}
-                        onClick={() => confirmAvailabilityMutation.mutate({ orderId: order.id })}
-                      >
-                        {confirmAvailabilityMutation.isPending ? "Confirming..." : "Confirm Item Available"}
-                      </Button>
+                    <div className="border-t border-white/10 pt-3 flex flex-col gap-2">
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                          disabled={rejectOrderMutation.isPending || confirmAvailabilityMutation.isPending}
+                          onClick={() => rejectOrderMutation.mutate({ orderId: order.id })}
+                        >
+                          {rejectOrderMutation.isPending ? "Rejecting..." : "Reject (Unavailable)"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                          disabled={confirmAvailabilityMutation.isPending || rejectOrderMutation.isPending}
+                          onClick={() => confirmAvailabilityMutation.mutate({ orderId: order.id })}
+                        >
+                          {confirmAvailabilityMutation.isPending ? "Confirming..." : "Confirm Item Available"}
+                        </Button>
+                      </div>
+                      
+                      {/* Error Messages */}
+                      {confirmAvailabilityMutation.error && confirmAvailabilityMutation.variables?.orderId === order.id && (
+                        <p className="text-red-400 text-xs text-right mt-1">
+                          {confirmAvailabilityMutation.error.message}
+                        </p>
+                      )}
+                      {rejectOrderMutation.error && rejectOrderMutation.variables?.orderId === order.id && (
+                        <p className="text-red-400 text-xs text-right mt-1">
+                          {rejectOrderMutation.error.message}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

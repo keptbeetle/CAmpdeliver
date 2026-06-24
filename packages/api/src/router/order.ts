@@ -126,6 +126,7 @@ export const orderRouter = {
       const totalCost = order.foodPrice + order.deliveryFee;
 
       // 2. Transaction: Freeze buyer's balance, update order status
+      let cancelReason: string | null = null;
       try {
         await ctx.db.transaction(async (tx) => {
           // Fetch buyer's profile
@@ -133,12 +134,16 @@ export const orderRouter = {
             where: eq(profiles.id, order.buyerId),
           });
 
-          if (!buyerProfile) throw new Error("Buyer not found");
+          if (!buyerProfile) {
+            cancelReason = "Buyer not found";
+            return;
+          }
 
           if (buyerProfile.walletBalance < totalCost) {
             // Cancel order if not enough funds
             await tx.update(orders).set({ status: "CANCELLED" }).where(eq(orders.id, order.id));
-            throw new Error("Buyer has insufficient funds. Order cancelled.");
+            cancelReason = "Buyer has insufficient funds. Order cancelled.";
+            return; // Return so the cancellation commits
           }
 
           // Deduct from wallet, add to frozen
@@ -166,13 +171,51 @@ export const orderRouter = {
             .where(eq(orders.id, order.id));
         });
 
+        if (cancelReason) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: cancelReason,
+          });
+        }
+
         return { success: true };
       } catch (error: any) {
+        if (error instanceof TRPCError) throw error;
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: error.message || "Failed to confirm availability",
         });
       }
+    }),
+
+  rejectOrder: protectedProcedure
+    .input((val: any) => {
+      if (!val || typeof val.orderId !== "string") throw new Error("Invalid input");
+      return val as { orderId: string };
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      }
+
+      if (order.delivererId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to reject this order" });
+      }
+
+      if (order.status !== "ACCEPTED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Order must be in ACCEPTED state to reject" });
+      }
+
+      await ctx.db
+        .update(orders)
+        .set({ status: "CANCELLED" })
+        .where(eq(orders.id, input.orderId));
+
+      return { success: true };
     }),
 
 } satisfies TRPCRouterRecord;

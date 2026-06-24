@@ -41,7 +41,8 @@ export const createTRPCContext = async (opts: {
   const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll() {
-        const cookieHeader = opts.headers.get("cookie") ?? "";
+        const cookieHeader = opts.headers.get("cookie");
+        if (!cookieHeader) return [];
         return cookieHeader.split(";").map((c) => {
           const [name, ...val] = c.trim().split("=");
           return { name: name!, value: val.join("=") };
