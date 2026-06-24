@@ -18,25 +18,29 @@ export async function createSupabaseServerClient() {
         setAll(cookiesToSet: { name: string; value: string; options: any }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, options),
             );
           } catch {
             // Ignored
           }
         },
       },
-    }
+    },
   );
 }
 
 export const getSession = cache(async () => {
   const supabase = await createSupabaseServerClient();
-  const { data: { session } } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
   return session;
 });
 
 export const getUser = cache(async () => {
   const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   return user;
 });

@@ -192,6 +192,9 @@ importers:
       '@types/react':
         specifier: catalog:react19
         version: 19.1.12
+      dotenv-cli:
+        specifier: ^10.0.0
+        version: 10.0.0
       eslint:
         specifier: 'catalog:'
         version: 9.38.0(jiti@2.6.1)

@@ -17,10 +17,12 @@ export const metadata: Metadata = {
       : "http://localhost:3000",
   ),
   title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
-  description: "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
+  description:
+    "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
   openGraph: {
     title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
-    description: "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
+    description:
+      "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
     url: "https://campdeliver.vercel.app",
     siteName: "CAmpDeliver",
   },

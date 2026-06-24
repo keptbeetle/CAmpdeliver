@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { doublePrecision, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  doublePrecision,
+  integer,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
 
 // Roles enum: STUDENT, DELIVERER, ADMIN
 export type UserRole = "STUDENT" | "DELIVERER" | "ADMIN";

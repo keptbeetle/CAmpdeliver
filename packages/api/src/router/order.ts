@@ -1,7 +1,9 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
-import { desc, eq, ne, and, or, sql } from "@acme/db";
+
+import { and, desc, eq, ne, or, sql } from "@acme/db";
 import { orders, profiles, walletTransactions } from "@acme/db/schema";
+
 import { protectedProcedure } from "../trpc";
 
 export const orderRouter = {
@@ -12,8 +14,8 @@ export const orderRouter = {
       .where(
         or(
           eq(orders.buyerId, ctx.user.id),
-          eq(orders.delivererId, ctx.user.id)
-        )
+          eq(orders.delivererId, ctx.user.id),
+        ),
       )
       .orderBy(desc(orders.createdAt))
       .limit(10);
@@ -26,8 +28,8 @@ export const orderRouter = {
       .where(
         and(
           eq(orders.status, "BROADCASTED"),
-          ne(orders.buyerId, ctx.user.id) // Can't accept your own orders
-        )
+          ne(orders.buyerId, ctx.user.id), // Can't accept your own orders
+        ),
       )
       .orderBy(desc(orders.createdAt))
       .limit(10);
@@ -38,16 +40,19 @@ export const orderRouter = {
       // Very basic validation for demo purposes.
       if (!val || typeof val !== "object") throw new Error("Invalid input");
       return val as {
-        items: Array<{ name: string; quantity: number; price: number }>;
+        items: { name: string; quantity: number; price: number }[];
         canteenName: string;
         deliveryLocationName: string;
       };
     })
     .mutation(async ({ ctx, input }) => {
       // Calculate total food price
-      const foodPrice = input.items.reduce((sum, item) => sum + item.price * item.quantity, 0);
+      const foodPrice = input.items.reduce(
+        (sum, item) => sum + item.price * item.quantity,
+        0,
+      );
       const deliveryFee = 500; // 5 rupees default
-      
+
       const [newOrder] = await ctx.db
         .insert(orders)
         .values({
@@ -71,7 +76,8 @@ export const orderRouter = {
 
   acceptOrder: protectedProcedure
     .input((val: any) => {
-      if (!val || typeof val.orderId !== "string") throw new Error("Invalid input");
+      if (!val || typeof val.orderId !== "string")
+        throw new Error("Invalid input");
       return val as { orderId: string };
     })
     .mutation(async ({ ctx, input }) => {
@@ -80,12 +86,18 @@ export const orderRouter = {
         where: eq(orders.id, input.orderId),
       });
 
-      if (!order || order.status !== "BROADCASTED") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Order cannot be accepted." });
+      if (order?.status !== "BROADCASTED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Order cannot be accepted.",
+        });
       }
 
       if (order.buyerId === ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Cannot accept your own order." });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Cannot accept your own order.",
+        });
       }
 
       const [updatedOrder] = await ctx.db
@@ -101,8 +113,15 @@ export const orderRouter = {
     }),
 
   confirmAvailability: protectedProcedure
-    .input((val: any) => {
-      if (!val || typeof val.orderId !== "string") throw new Error("Invalid input");
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof val.orderId !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
       return val as { orderId: string };
     })
     .mutation(async ({ ctx, input }) => {
@@ -116,34 +135,40 @@ export const orderRouter = {
       }
 
       if (order.delivererId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to confirm this order" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to confirm this order",
+        });
       }
 
       if (order.status !== "ACCEPTED") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Order must be in ACCEPTED state to confirm availability" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Order must be in ACCEPTED state to confirm availability",
+        });
       }
 
       const totalCost = order.foodPrice + order.deliveryFee;
 
       // 2. Transaction: Freeze buyer's balance, update order status
-      let cancelReason: string | null = null;
       try {
-        await ctx.db.transaction(async (tx) => {
+        const cancelReason = await ctx.db.transaction(async (tx) => {
           // Fetch buyer's profile
           const buyerProfile = await tx.query.profiles.findFirst({
             where: eq(profiles.id, order.buyerId),
           });
 
           if (!buyerProfile) {
-            cancelReason = "Buyer not found";
-            return;
+            return "Buyer not found";
           }
 
           if (buyerProfile.walletBalance < totalCost) {
             // Cancel order if not enough funds
-            await tx.update(orders).set({ status: "CANCELLED" }).where(eq(orders.id, order.id));
-            cancelReason = "Buyer has insufficient funds. Order cancelled.";
-            return; // Return so the cancellation commits
+            await tx
+              .update(orders)
+              .set({ status: "CANCELLED" })
+              .where(eq(orders.id, order.id));
+            return "Buyer has insufficient funds. Order cancelled.";
           }
 
           // Deduct from wallet, add to frozen
@@ -169,6 +194,8 @@ export const orderRouter = {
             .update(orders)
             .set({ status: "PREPARING" })
             .where(eq(orders.id, order.id));
+
+          return null;
         });
 
         if (cancelReason) {
@@ -179,18 +206,29 @@ export const orderRouter = {
         }
 
         return { success: true };
-      } catch (error: any) {
+      } catch (error) {
         if (error instanceof TRPCError) throw error;
+        const msg =
+          error instanceof Error
+            ? error.message
+            : "Failed to confirm availability";
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: error.message || "Failed to confirm availability",
+          message: msg,
         });
       }
     }),
 
   rejectOrder: protectedProcedure
-    .input((val: any) => {
-      if (!val || typeof val.orderId !== "string") throw new Error("Invalid input");
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof val.orderId !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
       return val as { orderId: string };
     })
     .mutation(async ({ ctx, input }) => {
@@ -203,11 +241,17 @@ export const orderRouter = {
       }
 
       if (order.delivererId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to reject this order" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Not authorized to reject this order",
+        });
       }
 
       if (order.status !== "ACCEPTED") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Order must be in ACCEPTED state to reject" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Order must be in ACCEPTED state to reject",
+        });
       }
 
       await ctx.db
@@ -217,5 +261,4 @@ export const orderRouter = {
 
       return { success: true };
     }),
-
 } satisfies TRPCRouterRecord;

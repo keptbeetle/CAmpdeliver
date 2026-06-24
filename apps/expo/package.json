@@ -4,14 +4,15 @@
   "main": "index.ts",
   "scripts": {
     "clean": "git clean -xdf .cache .expo .turbo android ios node_modules",
-    "dev": "expo start",
-    "dev:android": "expo start --android",
-    "dev:ios": "expo start --ios",
-    "android": "expo run:android",
-    "ios": "expo run:ios",
+    "dev": "pnpm with-env expo start",
+    "dev:android": "pnpm with-env expo start --android",
+    "dev:ios": "pnpm with-env expo start --ios",
+    "android": "pnpm with-env expo run:android",
+    "ios": "pnpm with-env expo run:ios",
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path .prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
     "@legendapp/list": "^2.0.14",
@@ -50,6 +51,7 @@
     "@acme/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "@types/react": "catalog:react19",
+    "dotenv-cli": "^10.0.0",
     "eslint": "catalog:",
     "prettier": "catalog:",
     "tailwindcss": "catalog:",

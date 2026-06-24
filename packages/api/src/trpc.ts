@@ -6,12 +6,12 @@
  * tl;dr - this is where all the tRPC server stuff is created and plugged in.
  * The pieces you will need to use are documented accordingly near the end
  */
+import type { User } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { z, ZodError } from "zod/v4";
 
-import { createServerClient } from "@supabase/ssr";
-import type { User } from "@supabase/supabase-js";
 import { db } from "@acme/db/client";
 
 /**
@@ -27,9 +27,7 @@ import { db } from "@acme/db/client";
  * @see https://trpc.io/docs/server/context
  */
 
-export const createTRPCContext = async (opts: {
-  headers: Headers;
-}) => {
+export const createTRPCContext = async (opts: { headers: Headers }) => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -45,7 +43,7 @@ export const createTRPCContext = async (opts: {
         if (!cookieHeader) return [];
         return cookieHeader.split(";").map((c) => {
           const [name, ...val] = c.trim().split("=");
-          return { name: name!, value: val.join("=") };
+          return { name: name ?? "", value: val.join("=") };
         });
       },
       setAll() {
@@ -60,13 +58,13 @@ export const createTRPCContext = async (opts: {
 
   if (authHeader?.startsWith("Bearer ")) {
     const token = authHeader.substring(7);
-    const { data, error } = await supabase.auth.getUser(token);
-    if (!error && data.user) {
+    const { data } = await supabase.auth.getUser(token);
+    if (data.user) {
       user = data.user;
     }
   } else {
-    const { data, error } = await supabase.auth.getUser();
-    if (!error && data.user) {
+    const { data } = await supabase.auth.getUser();
+    if (data.user) {
       user = data.user;
     }
   }

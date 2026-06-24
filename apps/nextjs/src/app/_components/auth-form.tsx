@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 import { Label } from "@acme/ui/label";
+
 import { supabaseClient } from "~/auth/client";
 
 export function AuthForm() {
@@ -23,7 +25,9 @@ export function AuthForm() {
     setMessage(null);
     setLoading(true);
 
-    const formattedEmail = email.includes("@") ? email.trim() : `${email.trim()}@campus.edu`;
+    const formattedEmail = email.includes("@")
+      ? email.trim()
+      : `${email.trim()}@campus.edu`;
 
     try {
       if (isSignUp) {
@@ -38,7 +42,7 @@ export function AuthForm() {
         });
 
         if (signUpError) throw signUpError;
-        
+
         if (data.session) {
           setMessage("Account created and signed in!");
           router.refresh();
@@ -53,7 +57,7 @@ export function AuthForm() {
           });
 
         if (signInError) throw signInError;
-        
+
         setMessage("Logged in successfully!");
         router.refresh();
       }
@@ -65,8 +69,8 @@ export function AuthForm() {
   };
 
   return (
-    <div className="w-full max-w-md p-8 rounded-2xl border border-white/10 bg-black/40 backdrop-blur-xl shadow-2xl">
-      <div className="flex flex-col gap-2 text-center mb-6">
+    <div className="w-full max-w-md rounded-2xl border border-white/10 bg-black/40 p-8 shadow-2xl backdrop-blur-xl">
+      <div className="mb-6 flex flex-col gap-2 text-center">
         <h2 className="text-3xl font-bold tracking-tight text-white">
           {isSignUp ? "Create an Account" : "Welcome Back"}
         </h2>
@@ -80,53 +84,59 @@ export function AuthForm() {
       <form onSubmit={handleAuth} className="flex flex-col gap-4">
         {isSignUp && (
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="name" className="text-zinc-300">Name</Label>
+            <Label htmlFor="name" className="text-zinc-300">
+              Name
+            </Label>
             <Input
               id="name"
               type="text"
               placeholder="Alex Pierce"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="bg-white/5 border-white/10 text-white placeholder-zinc-500 focus:border-purple-500"
+              className="border-white/10 bg-white/5 text-white placeholder-zinc-500 focus:border-purple-500"
               required
             />
           </div>
         )}
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="email" className="text-zinc-300">Email Address / Dummy ID</Label>
+          <Label htmlFor="email" className="text-zinc-300">
+            Email Address / Dummy ID
+          </Label>
           <Input
             id="email"
             type="text"
             placeholder="alex@campus.edu or 'alex'"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="bg-white/5 border-white/10 text-white placeholder-zinc-500 focus:border-purple-500"
+            className="border-white/10 bg-white/5 text-white placeholder-zinc-500 focus:border-purple-500"
             required
           />
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="password" className="text-zinc-300">Password</Label>
+          <Label htmlFor="password" className="text-zinc-300">
+            Password
+          </Label>
           <Input
             id="password"
             type="password"
             placeholder="••••••••"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="bg-white/5 border-white/10 text-white placeholder-zinc-500 focus:border-purple-500"
+            className="border-white/10 bg-white/5 text-white placeholder-zinc-500 focus:border-purple-500"
             required
           />
         </div>
 
         {error && (
-          <div className="p-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg">
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-400">
             {error}
           </div>
         )}
 
         {message && (
-          <div className="p-3 text-sm text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-400">
             {message}
           </div>
         )}
@@ -134,7 +144,7 @@ export function AuthForm() {
         <Button
           type="submit"
           disabled={loading}
-          className="w-full mt-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-lg shadow-purple-500/20 font-semibold"
+          className="mt-2 w-full bg-gradient-to-r from-purple-600 to-indigo-600 font-semibold text-white shadow-lg shadow-purple-500/20 hover:from-purple-500 hover:to-indigo-500"
         >
           {loading ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
         </Button>

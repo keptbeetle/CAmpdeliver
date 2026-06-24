@@ -1,6 +1,8 @@
 import type { TRPCRouterRecord } from "@trpc/server";
+
 import { eq } from "@acme/db";
 import { profiles } from "@acme/db/schema";
+
 import { protectedProcedure, publicProcedure } from "../trpc";
 
 export const authRouter = {
@@ -19,7 +21,10 @@ export const authRouter = {
         .insert(profiles)
         .values({
           id: ctx.user.id,
-          name: ctx.user.user_metadata?.name || ctx.user.email?.split("@")[0] || "User",
+          name:
+            ctx.user.user_metadata?.name ||
+            ctx.user.email?.split("@")[0] ||
+            "User",
           email: ctx.user.email || "",
           role: "STUDENT",
           walletBalance: 0,
