@@ -3,7 +3,7 @@ import { View, Text, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
@@ -57,77 +57,21 @@ export default function OrderTrackerScreen() {
   const [hasPermission, setHasPermission] = useState(false);
   const mapRef = React.useRef<MapView>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<{ latitude: number; longitude: number }[]>([]);
-  const myLastLocationRef = React.useRef<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
     if (!id) return;
 
-    let locationSubscription: Location.LocationSubscription | null = null;
-
-    const startTracking = async () => {
+    const askPermission = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== Location.PermissionStatus.GRANTED) {
         Alert.alert("Permission to access location was denied");
         return;
       }
       setHasPermission(true);
-
-      const role = isDeliverer ? "deliverer" : "buyer";
-
-      // Instantly get current position and animate the map to it on mount
-      try {
-        const initialLoc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (mapRef.current) {
-          mapRef.current.animateToRegion({
-            latitude: initialLoc.coords.latitude,
-            longitude: initialLoc.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          });
-        }
-      } catch (err) {
-        console.log("Error getting initial location:", err);
-      }
-
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (loc: Location.LocationObject) => {
-          const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-          myLastLocationRef.current = coords;
-          void broadcastLocation({
-            ...coords,
-            role,
-          });
-        }
-      );
     };
 
-    void startTracking();
-
-    // Periodically broadcast our own location state in case the initial broadcast failed before the socket connected
-    const intervalId = setInterval(() => {
-      const coords = myLastLocationRef.current;
-      if (coords) {
-        void broadcastLocation({
-          ...coords,
-          role: isDeliverer ? "deliverer" : "buyer",
-        });
-      }
-    }, 5000);
-
-    return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-      clearInterval(intervalId);
-    };
-  }, [isDeliverer, id, broadcastLocation]);
+    void askPermission();
+  }, [id]);
 
   const canteenCoords = order ? {
     latitude: order.canteenLatitude,
@@ -140,10 +84,14 @@ export default function OrderTrackerScreen() {
   } : null;
 
   const startLoc = delivererLocation ??
-    (canteenCoords && (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0) ? canteenCoords : null);
+    (order?.delivererLatitude && order?.delivererLongitude 
+      ? { latitude: order.delivererLatitude, longitude: order.delivererLongitude }
+      : (canteenCoords && (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0) ? canteenCoords : null));
 
   const endLoc = buyerLocation ??
-    (deliveryCoords && (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0) ? deliveryCoords : null);
+    (order?.buyerLatitude && order?.buyerLongitude 
+      ? { latitude: order.buyerLatitude, longitude: order.buyerLongitude }
+      : (deliveryCoords && (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0) ? deliveryCoords : null));
 
   const sLat = startLoc?.latitude;
   const sLng = startLoc?.longitude;
@@ -211,11 +159,11 @@ export default function OrderTrackerScreen() {
           <Marker coordinate={deliveryCoords} title="Dropoff" description={order.deliveryLocationName} pinColor="green" />
         )}
         
-        {delivererLocation && (
-          <Marker coordinate={delivererLocation} title="Deliverer" description={isDeliverer ? "You" : undefined} pinColor="purple" />
+        {startLoc && (
+          <Marker coordinate={startLoc} title="Deliverer" description={isDeliverer ? "You" : undefined} pinColor="purple" />
         )}
-        {buyerLocation && (
-          <Marker coordinate={buyerLocation} title="Customer / Buyer" description={!isDeliverer ? "You" : undefined} pinColor="red" />
+        {endLoc && (
+          <Marker coordinate={endLoc} title="Customer / Buyer" description={!isDeliverer ? "You" : undefined} pinColor="red" />
         )}
 
         {routeCoordinates.length > 0 && (

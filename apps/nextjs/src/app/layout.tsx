@@ -9,6 +9,7 @@ import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
 import "~/app/styles.css";
+import { GlobalTracker } from "~/app/_components/GlobalTracker";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -60,7 +61,10 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         )}
       >
         <ThemeProvider>
-          <TRPCReactProvider>{props.children}</TRPCReactProvider>
+          <TRPCReactProvider>
+            {props.children}
+            <GlobalTracker />
+          </TRPCReactProvider>
           <div className="absolute right-4 bottom-4">
             <ThemeToggle />
           </div>

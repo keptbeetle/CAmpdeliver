@@ -340,7 +340,19 @@ export function Dashboard() {
                     )}
 
                   {/* General Actions */}
-                  {(order.status === "ACCEPTED" || order.status === "PREPARING") && (
+                  {order.status === "ACCEPTED" && (
+                    <div className="mt-4 border-t border-white/10 pt-3">
+                      <Button
+                        variant="outline"
+                        className="w-full border-purple-500/50 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20"
+                        onClick={() => router.push(`/order/${order.id}/chat`)}
+                      >
+                        Open Chat
+                      </Button>
+                    </div>
+                  )}
+
+                  {order.status === "PREPARING" && (
                     <div className="mt-4 border-t border-white/10 pt-3">
                       <Button
                         variant="outline"

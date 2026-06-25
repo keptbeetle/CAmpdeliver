@@ -642,7 +642,18 @@ function DashboardView({
                 )}
 
               {/* General Actions */}
-              {(order.status === "ACCEPTED" || order.status === "PREPARING") && (
+              {order.status === "ACCEPTED" && (
+                <View className="mt-4 border-t border-white/10 pt-4">
+                  <Pressable
+                    onPress={() => router.push(`/order/${order.id}/chat`)}
+                    className="items-center justify-center rounded-xl border border-purple-500/50 bg-purple-500/10 py-3 active:bg-purple-500/20"
+                  >
+                    <Text className="text-sm font-bold text-purple-300">Open Chat</Text>
+                  </Pressable>
+                </View>
+              )}
+
+              {order.status === "PREPARING" && (
                 <View className="mt-4 border-t border-white/10 pt-4">
                   <Pressable
                     onPress={() => router.push(`/order/${order.id}/tracker`)}

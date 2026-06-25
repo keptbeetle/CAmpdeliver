@@ -266,4 +266,52 @@ export const orderRouter = {
 
       return { success: true };
     }),
+
+  updateLocation: protectedProcedure
+    .input((val: unknown) => {
+      if (!val || typeof val !== "object") throw new Error("Invalid input");
+      const v = val as {
+        orderId: string;
+        latitude: number;
+        longitude: number;
+        role: "deliverer" | "buyer";
+      };
+      return v;
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      }
+
+      if (order.buyerId !== ctx.user.id && order.delivererId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not authorized for this order",
+        });
+      }
+
+      if (input.role === "deliverer") {
+        await ctx.db
+          .update(orders)
+          .set({
+            delivererLatitude: input.latitude,
+            delivererLongitude: input.longitude,
+          })
+          .where(eq(orders.id, input.orderId));
+      } else {
+        await ctx.db
+          .update(orders)
+          .set({
+            buyerLatitude: input.latitude,
+            buyerLongitude: input.longitude,
+          })
+          .where(eq(orders.id, input.orderId));
+      }
+
+      return { success: true };
+    }),
 } satisfies TRPCRouterRecord;

@@ -6,7 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useTRPC } from "~/trpc/react";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 
@@ -106,11 +106,15 @@ export default function TrackerView({ orderId }: { orderId: string }) {
 
   const startLoc: [number, number] | null = delivererLocation 
     ? [delivererLocation.latitude, delivererLocation.longitude]
-    : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null);
+    : (order?.delivererLatitude && order?.delivererLongitude 
+        ? [order.delivererLatitude, order.delivererLongitude] 
+        : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null));
 
   const endLoc: [number, number] | null = buyerLocation
     ? [buyerLocation.latitude, buyerLocation.longitude]
-    : (deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0) ? deliveryCoords : null);
+    : (order?.buyerLatitude && order?.buyerLongitude 
+        ? [order.buyerLatitude, order.buyerLongitude] 
+        : (deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0) ? deliveryCoords : null));
 
   // Set initial map center to canteen coordinates if they are valid
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,11 +129,8 @@ export default function TrackerView({ orderId }: { orderId: string }) {
     }
   }, [order]);
 
-  // Watch user location and broadcast in real-time
   useEffect(() => {
-    if (typeof window === "undefined" || !("geolocation" in navigator) || !orderId) return;
-
-    const role = isDeliverer ? "deliverer" : "buyer";
+    if (typeof window === "undefined" || !("geolocation" in navigator)) return;
 
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
@@ -143,42 +144,20 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           }
           return prevCenter;
         });
-
-        void broadcastLocation({
-          latitude,
-          longitude,
-          role,
-        });
       },
       (error) => {
         console.error("Error getting geolocation:", error);
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
         maximumAge: 0,
       }
     );
 
-    // Periodically broadcast the latest known location to ensure it reaches the other client
-    const intervalId = setInterval(() => {
-      setMyWebLocation((currentLoc) => {
-        if (currentLoc) {
-          void broadcastLocation({
-            latitude: currentLoc[0],
-            longitude: currentLoc[1],
-            role,
-          });
-        }
-        return currentLoc;
-      });
-    }, 5000);
-
     return () => {
       navigator.geolocation.clearWatch(watchId);
-      clearInterval(intervalId);
     };
-  }, [isDeliverer, orderId, broadcastLocation]);
+  }, []);
 
   const handleLocateMe = () => {
     if (myWebLocation) {
@@ -284,16 +263,16 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             </Marker>
           )}
           
-          {delivererLocation && (
-            <Marker position={[delivererLocation.latitude, delivererLocation.longitude]} icon={delivererIcon}>
+          {startLoc && (
+            <Marker position={startLoc} icon={delivererIcon}>
               <Popup>
                 <b>Deliverer</b> {isDeliverer && "(You)"}
               </Popup>
             </Marker>
           )}
 
-          {buyerLocation && (
-            <Marker position={[buyerLocation.latitude, buyerLocation.longitude]} icon={buyerIcon}>
+          {endLoc && (
+            <Marker position={endLoc} icon={buyerIcon}>
               <Popup>
                 <b>Buyer / Customer</b> {!isDeliverer && "(You)"}
               </Popup>

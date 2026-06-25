@@ -19,6 +19,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: messages, isLoading } = useQuery(trpc.chat.getMessages.queryOptions({ orderId }));
+  const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
+
+  const order = orders?.find((o) => o.id === orderId);
+  const isAccepted = order?.status === "ACCEPTED";
 
   const { broadcastChatEvent } = useOrderRealtime(orderId, {
     onChatUpdate: () => {
@@ -62,10 +66,10 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
           <p className="text-xs text-zinc-400">Order ID: {orderId.slice(0, 8)}...</p>
         </div>
         <button
-          onClick={() => router.push(`/order/${orderId}/tracker`)}
+          onClick={() => router.push(isAccepted ? `/` : `/order/${orderId}/tracker`)}
           className="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-700"
         >
-          Back to Tracker
+          {isAccepted ? "Back to Dashboard" : "Back to Tracker"}
         </button>
       </div>
 

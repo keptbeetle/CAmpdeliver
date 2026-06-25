@@ -5,6 +5,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { queryClient } from "~/utils/api";
+import { GlobalTracker } from "~/components/GlobalTracker";
 
 import "../styles.css";
 
@@ -30,6 +31,7 @@ export default function RootLayout() {
             },
           }}
         />
+        <GlobalTracker />
         <StatusBar />
       </SafeAreaProvider>
     </QueryClientProvider>

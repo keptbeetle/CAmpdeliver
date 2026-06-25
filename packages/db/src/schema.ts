@@ -63,6 +63,10 @@ export const orders = pgTable("orders", {
   deliveryLocationName: text("delivery_location_name").notNull(),
   deliveryLatitude: doublePrecision("delivery_latitude").notNull(),
   deliveryLongitude: doublePrecision("delivery_longitude").notNull(),
+  delivererLatitude: doublePrecision("deliverer_latitude"),
+  delivererLongitude: doublePrecision("deliverer_longitude"),
+  buyerLatitude: doublePrecision("buyer_latitude"),
+  buyerLongitude: doublePrecision("buyer_longitude"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
