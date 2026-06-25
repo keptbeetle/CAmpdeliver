@@ -52,8 +52,35 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
+function getHaversineDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371e3; // metres
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // in metres
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)} m`;
+  }
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
 // Helper to fetch actual road-routing directions between two coordinates via OSRM
-async function fetchRoute(start: [number, number], end: [number, number]): Promise<[number, number][]> {
+async function fetchRoute(start: [number, number], end: [number, number]): Promise<{ coordinates: [number, number][]; distance: number }> {
   const [lat1, lon1] = start;
   const [lat2, lon2] = end;
   try {
@@ -62,18 +89,30 @@ async function fetchRoute(start: [number, number], end: [number, number]): Promi
     );
     interface OSRMResponse {
       code: string;
-      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+      routes?: {
+        distance?: number;
+        geometry?: { coordinates?: [number, number][] };
+      }[];
     }
     const data = (await res.json()) as OSRMResponse;
+    const fallbackDist = getHaversineDistance(lat1, lon1, lat2, lon2);
     if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
       const coords = data.routes[0].geometry.coordinates;
+      const distance = data.routes[0].distance ?? fallbackDist;
       // OSRM returns coordinates as [lng, lat], convert to [lat, lng] for Leaflet
-      return coords.map(([lng, lat]) => [lat, lng]);
+      return {
+        coordinates: coords.map(([lng, lat]) => [lat, lng]),
+        distance,
+      };
     }
   } catch (error) {
     console.error("OSRM routing error:", error);
   }
-  return [start, end]; // Fallback to straight line
+  const fallbackDist = getHaversineDistance(lat1, lon1, lat2, lon2);
+  return {
+    coordinates: [start, end],
+    distance: fallbackDist,
+  };
 }
 
 export default function TrackerView({ orderId }: { orderId: string }) {
@@ -100,6 +139,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]);
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+  const [distance, setDistance] = useState<number | null>(null);
 
   const canteenCoords: [number, number] | null = order ? [order.canteenLatitude, order.canteenLongitude] : null;
   const deliveryCoords: [number, number] | null = order ? [order.deliveryLatitude, order.deliveryLongitude] : null;
@@ -187,14 +227,16 @@ export default function TrackerView({ orderId }: { orderId: string }) {
     if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
       // eslint-disable-next-line
       setRouteCoordinates([]);
+      setDistance(null);
       return;
     }
 
     let isMounted = true;
 
-    void fetchRoute([sLat, sLng], [eLat, eLng]).then((coords) => {
+    void fetchRoute([sLat, sLng], [eLat, eLng]).then(({ coordinates, distance }) => {
       if (isMounted) {
-        setRouteCoordinates(coords);
+        setRouteCoordinates(coordinates);
+        setDistance(distance);
       }
     });
 
@@ -298,8 +340,15 @@ export default function TrackerView({ orderId }: { orderId: string }) {
 
       <div className="absolute bottom-6 left-6 right-6 z-[1000] flex items-center justify-between rounded-xl bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md border border-zinc-800">
         <div>
-          <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
-          <p className="text-xs text-zinc-400">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
+            {distance !== null && (
+              <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
+                {formatDistance(distance)} away
+              </span>
+            )}
+          </div>
+          <p className="mt-1 text-xs text-zinc-400">
             {isDeliverer ? "You are delivering this order" : "Deliverer is on the way"}
           </p>
         </div>

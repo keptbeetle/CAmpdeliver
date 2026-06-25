@@ -8,28 +8,67 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 
+function getHaversineDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+): number {
+  const R = 6371e3; // metres
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a =
+    Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c; // in metres
+}
+
+function formatDistance(meters: number): string {
+  if (meters < 1000) {
+    return `${Math.round(meters)} m`;
+  }
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
 // Helper to fetch actual road-routing directions between two coordinates via OSRM
 async function fetchMobileRoute(
   start: { latitude: number; longitude: number }, 
   end: { latitude: number; longitude: number }
-): Promise<{ latitude: number; longitude: number }[]> {
+): Promise<{ coordinates: { latitude: number; longitude: number }[]; distance: number }> {
   try {
     const res = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`
     );
     interface OSRMResponse {
       code: string;
-      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+      routes?: {
+        distance?: number;
+        geometry?: { coordinates?: [number, number][] };
+      }[];
     }
     const data = (await res.json()) as OSRMResponse;
+    const fallbackDist = getHaversineDistance(start.latitude, start.longitude, end.latitude, end.longitude);
     if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
       const coords = data.routes[0].geometry.coordinates;
-      return coords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+      const distance = data.routes[0].distance ?? fallbackDist;
+      return {
+        coordinates: coords.map(([lng, lat]) => ({ latitude: lat, longitude: lng })),
+        distance,
+      };
     }
   } catch (error) {
     console.error("OSRM routing error:", error);
   }
-  return [start, end]; // Fallback to straight line
+  const fallbackDist = getHaversineDistance(start.latitude, start.longitude, end.latitude, end.longitude);
+  return {
+    coordinates: [start, end],
+    distance: fallbackDist,
+  };
 }
 
 export default function OrderTrackerScreen() {
@@ -57,6 +96,7 @@ export default function OrderTrackerScreen() {
   const [hasPermission, setHasPermission] = useState(false);
   const mapRef = React.useRef<MapView>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [distance, setDistance] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -104,14 +144,16 @@ export default function OrderTrackerScreen() {
     if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setRouteCoordinates([]);
+      setDistance(null);
       return;
     }
 
     let isMounted = true;
 
-    void fetchMobileRoute({ latitude: sLat, longitude: sLng }, { latitude: eLat, longitude: eLng }).then((coords) => {
+    void fetchMobileRoute({ latitude: sLat, longitude: sLng }, { latitude: eLat, longitude: eLng }).then(({ coordinates, distance }) => {
       if (isMounted) {
-        setRouteCoordinates(coords);
+        setRouteCoordinates(coordinates);
+        setDistance(distance);
       }
     });
 
@@ -177,7 +219,14 @@ export default function OrderTrackerScreen() {
 
       <View className="absolute bottom-10 left-6 right-6 flex-row justify-between rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-2xl backdrop-blur-md">
         <View className="flex-1">
-          <Text className="text-sm font-bold text-white">Status: {order.status}</Text>
+          <View className="flex-row items-center flex-wrap gap-2">
+            <Text className="text-sm font-bold text-white">Status: {order.status}</Text>
+            {distance !== null && (
+              <View className="rounded-md bg-purple-500/15 px-2 py-0.5 border border-purple-500/30">
+                <Text className="text-xs font-semibold text-purple-400">{formatDistance(distance)} away</Text>
+              </View>
+            )}
+          </View>
           <Text className="mt-1 text-xs text-zinc-400">
             {isDeliverer ? "You are delivering this order" : "Deliverer is on the way"}
           </Text>
