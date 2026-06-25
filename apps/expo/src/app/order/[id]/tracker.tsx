@@ -142,11 +142,11 @@ export default function OrderTrackerScreen() {
           <Marker coordinate={deliveryCoords} title="Dropoff" description={order.deliveryLocationName} pinColor="green" />
         )}
         
-        {isDeliverer && buyerLocation && (
-          <Marker coordinate={buyerLocation} title="Customer / Buyer" pinColor="red" />
+        {delivererLocation && (
+          <Marker coordinate={delivererLocation} title="Deliverer" description={isDeliverer ? "You" : undefined} pinColor="purple" />
         )}
-        {!isDeliverer && delivererLocation && (
-          <Marker coordinate={delivererLocation} title="Deliverer" pinColor="purple" />
+        {buyerLocation && (
+          <Marker coordinate={buyerLocation} title="Customer / Buyer" description={!isDeliverer ? "You" : undefined} pinColor="red" />
         )}
 
         {polylineCoords.length === 2 && (

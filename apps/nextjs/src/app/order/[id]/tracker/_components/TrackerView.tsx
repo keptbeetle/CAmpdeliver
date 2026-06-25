@@ -18,6 +18,28 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
 
+// Helper to create high-quality colored SVG map pins
+const createCustomIcon = (color: string) => {
+  if (typeof window === "undefined") return undefined;
+  return L.divIcon({
+    className: "custom-leaflet-icon",
+    html: `<div style="display: flex; justify-content: center; align-items: center; width: 32px; height: 32px;">
+      <svg viewBox="0 0 24 24" width="32" height="32" fill="${color}" stroke="#000" stroke-width="1.5" style="filter: drop-shadow(0px 2px 4px rgba(0, 0, 0, 0.4));">
+        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+      </svg>
+    </div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  });
+};
+
+const canteenIcon = createCustomIcon("#3b82f6"); // Blue
+const dropoffIcon = createCustomIcon("#22c55e"); // Green
+const delivererIcon = createCustomIcon("#a855f7"); // Purple
+const buyerIcon = createCustomIcon("#ec4899"); // Pink
+
+
 // Component to dynamically control map view center
 function MapController({ center }: { center: [number, number] }) {
   const map = useMap();
@@ -169,7 +191,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           <MapController center={displayCenter} />
 
           {canteenCoords[0] !== 0 && canteenCoords[1] !== 0 && (
-            <Marker position={canteenCoords}>
+            <Marker position={canteenCoords} icon={canteenIcon}>
               <Popup>
                 <b>Canteen</b><br />
                 {order.canteenName}
@@ -178,7 +200,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           )}
 
           {deliveryCoords[0] !== 0 && deliveryCoords[1] !== 0 && (
-            <Marker position={deliveryCoords}>
+            <Marker position={deliveryCoords} icon={dropoffIcon}>
               <Popup>
                 <b>Dropoff</b><br />
                 {order.deliveryLocationName}
@@ -187,7 +209,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           )}
           
           {delivererLocation && (
-            <Marker position={[delivererLocation.latitude, delivererLocation.longitude]}>
+            <Marker position={[delivererLocation.latitude, delivererLocation.longitude]} icon={delivererIcon}>
               <Popup>
                 <b>Deliverer</b> {isDeliverer && "(You)"}
               </Popup>
@@ -195,7 +217,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           )}
 
           {buyerLocation && (
-            <Marker position={[buyerLocation.latitude, buyerLocation.longitude]}>
+            <Marker position={[buyerLocation.latitude, buyerLocation.longitude]} icon={buyerIcon}>
               <Popup>
                 <b>Buyer / Customer</b> {!isDeliverer && "(You)"}
               </Popup>

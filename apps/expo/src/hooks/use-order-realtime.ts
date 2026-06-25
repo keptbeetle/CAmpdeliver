@@ -40,6 +40,13 @@ export function useOrderRealtime(orderId: string) {
   }, [orderId]);
 
   const broadcastLocation = useCallback(async (location: { latitude: number; longitude: number; role: "deliverer" | "buyer" }) => {
+    // Optimistically update local state immediately
+    if (location.role === "deliverer") {
+      setDelivererLocation({ latitude: location.latitude, longitude: location.longitude });
+    } else if (location.role === "buyer") {
+      setBuyerLocation({ latitude: location.latitude, longitude: location.longitude });
+    }
+
     const channel = channelRef.current;
     if (!channel) return;
 
