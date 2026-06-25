@@ -1,5 +1,5 @@
 import type { Session, User } from "@supabase/supabase-js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -245,6 +245,43 @@ function DashboardView({
 }) {
   console.log("DashboardView render. User ID:", user.id);
 
+  const queryClient = useQueryClient();
+  const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("global:orders")
+      .on("broadcast", { event: "order_update" }, () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.auth.getMyProfile.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.availableQuests.queryKey(),
+        });
+      });
+
+    channel.subscribe();
+    globalChannelRef.current = channel;
+
+    return () => {
+      void supabase.removeChannel(channel);
+      globalChannelRef.current = null;
+    };
+  }, [queryClient]);
+
+  const broadcastGlobalUpdate = async () => {
+    if (globalChannelRef.current) {
+      await globalChannelRef.current.send({
+        type: "broadcast",
+        event: "order_update",
+        payload: { refresh: true },
+      });
+    }
+  };
+
   // Fetch profile via tRPC (automatically creates the DB profile row if it doesn't exist!)
   const {
     data: profile,
@@ -259,8 +296,6 @@ function DashboardView({
   const { data: availableQuests } = useQuery(
     trpc.order.availableQuests.queryOptions(),
   );
-
-  const queryClient = useQueryClient();
 
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
@@ -290,6 +325,7 @@ function DashboardView({
         await queryClient.invalidateQueries({
           queryKey: trpc.order.availableQuests.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to accept quest");
@@ -307,6 +343,7 @@ function DashboardView({
         await queryClient.invalidateQueries({
           queryKey: trpc.auth.getMyProfile.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to confirm availability");
@@ -324,6 +361,7 @@ function DashboardView({
         await queryClient.invalidateQueries({
           queryKey: trpc.order.availableQuests.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to reject order");

@@ -20,7 +20,11 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: messages, isLoading } = useQuery(trpc.chat.getMessages.queryOptions({ orderId }));
 
-  const { broadcastChatEvent } = useOrderRealtime(orderId);
+  const { broadcastChatEvent } = useOrderRealtime(orderId, {
+    onChatUpdate: () => {
+      void queryClient.invalidateQueries({ queryKey: trpc.chat.getMessages.queryKey({ orderId }) });
+    },
+  });
 
   const sendMessageMutation = useMutation(trpc.chat.sendMessage.mutationOptions({
     onSuccess: async () => {

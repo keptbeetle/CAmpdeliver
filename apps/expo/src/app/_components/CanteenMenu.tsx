@@ -3,6 +3,7 @@ import { Alert, Pressable, Text, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
+import { supabase } from "~/utils/auth";
 
 const CANTEENS = [
   {
@@ -42,6 +43,20 @@ export function CanteenMenu() {
         setCart([]);
         void queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
+        });
+
+        // Broadcast that a new order has been created
+        const globalChan = supabase.channel("global:orders");
+        void globalChan.subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void globalChan.send({
+              type: "broadcast",
+              event: "order_update",
+              payload: { refresh: true },
+            }).then(() => {
+              void supabase.removeChannel(globalChan);
+            });
+          }
         });
       },
       onError: (e) => {

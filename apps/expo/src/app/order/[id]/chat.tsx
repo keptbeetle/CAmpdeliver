@@ -15,7 +15,11 @@ export default function OrderChatScreen() {
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: messages, isLoading } = useQuery(trpc.chat.getMessages.queryOptions({ orderId: id }));
 
-  const { broadcastChatEvent } = useOrderRealtime(id);
+  const { broadcastChatEvent } = useOrderRealtime(id, {
+    onChatUpdate: () => {
+      void queryClient.invalidateQueries({ queryKey: trpc.chat.getMessages.queryKey({ orderId: id }) });
+    },
+  });
 
   const sendMessageMutation = useMutation(
     trpc.chat.sendMessage.mutationOptions({
@@ -26,20 +30,6 @@ export default function OrderChatScreen() {
       },
     })
   );
-
-  useEffect(() => {
-    // Listen for realtime broadcast events to refresh the chat
-    const channel = supabase
-      .channel(`order_chat_${id}`)
-      .on("broadcast", { event: "chat_update" }, () => {
-        void queryClient.invalidateQueries({ queryKey: trpc.chat.getMessages.queryKey({ orderId: id }) });
-      })
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [id, queryClient]);
 
   const handleSend = () => {
     if (!message.trim()) return;

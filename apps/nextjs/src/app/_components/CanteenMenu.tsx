@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@acme/ui/button";
 
 import { useTRPC } from "~/trpc/react";
+import { supabaseClient } from "~/auth/client";
 
 const CANTEENS = [
   {
@@ -19,11 +20,11 @@ const CANTEENS = [
   },
   {
     id: "c2",
-    name: "Hostel Night Canteen",
+    name: "Library Brews",
     items: [
-      { id: "i4", name: "Maggi", price: 3000 },
-      { id: "i5", name: "Egg Roll", price: 4500 },
-      { id: "i6", name: "Tea", price: 1500 },
+      { id: "i4", name: "Cappuccino", price: 4500 },
+      { id: "i5", name: "Blueberry Muffin", price: 3000 },
+      { id: "i6", name: "Green Tea", price: 2500 },
     ],
   },
 ];
@@ -50,6 +51,21 @@ export function CanteenMenu() {
         void queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
         });
+        
+        // Broadcast that a new order has been created
+        const globalChan = supabaseClient.channel("global:orders");
+        void globalChan.subscribe((status) => {
+          if (status === "SUBSCRIBED") {
+            void globalChan.send({
+              type: "broadcast",
+              event: "order_update",
+              payload: { refresh: true },
+            }).then(() => {
+              void supabaseClient.removeChannel(globalChan);
+            });
+          }
+        });
+
         setTimeout(() => setSuccess(false), 3000);
       },
       onError: (e) => {

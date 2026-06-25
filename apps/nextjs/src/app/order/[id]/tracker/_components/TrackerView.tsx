@@ -6,7 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "~/trpc/react";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 
@@ -79,6 +79,7 @@ async function fetchRoute(start: [number, number], end: [number, number]): Promi
 export default function TrackerView({ orderId }: { orderId: string }) {
   const router = useRouter();
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: orders, isLoading } = useQuery(trpc.order.myOrders.queryOptions());
@@ -86,7 +87,16 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const order = orders?.find((o) => o.id === orderId);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(orderId);
+  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(orderId, {
+    onOrderUpdate: () => {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: trpc.auth.getMyProfile.queryKey(),
+      });
+    },
+  });
   const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]);
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
@@ -256,7 +266,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           />
           <MapController center={displayCenter} />
 
-          {canteenCoords[0] !== 0 && canteenCoords[1] !== 0 && (
+          {canteenCoords && canteenCoords[0] !== 0 && canteenCoords[1] !== 0 && (
             <Marker position={canteenCoords} icon={canteenIcon}>
               <Popup>
                 <b>Canteen</b><br />
@@ -265,7 +275,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             </Marker>
           )}
 
-          {deliveryCoords[0] !== 0 && deliveryCoords[1] !== 0 && (
+          {deliveryCoords && deliveryCoords[0] !== 0 && deliveryCoords[1] !== 0 && (
             <Marker position={deliveryCoords} icon={dropoffIcon}>
               <Popup>
                 <b>Dropoff</b><br />

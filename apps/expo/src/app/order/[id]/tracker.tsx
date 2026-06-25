@@ -3,7 +3,7 @@ import { View, Text, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
@@ -35,6 +35,7 @@ async function fetchMobileRoute(
 export default function OrderTrackerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: orders, isLoading } = useQuery(trpc.order.myOrders.queryOptions());
@@ -42,11 +43,21 @@ export default function OrderTrackerScreen() {
   const order = orders?.find((o) => o.id === id);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(id);
+  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(id, {
+    onOrderUpdate: () => {
+      void queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: trpc.auth.getMyProfile.queryKey(),
+      });
+    },
+  });
 
   const [hasPermission, setHasPermission] = useState(false);
   const mapRef = React.useRef<MapView>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<{ latitude: number; longitude: number }[]>([]);
+  const myLastLocationRef = React.useRef<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -87,9 +98,10 @@ export default function OrderTrackerScreen() {
           distanceInterval: 10,
         },
         (loc: Location.LocationObject) => {
+          const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+          myLastLocationRef.current = coords;
           void broadcastLocation({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
+            ...coords,
             role,
           });
         }
@@ -100,11 +112,12 @@ export default function OrderTrackerScreen() {
 
     // Periodically broadcast our own location state in case the initial broadcast failed before the socket connected
     const intervalId = setInterval(() => {
-      const isD = isDeliverer; // Capture current value
-      if (isD && delivererLocation) {
-        void broadcastLocation({ latitude: delivererLocation.latitude, longitude: delivererLocation.longitude, role: "deliverer" });
-      } else if (!isD && buyerLocation) {
-        void broadcastLocation({ latitude: buyerLocation.latitude, longitude: buyerLocation.longitude, role: "buyer" });
+      const coords = myLastLocationRef.current;
+      if (coords) {
+        void broadcastLocation({
+          ...coords,
+          role: isDeliverer ? "deliverer" : "buyer",
+        });
       }
     }, 5000);
 
@@ -114,7 +127,7 @@ export default function OrderTrackerScreen() {
       }
       clearInterval(intervalId);
     };
-  }, [isDeliverer, id, broadcastLocation, delivererLocation, buyerLocation]);
+  }, [isDeliverer, id, broadcastLocation]);
 
   const canteenCoords = order ? {
     latitude: order.canteenLatitude,

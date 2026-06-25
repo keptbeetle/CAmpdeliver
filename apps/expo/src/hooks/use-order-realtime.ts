@@ -7,10 +7,21 @@ interface LocationPayload {
   role: "deliverer" | "buyer";
 }
 
-export function useOrderRealtime(orderId: string) {
+interface UseOrderRealtimeOptions {
+  onLocationUpdate?: (payload: LocationPayload) => void;
+  onChatUpdate?: () => void;
+  onOrderUpdate?: () => void;
+}
+
+export function useOrderRealtime(orderId: string, options?: UseOrderRealtimeOptions) {
   const [delivererLocation, setDelivererLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [buyerLocation, setBuyerLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  const optionsRef = useRef(options);
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     if (!orderId) return;
@@ -25,6 +36,13 @@ export function useOrderRealtime(orderId: string) {
         } else {
           setBuyerLocation({ latitude: data.latitude, longitude: data.longitude });
         }
+        optionsRef.current?.onLocationUpdate?.(data);
+      })
+      .on("broadcast", { event: "chat_update" }, () => {
+        optionsRef.current?.onChatUpdate?.();
+      })
+      .on("broadcast", { event: "order_update" }, () => {
+        optionsRef.current?.onOrderUpdate?.();
       });
 
     channel.subscribe((status) => {
@@ -68,5 +86,23 @@ export function useOrderRealtime(orderId: string) {
     });
   }, []);
 
-  return { delivererLocation, buyerLocation, broadcastLocation, broadcastChatEvent, supabase };
+  const broadcastOrderUpdate = useCallback(async () => {
+    const channel = channelRef.current;
+    if (!channel) return;
+
+    await channel.send({
+      type: "broadcast",
+      event: "order_update",
+      payload: { orderId },
+    });
+  }, [orderId]);
+
+  return { 
+    delivererLocation, 
+    buyerLocation, 
+    broadcastLocation, 
+    broadcastChatEvent, 
+    broadcastOrderUpdate,
+    supabase 
+  };
 }

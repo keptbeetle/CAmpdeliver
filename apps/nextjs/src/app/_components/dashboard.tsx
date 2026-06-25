@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -14,6 +15,42 @@ export function Dashboard() {
   const router = useRouter();
   const trpc = useTRPC();
   const queryClient = useQueryClient();
+
+  const globalChannelRef = useRef<ReturnType<typeof supabaseClient.channel> | null>(null);
+
+  useEffect(() => {
+    const channel = supabaseClient
+      .channel("global:orders")
+      .on("broadcast", { event: "order_update" }, () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.availableQuests.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.auth.getMyProfile.queryKey(),
+        });
+      });
+
+    channel.subscribe();
+    globalChannelRef.current = channel;
+
+    return () => {
+      void supabaseClient.removeChannel(channel);
+      globalChannelRef.current = null;
+    };
+  }, [queryClient, trpc]);
+
+  const broadcastGlobalUpdate = async () => {
+    if (globalChannelRef.current) {
+      await globalChannelRef.current.send({
+        type: "broadcast",
+        event: "order_update",
+        payload: { refresh: true },
+      });
+    }
+  };
 
   // Fetch real-time user profile database info from tRPC
   const {
@@ -39,6 +76,7 @@ export function Dashboard() {
         await queryClient.invalidateQueries({
           queryKey: trpc.order.availableQuests.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
     }),
   );
@@ -52,6 +90,7 @@ export function Dashboard() {
         await queryClient.invalidateQueries({
           queryKey: trpc.auth.getMyProfile.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
     }),
   );
@@ -65,6 +104,7 @@ export function Dashboard() {
         await queryClient.invalidateQueries({
           queryKey: trpc.order.availableQuests.queryKey(),
         });
+        await broadcastGlobalUpdate();
       },
     }),
   );
