@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { supabase } from "../utils/auth";
 
 interface LocationPayload {
   latitude: number;
   longitude: number;
+  role: "deliverer" | "buyer";
 }
 
 export function useOrderRealtime(orderId: string) {
-  const [delivererLocation, setDelivererLocation] = useState<LocationPayload | null>(null);
+  const [delivererLocation, setDelivererLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [buyerLocation, setBuyerLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const channelRef = useRef<any>(null);
 
   useEffect(() => {
     if (!orderId) return;
@@ -16,50 +19,47 @@ export function useOrderRealtime(orderId: string) {
     const channel = supabase
       .channel(`order:${orderId}`)
       .on("broadcast", { event: "location_update" }, (payload) => {
-        // payload.payload contains the actual data sent
-        setDelivererLocation(payload.payload as LocationPayload);
-      })
-      .subscribe();
+        const data = payload.payload as LocationPayload;
+        if (data.role === "deliverer") {
+          setDelivererLocation({ latitude: data.latitude, longitude: data.longitude });
+        } else if (data.role === "buyer") {
+          setBuyerLocation({ latitude: data.latitude, longitude: data.longitude });
+        }
+      });
+
+    channel.subscribe((status) => {
+      console.log(`Channel order:${orderId} status:`, status);
+    });
+
+    channelRef.current = channel;
 
     return () => {
       void supabase.removeChannel(channel);
+      channelRef.current = null;
     };
   }, [orderId]);
 
-  const broadcastLocation = async (location: LocationPayload) => {
-    const channel = supabase.channel(`order:${orderId}`);
-    // Ensure we are subscribed before broadcasting
-    if (channel.state !== "joined") {
-      await new Promise<void>((resolve) => {
-        channel.subscribe((status) => {
-          if (status === "SUBSCRIBED") resolve();
-        });
-      });
-    }
+  const broadcastLocation = useCallback(async (location: { latitude: number; longitude: number; role: "deliverer" | "buyer" }) => {
+    const channel = channelRef.current;
+    if (!channel) return;
 
     await channel.send({
       type: "broadcast",
       event: "location_update",
       payload: location,
     });
-  };
+  }, []);
 
-  const broadcastChatEvent = async () => {
-    const channel = supabase.channel(`order:${orderId}`);
-    if (channel.state !== "joined") {
-      await new Promise<void>((resolve) => {
-        channel.subscribe((status) => {
-          if (status === "SUBSCRIBED") resolve();
-        });
-      });
-    }
+  const broadcastChatEvent = useCallback(async () => {
+    const channel = channelRef.current;
+    if (!channel) return;
 
     await channel.send({
       type: "broadcast",
       event: "chat_update",
       payload: { refresh: true },
     });
-  };
+  }, []);
 
-  return { delivererLocation, broadcastLocation, broadcastChatEvent, supabase };
+  return { delivererLocation, buyerLocation, broadcastLocation, broadcastChatEvent, supabase };
 }

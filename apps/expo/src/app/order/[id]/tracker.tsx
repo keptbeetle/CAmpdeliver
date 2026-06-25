@@ -18,12 +18,13 @@ export default function OrderTrackerScreen() {
   const order = orders?.find((o) => o.id === id);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, broadcastLocation } = useOrderRealtime(id);
+  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(id);
 
   const [hasPermission, setHasPermission] = useState(false);
+  const mapRef = React.useRef<MapView>(null);
 
   useEffect(() => {
-    if (!isDeliverer) return;
+    if (!id) return;
 
     let locationSubscription: Location.LocationSubscription | null = null;
 
@@ -35,6 +36,25 @@ export default function OrderTrackerScreen() {
       }
       setHasPermission(true);
 
+      const role = isDeliverer ? "deliverer" : "buyer";
+
+      // Instantly get current position and animate the map to it on mount
+      try {
+        const initialLoc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (mapRef.current) {
+          mapRef.current.animateToRegion({
+            latitude: initialLoc.coords.latitude,
+            longitude: initialLoc.coords.longitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          });
+        }
+      } catch (err) {
+        console.log("Error getting initial location:", err);
+      }
+
       locationSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
@@ -45,6 +65,7 @@ export default function OrderTrackerScreen() {
           void broadcastLocation({
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
+            role,
           });
         }
       );
@@ -57,7 +78,7 @@ export default function OrderTrackerScreen() {
         locationSubscription.remove();
       }
     };
-  }, [isDeliverer]);
+  }, [isDeliverer, id, broadcastLocation]);
 
   if (isLoading || !order) {
     return (
@@ -77,42 +98,65 @@ export default function OrderTrackerScreen() {
     longitude: order.deliveryLongitude,
   };
 
+  const polylineCoords = [];
+  
+  const startLoc = delivererLocation 
+    ? delivererLocation 
+    : (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0 ? canteenCoords : null);
+
+  const endLoc = buyerLocation
+    ? buyerLocation
+    : (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0 ? deliveryCoords : null);
+
+  if (startLoc) polylineCoords.push(startLoc);
+  if (endLoc) polylineCoords.push(endLoc);
+
   return (
     <View className="flex-1 bg-zinc-950">
       <Stack.Screen options={{ title: "Live Tracking", headerTintColor: "#fff", headerStyle: { backgroundColor: "#09090b" } }} />
       
       <MapView
+        ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={{ flex: 1 }}
         initialRegion={{
-          latitude: canteenCoords.latitude,
-          longitude: canteenCoords.longitude,
+          latitude: canteenCoords.latitude !== 0 ? canteenCoords.latitude : 30.0,
+          longitude: canteenCoords.longitude !== 0 ? canteenCoords.longitude : 70.0,
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
         mapType="none"
-        showsUserLocation={isDeliverer && hasPermission}
+        showsUserLocation={hasPermission}
+        showsMyLocationButton={true}
       >
-        {/* Use OpenStreetMap tiles so no Google Maps API key is needed */}
         <UrlTile
-          urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+          urlTemplate="https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
           maximumZ={19}
           flipY={false}
         />
 
-        <Marker coordinate={canteenCoords} title="Canteen" description={order.canteenName} pinColor="blue" />
-        <Marker coordinate={deliveryCoords} title="Dropoff" description={order.deliveryLocationName} pinColor="green" />
+        {canteenCoords.latitude !== 0 && canteenCoords.longitude !== 0 && (
+          <Marker coordinate={canteenCoords} title="Canteen" description={order.canteenName} pinColor="blue" />
+        )}
+        {deliveryCoords.latitude !== 0 && deliveryCoords.longitude !== 0 && (
+          <Marker coordinate={deliveryCoords} title="Dropoff" description={order.deliveryLocationName} pinColor="green" />
+        )}
         
+        {isDeliverer && buyerLocation && (
+          <Marker coordinate={buyerLocation} title="Customer / Buyer" pinColor="red" />
+        )}
         {!isDeliverer && delivererLocation && (
           <Marker coordinate={delivererLocation} title="Deliverer" pinColor="purple" />
         )}
 
-        <Polyline 
-          coordinates={[canteenCoords, deliveryCoords]}
-          strokeColor="rgba(168, 85, 247, 0.5)"
-          strokeWidth={4}
-          lineDashPattern={[10, 10]}
-        />
+        {polylineCoords.length === 2 && (
+          <Polyline 
+            coordinates={polylineCoords}
+            strokeColor="rgba(168, 85, 247, 0.5)"
+            strokeWidth={4}
+            lineDashPattern={[10, 10]}
+          />
+        )}
       </MapView>
 
       <View className="absolute bottom-10 left-6 right-6 flex-row justify-between rounded-3xl border border-zinc-800 bg-zinc-900/90 p-6 shadow-2xl backdrop-blur-md">
