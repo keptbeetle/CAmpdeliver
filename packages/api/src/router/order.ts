@@ -36,14 +36,14 @@ export const orderRouter = {
   }),
 
   createOrder: protectedProcedure
-    .input((val: any) => {
-      // Very basic validation for demo purposes.
+    .input((val: unknown) => {
       if (!val || typeof val !== "object") throw new Error("Invalid input");
-      return val as {
+      const v = val as {
         items: { name: string; quantity: number; price: number }[];
         canteenName: string;
         deliveryLocationName: string;
       };
+      return v;
     })
     .mutation(async ({ ctx, input }) => {
       // Calculate total food price
@@ -75,8 +75,13 @@ export const orderRouter = {
     }),
 
   acceptOrder: protectedProcedure
-    .input((val: any) => {
-      if (!val || typeof val.orderId !== "string")
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof (val as { orderId: unknown }).orderId !== "string"
+      )
         throw new Error("Invalid input");
       return val as { orderId: string };
     })

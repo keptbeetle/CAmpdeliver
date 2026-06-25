@@ -1,28 +1,33 @@
 import type { Session, User } from "@supabase/supabase-js";
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   Text,
   TextInput,
   View,
-  RefreshControl,
-  Alert,
 } from "react-native";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack } from "expo-router";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { CanteenMenu } from "~/app/_components/CanteenMenu";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
-import { CanteenMenu } from "~/app/_components/CanteenMenu";
 
 export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log("Root Index component rendering. Session exists:", !!session, "Loading state:", loading);
+  console.log(
+    "Root Index component rendering. Session exists:",
+    !!session,
+    "Loading state:",
+    loading,
+  );
 
   // Auth Inputs
   const [email, setEmail] = useState("");
@@ -34,7 +39,7 @@ export default function Index() {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    void supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
     });
@@ -43,7 +48,12 @@ export default function Index() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("Supabase onAuthStateChange triggered:", event, "session user:", session?.user?.id);
+      console.log(
+        "Supabase onAuthStateChange triggered:",
+        event,
+        "session user:",
+        session?.user.id,
+      );
       setSession(session);
     });
 
@@ -78,8 +88,12 @@ export default function Index() {
         });
         if (error) throw error;
       }
-    } catch (err: any) {
-      setAuthError(err.message || "An authentication error occurred.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "An authentication error occurred.";
+      setAuthError(message);
     } finally {
       setAuthLoading(false);
     }
@@ -239,8 +253,12 @@ function DashboardView({
   } = useQuery(trpc.auth.getMyProfile.queryOptions());
 
   // Fetch orders via tRPC
-  const { data: orders, error: ordersError } = useQuery(trpc.order.myOrders.queryOptions());
-  const { data: availableQuests } = useQuery(trpc.order.availableQuests.queryOptions());
+  const { data: orders, error: ordersError } = useQuery(
+    trpc.order.myOrders.queryOptions(),
+  );
+  const { data: availableQuests } = useQuery(
+    trpc.order.availableQuests.queryOptions(),
+  );
 
   const queryClient = useQueryClient();
 
@@ -248,9 +266,15 @@ function DashboardView({
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: trpc.auth.getMyProfile.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.auth.getMyProfile.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.order.availableQuests.queryKey(),
+      }),
     ]);
     setRefreshing(false);
   }, [queryClient]);
@@ -259,39 +283,51 @@ function DashboardView({
     trpc.order.acceptOrder.mutationOptions({
       onSuccess: async () => {
         Alert.alert("Success", "Quest accepted!");
-        await queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
-        await queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.availableQuests.queryKey(),
+        });
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to accept quest");
-      }
-    })
+      },
+    }),
   );
 
   const confirmAvailabilityMutation = useMutation(
     trpc.order.confirmAvailability.mutationOptions({
       onSuccess: async () => {
         Alert.alert("Success", "Availability confirmed, money frozen.");
-        await queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
-        await queryClient.invalidateQueries({ queryKey: trpc.auth.getMyProfile.queryKey() });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.auth.getMyProfile.queryKey(),
+        });
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to confirm availability");
-      }
-    })
+      },
+    }),
   );
 
   const rejectOrderMutation = useMutation(
     trpc.order.rejectOrder.mutationOptions({
       onSuccess: async () => {
         Alert.alert("Success", "Order cancelled and rejected.");
-        await queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
-        await queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.availableQuests.queryKey(),
+        });
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to reject order");
-      }
-    })
+      },
+    }),
   );
 
   console.log("DashboardView query status:", {
@@ -348,7 +384,11 @@ function DashboardView({
       <ScrollView
         className="flex-1 bg-zinc-950 px-6 py-4"
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#a855f7" />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#a855f7"
+          />
         }
       >
         {/* Header Profile */}
@@ -356,7 +396,7 @@ function DashboardView({
           <View className="flex-row items-center gap-3">
             <View className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-600">
               <Text className="text-lg font-extrabold text-white">
-                {profile.name?.[0]?.toUpperCase() ?? "?"}
+                {profile.name[0]?.toUpperCase() ?? "?"}
               </Text>
             </View>
             <View>
@@ -379,7 +419,9 @@ function DashboardView({
             onPress={onSignOut}
             className="rounded-xl border border-zinc-800 px-3 py-2"
           >
-            <Text className="text-xs font-semibold text-zinc-400">Sign Out</Text>
+            <Text className="text-xs font-semibold text-zinc-400">
+              Sign Out
+            </Text>
           </Pressable>
         </View>
 
@@ -427,25 +469,40 @@ function DashboardView({
         </Text>
         {availableQuests && availableQuests.length > 0 ? (
           availableQuests.map((quest) => (
-            <View key={quest.id} className="mb-4 rounded-3xl border border-zinc-900/60 bg-zinc-900/40 p-5">
+            <View
+              key={quest.id}
+              className="mb-4 rounded-3xl border border-zinc-900/60 bg-zinc-900/40 p-5"
+            >
               <View className="flex-row items-center justify-between">
                 <View>
-                  <Text className="text-base font-bold text-white">{quest.canteenName}</Text>
-                  <Text className="text-xs text-zinc-400">To: {quest.deliveryLocationName}</Text>
+                  <Text className="text-base font-bold text-white">
+                    {quest.canteenName}
+                  </Text>
+                  <Text className="text-xs text-zinc-400">
+                    To: {quest.deliveryLocationName}
+                  </Text>
                 </View>
                 <View className="items-end">
-                  <Text className="text-sm font-bold text-purple-400">+{formatCurrency(quest.deliveryFee)}</Text>
+                  <Text className="text-sm font-bold text-purple-400">
+                    +{formatCurrency(quest.deliveryFee)}
+                  </Text>
                 </View>
               </View>
               <Pressable
-                onPress={() => acceptOrderMutation.mutate({ orderId: quest.id })}
+                onPress={() =>
+                  acceptOrderMutation.mutate({ orderId: quest.id })
+                }
                 disabled={acceptOrderMutation.isPending}
                 className={`mt-4 items-center justify-center rounded-xl py-3 ${
-                  acceptOrderMutation.isPending ? "bg-purple-600/50" : "bg-purple-600 active:bg-purple-700"
+                  acceptOrderMutation.isPending
+                    ? "bg-purple-600/50"
+                    : "bg-purple-600 active:bg-purple-700"
                 }`}
               >
                 <Text className="text-sm font-bold text-white">
-                  {acceptOrderMutation.isPending ? "Accepting..." : "Accept Quest"}
+                  {acceptOrderMutation.isPending
+                    ? "Accepting..."
+                    : "Accept Quest"}
                 </Text>
               </Pressable>
             </View>
@@ -455,7 +512,9 @@ function DashboardView({
             <View className="bg-zinc-850 mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-800">
               <Text className="text-lg font-bold text-zinc-600">🗺️</Text>
             </View>
-            <Text className="text-sm font-bold text-white">No quests available</Text>
+            <Text className="text-sm font-bold text-white">
+              No quests available
+            </Text>
             <Text className="mt-1 max-w-xs text-center text-xs text-zinc-400">
               Wait for other students to broadcast their food orders.
             </Text>
@@ -468,49 +527,80 @@ function DashboardView({
         </Text>
         {orders && orders.length > 0 ? (
           orders.map((order) => (
-            <View key={order.id} className="mb-4 rounded-3xl border border-zinc-900/60 bg-zinc-900/40 p-5">
+            <View
+              key={order.id}
+              className="mb-4 rounded-3xl border border-zinc-900/60 bg-zinc-900/40 p-5"
+            >
               <View className="flex-row items-center justify-between">
                 <View>
-                  <Text className="text-base font-bold text-white">{order.canteenName}</Text>
+                  <Text className="text-base font-bold text-white">
+                    {order.canteenName}
+                  </Text>
                   <Text className="mt-1 text-xs text-zinc-400">
-                    Status: <Text className="font-bold text-purple-400">{order.status}</Text>
+                    Status:{" "}
+                    <Text className="font-bold text-purple-400">
+                      {order.status}
+                    </Text>
                   </Text>
                   <Text className="mt-1 text-xs text-zinc-500">
                     Role: {order.buyerId === profile.id ? "Buyer" : "Deliverer"}
                   </Text>
                 </View>
                 <View className="items-end">
-                  <Text className="text-sm font-bold text-zinc-300">{formatCurrency(order.foodPrice + order.deliveryFee)}</Text>
+                  <Text className="text-sm font-bold text-zinc-300">
+                    {formatCurrency(order.foodPrice + order.deliveryFee)}
+                  </Text>
                 </View>
               </View>
 
               {/* Action Buttons for Deliverer */}
-              {order.delivererId === profile.id && order.status === "ACCEPTED" && (
-                <View className="mt-4 flex-col gap-2 border-t border-white/10 pt-4">
-                  <Pressable
-                    onPress={() => confirmAvailabilityMutation.mutate({ orderId: order.id })}
-                    disabled={confirmAvailabilityMutation.isPending || rejectOrderMutation.isPending}
-                    className={`items-center justify-center rounded-xl py-3 ${
-                      confirmAvailabilityMutation.isPending ? "bg-purple-600/50" : "bg-purple-600 active:bg-purple-700"
-                    }`}
-                  >
-                    <Text className="text-sm font-bold text-white">
-                      {confirmAvailabilityMutation.isPending ? "Confirming..." : "Confirm Availability"}
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => rejectOrderMutation.mutate({ orderId: order.id })}
-                    disabled={rejectOrderMutation.isPending || confirmAvailabilityMutation.isPending}
-                    className={`items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 py-3 ${
-                      rejectOrderMutation.isPending ? "opacity-50" : "active:bg-red-500/20"
-                    }`}
-                  >
-                    <Text className="text-sm font-bold text-red-400">
-                      {rejectOrderMutation.isPending ? "Rejecting..." : "Reject (Unavailable)"}
-                    </Text>
-                  </Pressable>
-                </View>
-              )}
+              {order.delivererId === profile.id &&
+                order.status === "ACCEPTED" && (
+                  <View className="mt-4 flex-col gap-2 border-t border-white/10 pt-4">
+                    <Pressable
+                      onPress={() =>
+                        confirmAvailabilityMutation.mutate({
+                          orderId: order.id,
+                        })
+                      }
+                      disabled={
+                        confirmAvailabilityMutation.isPending ||
+                        rejectOrderMutation.isPending
+                      }
+                      className={`items-center justify-center rounded-xl py-3 ${
+                        confirmAvailabilityMutation.isPending
+                          ? "bg-purple-600/50"
+                          : "bg-purple-600 active:bg-purple-700"
+                      }`}
+                    >
+                      <Text className="text-sm font-bold text-white">
+                        {confirmAvailabilityMutation.isPending
+                          ? "Confirming..."
+                          : "Confirm Availability"}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() =>
+                        rejectOrderMutation.mutate({ orderId: order.id })
+                      }
+                      disabled={
+                        rejectOrderMutation.isPending ||
+                        confirmAvailabilityMutation.isPending
+                      }
+                      className={`items-center justify-center rounded-xl border border-red-500/30 bg-red-500/10 py-3 ${
+                        rejectOrderMutation.isPending
+                          ? "opacity-50"
+                          : "active:bg-red-500/20"
+                      }`}
+                    >
+                      <Text className="text-sm font-bold text-red-400">
+                        {rejectOrderMutation.isPending
+                          ? "Rejecting..."
+                          : "Reject (Unavailable)"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
             </View>
           ))
         ) : (
@@ -518,7 +608,9 @@ function DashboardView({
             <View className="bg-zinc-850 mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-zinc-800">
               <Text className="text-lg font-bold text-zinc-600">📦</Text>
             </View>
-            <Text className="text-sm font-bold text-white">No active orders</Text>
+            <Text className="text-sm font-bold text-white">
+              No active orders
+            </Text>
             <Text className="mt-1 max-w-xs text-center text-xs text-zinc-400">
               Orders you placed or accepted will appear here.
             </Text>
@@ -526,15 +618,16 @@ function DashboardView({
         )}
       </ScrollView>
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("DashboardView Render Crash:", err);
+    const message = err instanceof Error ? err.message : String(err);
     return (
       <View className="flex-1 items-center justify-center bg-zinc-950 p-6">
         <Text className="text-center text-lg font-bold text-red-400">
           Render Crash
         </Text>
         <Text className="mt-2 text-center text-sm text-zinc-400">
-          {err?.message || String(err)}
+          {message}
         </Text>
         <Pressable
           onPress={onSignOut}

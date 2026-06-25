@@ -17,15 +17,16 @@ export const authRouter = {
       .limit(1);
 
     if (!profile) {
+      const userEmail = ctx.user.email ?? "";
       const [newProfile] = await ctx.db
         .insert(profiles)
         .values({
           id: ctx.user.id,
           name:
-            ctx.user.user_metadata?.name ||
-            ctx.user.email?.split("@")[0] ||
+            (ctx.user.user_metadata.name as string | undefined) ??
+            userEmail.split("@")[0] ??
             "User",
-          email: ctx.user.email || "",
+          email: userEmail,
           role: "STUDENT",
           walletBalance: 0,
           frozenBalance: 0,

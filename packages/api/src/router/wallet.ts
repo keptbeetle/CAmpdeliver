@@ -85,10 +85,12 @@ export const walletRouter = {
         });
 
         return { success: true, message: "Wallet topped up successfully" };
-      } catch (error: any) {
+      } catch (error: unknown) {
+        const msg =
+          error instanceof Error ? error.message : "Failed to process top-up";
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: error.message || "Failed to process top-up",
+          message: msg,
         });
       }
     }),

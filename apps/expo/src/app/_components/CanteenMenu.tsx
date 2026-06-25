@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { View, Text, Pressable, ScrollView, Alert } from "react-native";
+import { Alert, Pressable, Text, View } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { trpc } from "~/utils/api";
 
 const CANTEENS = [
@@ -39,7 +40,7 @@ export function CanteenMenu() {
       onSuccess: () => {
         Alert.alert("Success", "Order broadcasted successfully!");
         setCart([]);
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
         });
       },
@@ -91,7 +92,7 @@ export function CanteenMenu() {
     }
 
     createOrderMutation.mutate({
-      canteenName: selectedCanteen?.name || "Unknown",
+      canteenName: selectedCanteen?.name ?? "Unknown",
       items: cart.map((c) => ({
         name: c.name,
         price: c.price,
@@ -107,7 +108,9 @@ export function CanteenMenu() {
 
   return (
     <View className="mb-6 rounded-3xl border border-zinc-900/60 bg-zinc-900/40 p-5">
-      <Text className="mb-4 text-lg font-bold tracking-wide text-white">Order Food</Text>
+      <Text className="mb-4 text-lg font-bold tracking-wide text-white">
+        Order Food
+      </Text>
 
       {/* Canteen Selector */}
       <View className="mb-4 flex-row flex-wrap gap-2">
@@ -119,10 +122,14 @@ export function CanteenMenu() {
               setCart([]);
             }}
             className={`rounded-xl px-4 py-2 ${
-              selectedCanteenId === c.id ? "bg-purple-600" : "bg-black/40 border border-zinc-800"
+              selectedCanteenId === c.id
+                ? "bg-purple-600"
+                : "border border-zinc-800 bg-black/40"
             }`}
           >
-            <Text className={`text-sm font-bold ${selectedCanteenId === c.id ? "text-white" : "text-zinc-400"}`}>
+            <Text
+              className={`text-sm font-bold ${selectedCanteenId === c.id ? "text-white" : "text-zinc-400"}`}
+            >
               {c.name}
             </Text>
           </Pressable>
@@ -130,12 +137,19 @@ export function CanteenMenu() {
       </View>
 
       <View className="mb-6 rounded-2xl border border-white/5 bg-black/20 p-4">
-        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">Menu</Text>
+        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
+          Menu
+        </Text>
         {selectedCanteen?.items.map((item) => (
-          <View key={item.id} className="mb-2 flex-row items-center justify-between rounded-xl border border-white/5 bg-zinc-900 p-3">
+          <View
+            key={item.id}
+            className="mb-2 flex-row items-center justify-between rounded-xl border border-white/5 bg-zinc-900 p-3"
+          >
             <View>
               <Text className="font-semibold text-white">{item.name}</Text>
-              <Text className="text-xs text-zinc-400">{formatCurrency(item.price)}</Text>
+              <Text className="text-xs text-zinc-400">
+                {formatCurrency(item.price)}
+              </Text>
             </View>
             <Pressable
               onPress={() => handleAddToCart(item)}
@@ -148,7 +162,9 @@ export function CanteenMenu() {
       </View>
 
       <View className="rounded-2xl border border-white/5 bg-black/20 p-4">
-        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">Your Cart</Text>
+        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
+          Your Cart
+        </Text>
         {cart.length === 0 ? (
           <View className="items-center justify-center py-6">
             <Text className="text-sm text-zinc-500">Cart is empty</Text>
@@ -156,9 +172,14 @@ export function CanteenMenu() {
         ) : (
           <View>
             {cart.map((item) => (
-              <View key={item.id} className="mb-2 flex-row items-center justify-between">
+              <View
+                key={item.id}
+                className="mb-2 flex-row items-center justify-between"
+              >
                 <View className="flex-row items-center gap-2">
-                  <Text className="text-sm font-bold text-zinc-400">{item.quantity}x</Text>
+                  <Text className="text-sm font-bold text-zinc-400">
+                    {item.quantity}x
+                  </Text>
                   <Text className="text-sm text-white">{item.name}</Text>
                 </View>
                 <View className="flex-row items-center gap-4">
@@ -175,15 +196,21 @@ export function CanteenMenu() {
             <View className="mt-4 border-t border-white/10 pt-4">
               <View className="mb-1 flex-row justify-between">
                 <Text className="text-xs text-zinc-400">Items Total</Text>
-                <Text className="text-xs text-zinc-400">{formatCurrency(totalFoodPrice)}</Text>
+                <Text className="text-xs text-zinc-400">
+                  {formatCurrency(totalFoodPrice)}
+                </Text>
               </View>
               <View className="mb-2 flex-row justify-between">
                 <Text className="text-xs text-zinc-400">Delivery Fee</Text>
-                <Text className="text-xs text-zinc-400">{formatCurrency(deliveryFee)}</Text>
+                <Text className="text-xs text-zinc-400">
+                  {formatCurrency(deliveryFee)}
+                </Text>
               </View>
               <View className="flex-row justify-between border-t border-white/10 pt-2">
                 <Text className="text-sm font-bold text-white">Total</Text>
-                <Text className="text-sm font-bold text-white">{formatCurrency(totalCost)}</Text>
+                <Text className="text-sm font-bold text-white">
+                  {formatCurrency(totalCost)}
+                </Text>
               </View>
             </View>
 
@@ -191,11 +218,15 @@ export function CanteenMenu() {
               onPress={handlePlaceOrder}
               disabled={createOrderMutation.isPending}
               className={`mt-6 items-center justify-center rounded-xl py-4 ${
-                createOrderMutation.isPending ? "bg-indigo-600/50" : "bg-indigo-600 active:bg-indigo-700"
+                createOrderMutation.isPending
+                  ? "bg-indigo-600/50"
+                  : "bg-indigo-600 active:bg-indigo-700"
               }`}
             >
               <Text className="text-base font-extrabold text-white">
-                {createOrderMutation.isPending ? "Broadcasting..." : "Broadcast Order"}
+                {createOrderMutation.isPending
+                  ? "Broadcasting..."
+                  : "Broadcast Order"}
               </Text>
             </Pressable>
           </View>

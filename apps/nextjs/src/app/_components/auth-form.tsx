@@ -61,8 +61,12 @@ export function AuthForm() {
         setMessage("Logged in successfully!");
         router.refresh();
       }
-    } catch (err: any) {
-      setError(err.message || "An authentication error occurred.");
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "An authentication error occurred.";
+      setError(message);
     } finally {
       setLoading(false);
     }

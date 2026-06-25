@@ -22,7 +22,7 @@ export function WalletTopUp() {
         setError("");
         setAmount("");
         setUtr("");
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: trpc.auth.getMyProfile.queryKey(),
         });
         setTimeout(() => setSuccess(false), 3000);

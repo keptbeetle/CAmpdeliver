@@ -47,7 +47,7 @@ export function CanteenMenu() {
         setSuccess(true);
         setError("");
         setCart([]);
-        queryClient.invalidateQueries({
+        void queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
         });
         setTimeout(() => setSuccess(false), 3000);
@@ -101,7 +101,7 @@ export function CanteenMenu() {
     }
 
     createOrderMutation.mutate({
-      canteenName: selectedCanteen?.name || "Unknown",
+      canteenName: selectedCanteen?.name ?? "Unknown",
       items: cart.map((c) => ({
         name: c.name,
         price: c.price,
