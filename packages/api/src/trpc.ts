@@ -43,7 +43,11 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
         if (!cookieHeader) return [];
         return cookieHeader.split(";").map((c) => {
           const [name, ...val] = c.trim().split("=");
-          return { name: name ?? "", value: val.join("=") };
+          try {
+            return { name: decodeURIComponent(name ?? ""), value: decodeURIComponent(val.join("=")) };
+          } catch {
+            return { name: name ?? "", value: val.join("=") };
+          }
         });
       },
       setAll() {
@@ -66,6 +70,12 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     const { data } = await supabase.auth.getUser();
     if (data.user) {
       user = data.user;
+    } else {
+      // Fallback: try getSession if getUser fails (e.g. token refresh race)
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (sessionData.session?.user) {
+        user = sessionData.session.user;
+      }
     }
   }
 

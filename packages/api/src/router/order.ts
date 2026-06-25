@@ -357,13 +357,18 @@ export const orderRouter = {
         where: eq(profiles.id, targetId),
       });
 
-      if (!contactProfile || !contactProfile.phoneNumber) {
+      let phoneNumber = contactProfile?.phoneNumber;
+      if (!phoneNumber && contactProfile?.email?.endsWith("@campus.edu")) {
+        phoneNumber = contactProfile.email.replace("@campus.edu", "");
+      }
+
+      if (!phoneNumber) {
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Contact phone number is not available.",
         });
       }
 
-      return { phoneNumber: contactProfile.phoneNumber };
+      return { phoneNumber };
     }),
 } satisfies TRPCRouterRecord;

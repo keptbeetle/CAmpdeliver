@@ -116,7 +116,7 @@ export const otpRouter = createTRPCRouter({
     .input(
       z.object({
         name: z.string().min(1, "Name is required"),
-        rollNumber: z.string().min(1, "Roll number is required"),
+        hostelName: z.string().min(1, "Hostel Name is required"),
         phoneNumber: z.string(),
         password: z.string().min(6, "Password must be at least 6 characters"),
         otpCode: z.string().length(6, "OTP must be 6 digits"),
@@ -240,7 +240,7 @@ export const otpRouter = createTRPCRouter({
           name: input.name,
           email: virtualEmail,
           phoneNumber,
-          rollNumber: input.rollNumber,
+          hostelName: input.hostelName,
           role: "STUDENT",
           walletBalance: 0,
           frozenBalance: 0,

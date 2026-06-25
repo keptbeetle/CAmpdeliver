@@ -31,10 +31,10 @@ export function GlobalTracker() {
     enabled: hasSession,
   });
 
-  // Find any active order that needs tracking
-  const activeOrder = orders?.find(
+  // Find any active order that needs tracking (only if session exists)
+  const activeOrder = hasSession ? orders?.find(
     (o) => o.status === "PREPARING" || o.status === "ACCEPTED"
-  );
+  ) : undefined;
   const id = activeOrder?.id;
   const isDeliverer = activeOrder?.delivererId === profile?.id;
   const role = isDeliverer ? "deliverer" : "buyer";
@@ -45,7 +45,7 @@ export function GlobalTracker() {
   const myLastLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !hasSession) return;
 
     let locationSubscription: Location.LocationSubscription | null = null;
     let intervalId: NodeJS.Timeout;
@@ -100,7 +100,7 @@ export function GlobalTracker() {
       }
       if (intervalId) clearInterval(intervalId);
     };
-  }, [id, isDeliverer, role, broadcastLocation, updateLocation]);
+  }, [id, isDeliverer, role, broadcastLocation, updateLocation, hasSession]);
 
   return null;
 }

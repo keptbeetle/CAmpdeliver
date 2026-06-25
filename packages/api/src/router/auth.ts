@@ -18,6 +18,11 @@ export const authRouter = {
 
     if (!profile) {
       const userEmail = ctx.user.email ?? "";
+      let extractedPhone = null;
+      if (userEmail.endsWith("@campus.edu")) {
+        extractedPhone = userEmail.replace("@campus.edu", "");
+      }
+      
       const [newProfile] = await ctx.db
         .insert(profiles)
         .values({
@@ -27,12 +32,23 @@ export const authRouter = {
             userEmail.split("@")[0] ??
             "User",
           email: userEmail,
+          phoneNumber: extractedPhone,
           role: "STUDENT",
           walletBalance: 0,
           frozenBalance: 0,
         })
         .returning();
       return newProfile;
+    }
+
+    if (!profile.phoneNumber && profile.email?.endsWith("@campus.edu")) {
+      const extractedPhone = profile.email.replace("@campus.edu", "");
+      const [updatedProfile] = await ctx.db
+        .update(profiles)
+        .set({ phoneNumber: extractedPhone })
+        .where(eq(profiles.id, profile.id))
+        .returning();
+      return updatedProfile ?? profile;
     }
 
     return profile;

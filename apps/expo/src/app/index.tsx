@@ -19,6 +19,20 @@ import { CanteenMenu } from "~/app/_components/CanteenMenu";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
+function sanitizePhone(phone: string): string {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 10) {
+    return `+91${digits}`;
+  }
+  if (digits.length === 12 && digits.startsWith("91")) {
+    return `+${digits}`;
+  }
+  if (phone.trim().startsWith("+") && digits.length >= 10) {
+    return `+${digits}`;
+  }
+  return phone.includes("+") ? phone : `+91${phone}`;
+}
+
 export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,7 +47,7 @@ export default function Index() {
 
   // OTP Signup Flow States
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [rollNumber, setRollNumber] = useState("");
+  const [hostelName, setHostelName] = useState("");
   const [otpCode, setOtpCode] = useState("");
   const [step, setStep] = useState(1); // 1: Intake Form, 2: OTP Verification
   const [timer, setTimer] = useState(0);
@@ -119,10 +133,10 @@ export default function Index() {
   const handleSignIn = async () => {
     setAuthError(null);
     setAuthLoading(true);
-    const formattedEmail = email.includes("@")
-      ? email.trim()
-      : `${email.trim()}@campus.edu`;
     try {
+      const sanitizedPhone = sanitizePhone(email);
+      const formattedEmail = `${sanitizedPhone}@campus.edu`.toLowerCase();
+      console.log("[Auth Expo] Attempting sign-in with email:", formattedEmail);
       const { error } = await supabase.auth.signInWithPassword({
         email: formattedEmail,
         password,
@@ -141,7 +155,7 @@ export default function Index() {
   };
 
   const handleSendOtp = async () => {
-    if (!name.trim() || !rollNumber.trim() || !phoneNumber.trim() || !password.trim()) {
+    if (!name.trim() || !hostelName.trim() || !phoneNumber.trim() || !password.trim()) {
       setAuthError("All fields are required");
       triggerShake();
       return;
@@ -155,7 +169,8 @@ export default function Index() {
     setAuthLoading(true);
 
     try {
-      await sendOtpMutation.mutateAsync({ phoneNumber });
+      const sanitizedPhone = sanitizePhone(phoneNumber);
+      await sendOtpMutation.mutateAsync({ phoneNumber: sanitizedPhone });
       setStep(2);
       setOtpCode("");
       setTimer(300); // 5 minutes timer
@@ -176,10 +191,11 @@ export default function Index() {
     setAuthLoading(true);
 
     try {
+      const sanitizedPhone = sanitizePhone(phoneNumber);
       const result = await verifyOtpMutation.mutateAsync({
         name,
-        rollNumber,
-        phoneNumber,
+        hostelName,
+        phoneNumber: sanitizedPhone,
         password,
         otpCode: codeToVerify,
       });
@@ -192,7 +208,7 @@ export default function Index() {
         if (error) throw error;
       } else {
         // Fallback sign in using the exact email returned by the server
-        const virtualEmail = result.user.email ?? `${phoneNumber.includes("+") ? phoneNumber : `+91${phoneNumber}`}@campus.edu`.toLowerCase();
+        const virtualEmail = result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
         const { error } = await supabase.auth.signInWithPassword({
           email: virtualEmail,
           password,
@@ -264,16 +280,16 @@ export default function Index() {
               <>
                 <View className="mb-4">
                   <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
-                    Email Address / Dummy ID
+                    Phone Number
                   </Text>
                   <TextInput
                     className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-                    placeholder="alex@campus.edu or 'alex'"
+                    placeholder="9999999999"
                     placeholderTextColor="#52525b"
-                    keyboardType="email-address"
-                    autoCapitalize="none"
+                    keyboardType="phone-pad"
+                    maxLength={20}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={(val) => setEmail(val.replace(/[^\d+\-\s()]/g, ""))}
                   />
                 </View>
 
@@ -331,14 +347,14 @@ export default function Index() {
 
                 <View className="mb-4">
                   <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
-                    Roll Number
+                    Hostel Name
                   </Text>
                   <TextInput
                     className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-                    placeholder="e.g. 21BCE1002"
+                    placeholder="e.g. Block A"
                     placeholderTextColor="#52525b"
-                    value={rollNumber}
-                    onChangeText={setRollNumber}
+                    value={hostelName}
+                    onChangeText={setHostelName}
                   />
                 </View>
 
@@ -351,9 +367,9 @@ export default function Index() {
                     placeholder="9999999999"
                     placeholderTextColor="#52525b"
                     keyboardType="phone-pad"
-                    maxLength={10}
+                    maxLength={20}
                     value={phoneNumber}
-                    onChangeText={(val) => setPhoneNumber(val.replace(/\D/g, ""))}
+                    onChangeText={(val) => setPhoneNumber(val.replace(/[^\d+\-\s()]/g, ""))}
                   />
                 </View>
 

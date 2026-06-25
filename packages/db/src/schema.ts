@@ -20,6 +20,7 @@ export const profiles = pgTable("profiles", {
   email: text("email").notNull().unique(),
   phoneNumber: text("phone_number").unique(),
   rollNumber: text("roll_number"),
+  hostelName: text("hostel_name"),
   avatarUrl: text("avatar_url"),
   role: text("role").$type<UserRole>().default("STUDENT").notNull(),
   walletBalance: integer("wallet_balance").default(0).notNull(), // In paise (e.g. 10000 = ₹100.00)
