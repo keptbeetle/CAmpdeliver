@@ -1,3 +1,4 @@
+import { relations } from "drizzle-orm";
 import {
   doublePrecision,
   integer,
@@ -112,3 +113,14 @@ export const chatMessages = pgTable("chat_messages", {
   message: text("message").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
+  sender: one(profiles, {
+    fields: [chatMessages.senderId],
+    references: [profiles.id],
+  }),
+  order: one(orders, {
+    fields: [chatMessages.orderId],
+    references: [orders.id],
+  }),
+}));

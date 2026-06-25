@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { CanteenMenu } from "~/app/_components/CanteenMenu";
@@ -262,6 +262,7 @@ function DashboardView({
 
   const queryClient = useQueryClient();
 
+  const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -601,6 +602,18 @@ function DashboardView({
                     </Pressable>
                   </View>
                 )}
+
+              {/* General Actions */}
+              {(order.status === "ACCEPTED" || order.status === "PREPARING") && (
+                <View className="mt-4 border-t border-white/10 pt-4">
+                  <Pressable
+                    onPress={() => router.push(`/order/${order.id}/tracker` as any)}
+                    className="items-center justify-center rounded-xl border border-purple-500/50 bg-purple-500/10 py-3 active:bg-purple-500/20"
+                  >
+                    <Text className="text-sm font-bold text-purple-300">Open Tracker</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           ))
         ) : (

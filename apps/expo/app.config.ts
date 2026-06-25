@@ -56,5 +56,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         },
       },
     ],
+    [
+      "expo-location",
+      {
+        locationAlwaysAndWhenInUsePermission:
+          "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
+        locationWhenInUsePermission:
+          "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
+      },
+    ],
   ],
 });
