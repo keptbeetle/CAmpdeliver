@@ -500,7 +500,7 @@ function DashboardView({
         </View>
 
         {/* Order Food */}
-        <CanteenMenu />
+        <CanteenMenu onOrderCreated={broadcastGlobalUpdate} />
 
         {/* Active Side Quests (Available Quests to accept) */}
         <Text className="mb-3 text-lg font-bold tracking-wide text-white">

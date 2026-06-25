@@ -26,7 +26,7 @@ const CANTEENS = [
   },
 ];
 
-export function CanteenMenu() {
+export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | Promise<void> }) {
   const queryClient = useQueryClient();
 
   const [selectedCanteenId, setSelectedCanteenId] = useState(CANTEENS[0]?.id);
@@ -46,18 +46,9 @@ export function CanteenMenu() {
         });
 
         // Broadcast that a new order has been created
-        const globalChan = supabase.channel("global:orders");
-        void globalChan.subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            void globalChan.send({
-              type: "broadcast",
-              event: "order_update",
-              payload: { refresh: true },
-            }).then(() => {
-              void supabase.removeChannel(globalChan);
-            });
-          }
-        });
+        if (onOrderCreated) {
+          void onOrderCreated();
+        }
       },
       onError: (e) => {
         Alert.alert("Error", e.message || "Failed to create order");

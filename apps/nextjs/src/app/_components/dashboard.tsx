@@ -234,7 +234,7 @@ export function Dashboard() {
 
         {/* Right Column - Ordering and Active Orders */}
         <div className="flex flex-col gap-6 md:col-span-2">
-          <CanteenMenu />
+          <CanteenMenu onOrderCreated={broadcastGlobalUpdate} />
 
           <h3 className="mt-4 text-xl font-bold tracking-wide text-white">
             Your Recent Orders

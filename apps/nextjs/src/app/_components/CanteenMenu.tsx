@@ -29,7 +29,7 @@ const CANTEENS = [
   },
 ];
 
-export function CanteenMenu() {
+export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | Promise<void> }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
@@ -53,18 +53,9 @@ export function CanteenMenu() {
         });
         
         // Broadcast that a new order has been created
-        const globalChan = supabaseClient.channel("global:orders");
-        void globalChan.subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            void globalChan.send({
-              type: "broadcast",
-              event: "order_update",
-              payload: { refresh: true },
-            }).then(() => {
-              void supabaseClient.removeChannel(globalChan);
-            });
-          }
-        });
+        if (onOrderCreated) {
+          void onOrderCreated();
+        }
 
         setTimeout(() => setSuccess(false), 3000);
       },
