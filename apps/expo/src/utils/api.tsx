@@ -32,13 +32,13 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
         transformer: superjson,
         url: `${getBaseUrl()}/api/trpc`,
         async headers() {
-          const headers = new Map<string, string>();
-          headers.set("x-trpc-source", "expo-react");
-
           const { data } = await supabase.auth.getSession();
           const token = data.session?.access_token;
+          const headers: Record<string, string> = {
+            "x-trpc-source": "expo-react",
+          };
           if (token) {
-            headers.set("Authorization", `Bearer ${token}`);
+            headers["Authorization"] = `Bearer ${token}`;
           }
           return headers;
         },

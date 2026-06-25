@@ -15,6 +15,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
+    "@expo/vector-icons": "^14.0.4",
     "@legendapp/list": "^2.0.14",
     "@supabase/supabase-js": "^2.48.0",
     "@tanstack/react-query": "catalog:",

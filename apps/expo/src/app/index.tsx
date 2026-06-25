@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -22,13 +23,6 @@ export default function Index() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
-  console.log(
-    "Root Index component rendering. Session exists:",
-    !!session,
-    "Loading state:",
-    loading,
-  );
-
   // Auth Inputs
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,11 +31,68 @@ export default function Index() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(false);
 
+  // OTP Signup Flow States
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [rollNumber, setRollNumber] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [step, setStep] = useState(1); // 1: Intake Form, 2: OTP Verification
+  const [timer, setTimer] = useState(0);
+
+  const otpInputRef = useRef<TextInput>(null);
+  const shakeAnimation = useRef(new Animated.Value(0)).current;
+
+  // countdown timer logic
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (timer > 0 && !session) {
+      interval = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [timer, session]);
+
+  // focus on OTP input when step changes to 2
+  useEffect(() => {
+    if (step === 2) {
+      setTimeout(() => {
+        otpInputRef.current?.focus();
+      }, 150);
+    }
+  }, [step]);
+
+  const triggerShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+  };
+
+  const formatTimer = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // tRPC Mutations for OTP
+  const sendOtpMutation = useMutation(trpc.otp.sendOtp.mutationOptions());
+  const verifyOtpMutation = useMutation(trpc.otp.verifyOtpAndSignup.mutationOptions());
+
   useEffect(() => {
     // Get initial session
     void supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setLoading(false);
+      if (session) {
+        setTimer(0);
+        setStep(1);
+        setOtpCode("");
+      }
     });
 
     // Listen for auth changes
@@ -55,35 +106,95 @@ export default function Index() {
         session?.user.id,
       );
       setSession(session);
+      if (session) {
+        setTimer(0);
+        setStep(1);
+        setOtpCode("");
+      }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const handleAuth = async () => {
+  const handleSignIn = async () => {
     setAuthError(null);
     setAuthLoading(true);
     const formattedEmail = email.includes("@")
       ? email.trim()
       : `${email.trim()}@campus.edu`;
     try {
-      if (isSignUp) {
-        const { data, error } = await supabase.auth.signUp({
-          email: formattedEmail,
-          password,
-          options: {
-            data: {
-              name: name || formattedEmail.split("@")[0],
-            },
-          },
+      const { error } = await supabase.auth.signInWithPassword({
+        email: formattedEmail,
+        password,
+      });
+      if (error) throw error;
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "An authentication error occurred.";
+      setAuthError(message);
+      triggerShake();
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleSendOtp = async () => {
+    if (!name.trim() || !rollNumber.trim() || !phoneNumber.trim() || !password.trim()) {
+      setAuthError("All fields are required");
+      triggerShake();
+      return;
+    }
+    if (password.length < 6) {
+      setAuthError("Password must be at least 6 characters");
+      triggerShake();
+      return;
+    }
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      await sendOtpMutation.mutateAsync({ phoneNumber });
+      setStep(2);
+      setOtpCode("");
+      setTimer(300); // 5 minutes timer
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to send verification code.";
+      setAuthError(message);
+      triggerShake();
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (codeToVerify: string) => {
+    setAuthError(null);
+    setAuthLoading(true);
+
+    try {
+      const result = await verifyOtpMutation.mutateAsync({
+        name,
+        rollNumber,
+        phoneNumber,
+        password,
+        otpCode: codeToVerify,
+      });
+
+      if (result.session) {
+        const { error } = await supabase.auth.setSession({
+          access_token: result.session.access_token,
+          refresh_token: result.session.refresh_token,
         });
         if (error) throw error;
-        if (!data.session) {
-          setAuthError("Check your email for validation!");
-        }
       } else {
+        // Fallback sign in using the exact email returned by the server
+        const virtualEmail = result.user.email ?? `${phoneNumber.includes("+") ? phoneNumber : `+91${phoneNumber}`}@campus.edu`.toLowerCase();
         const { error } = await supabase.auth.signInWithPassword({
-          email: formattedEmail,
+          email: virtualEmail,
           password,
         });
         if (error) throw error;
@@ -92,8 +203,10 @@ export default function Index() {
       const message =
         err instanceof Error
           ? err.message
-          : "An authentication error occurred.";
+          : "Verification failed. Invalid OTP.";
       setAuthError(message);
+      setOtpCode("");
+      triggerShake();
     } finally {
       setAuthLoading(false);
     }
@@ -142,82 +255,247 @@ export default function Index() {
             </Text>
           </View>
 
-          <View className="rounded-3xl border border-zinc-800/80 bg-zinc-900/60 p-6 shadow-2xl">
-            {isSignUp && (
-              <View className="mb-4">
-                <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
-                  Name
+          <Animated.View 
+            style={{ transform: [{ translateX: shakeAnimation }] }}
+            className="rounded-3xl border border-zinc-800/80 bg-zinc-900/60 p-6 shadow-2xl"
+          >
+            {!isSignUp ? (
+              // SIGN IN LAYOUT
+              <>
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Email Address / Dummy ID
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="alex@campus.edu or 'alex'"
+                    placeholderTextColor="#52525b"
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    value={email}
+                    onChangeText={setEmail}
+                  />
+                </View>
+
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Password
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="••••••••"
+                    placeholderTextColor="#52525b"
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+                </View>
+
+                {authError && (
+                  <View className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+                    <Text className="text-center text-xs text-red-400">
+                      {authError}
+                    </Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={handleSignIn}
+                  disabled={authLoading}
+                  className="mt-2 flex items-center justify-center rounded-xl bg-purple-600 py-4 shadow-lg shadow-purple-600/20 active:bg-purple-700"
+                >
+                  {authLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text className="text-base font-extrabold text-white">
+                      Sign In
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            ) : step === 1 ? (
+              // SIGN UP STEP 1: Form Intake
+              <>
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Name
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="Alex Pierce"
+                    placeholderTextColor="#52525b"
+                    value={name}
+                    onChangeText={setName}
+                  />
+                </View>
+
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Roll Number
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="e.g. 21BCE1002"
+                    placeholderTextColor="#52525b"
+                    value={rollNumber}
+                    onChangeText={setRollNumber}
+                  />
+                </View>
+
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Phone Number
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="9999999999"
+                    placeholderTextColor="#52525b"
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    value={phoneNumber}
+                    onChangeText={(val) => setPhoneNumber(val.replace(/\D/g, ""))}
+                  />
+                </View>
+
+                <View className="mb-4">
+                  <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
+                    Password
+                  </Text>
+                  <TextInput
+                    className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+                    placeholder="••••••••"
+                    placeholderTextColor="#52525b"
+                    secureTextEntry
+                    value={password}
+                    onChangeText={setPassword}
+                  />
+                </View>
+
+                {authError && (
+                  <View className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+                    <Text className="text-center text-xs text-red-400">
+                      {authError}
+                    </Text>
+                  </View>
+                )}
+
+                <Pressable
+                  onPress={handleSendOtp}
+                  disabled={authLoading}
+                  className="mt-2 flex items-center justify-center rounded-xl bg-purple-600 py-4 shadow-lg shadow-purple-600/20 active:bg-purple-700"
+                >
+                  {authLoading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text className="text-base font-extrabold text-white">
+                      Send Verification Code
+                    </Text>
+                  )}
+                </Pressable>
+              </>
+            ) : (
+              // SIGN UP STEP 2: OTP Box Overlay
+              <>
+                <Text className="mb-4 text-center text-sm font-semibold text-zinc-300">
+                  Enter the 6-digit code sent to +91 {phoneNumber}
                 </Text>
-                <TextInput
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-                  placeholder="Alex Pierce"
-                  placeholderTextColor="#52525b"
-                  value={name}
-                  onChangeText={setName}
-                />
-              </View>
+
+                <View className="relative mb-6 flex-row justify-between w-full px-2">
+                  {[0, 1, 2, 3, 4, 5].map((idx) => {
+                    const char = otpCode[idx] ?? "";
+                    const isCurrentFocus = otpCode.length === idx;
+                    return (
+                      <View
+                        key={idx}
+                        className={`h-12 w-12 items-center justify-center rounded-xl border-2 bg-zinc-950 ${
+                          isCurrentFocus
+                            ? "border-purple-500 shadow shadow-purple-500/30"
+                            : char
+                            ? "border-zinc-700"
+                            : "border-zinc-800"
+                        }`}
+                      >
+                        <Text className="text-xl font-bold text-white">
+                          {char}
+                        </Text>
+                      </View>
+                    );
+                  })}
+                  <TextInput
+                    ref={otpInputRef}
+                    value={otpCode}
+                    onChangeText={(val) => {
+                      const clean = val.replace(/\D/g, "").slice(0, 6);
+                      setOtpCode(clean);
+                      if (clean.length === 6) {
+                        void handleVerifyOtp(clean);
+                      }
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      opacity: 0,
+                    }}
+                  />
+                </View>
+
+                <View className="mb-6 flex-row items-center justify-between">
+                  <Text className="text-xs text-zinc-400">
+                    {timer > 0 ? `Resend code in ${formatTimer(timer)}` : "Didn't receive code?"}
+                  </Text>
+                  <Pressable
+                    disabled={timer > 0 || authLoading}
+                    onPress={handleSendOtp}
+                    className={`rounded-lg px-3 py-1.5 ${timer > 0 ? "bg-transparent" : "bg-purple-900/40 active:bg-purple-900/60"}`}
+                  >
+                    <Text className={`text-xs font-bold ${timer > 0 ? "text-zinc-600" : "text-purple-400"}`}>
+                      Resend OTP
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {authError && (
+                  <View className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+                    <Text className="text-center text-xs text-red-400">
+                      {authError}
+                    </Text>
+                  </View>
+                )}
+
+                <View className="flex-row justify-between mt-2">
+                  <Pressable
+                    onPress={() => {
+                      setStep(1);
+                      setAuthError(null);
+                    }}
+                    disabled={authLoading}
+                    className="flex-1 mr-2 items-center justify-center rounded-xl bg-zinc-800 py-3 active:bg-zinc-700"
+                  >
+                    <Text className="text-sm font-semibold text-white">Back</Text>
+                  </Pressable>
+                  
+                  {authLoading && (
+                    <View className="flex-1 ml-2 items-center justify-center py-3">
+                      <ActivityIndicator size="small" color="#a855f7" />
+                    </View>
+                  )}
+                </View>
+              </>
             )}
-
-            <View className="mb-4">
-              <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
-                Email Address / Dummy ID
-              </Text>
-              <TextInput
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-                placeholder="alex@campus.edu or 'alex'"
-                placeholderTextColor="#52525b"
-                keyboardType="email-address"
-                autoCapitalize="none"
-                value={email}
-                onChangeText={setEmail}
-              />
-            </View>
-
-            <View className="mb-4">
-              <Text className="mb-2 text-xs font-semibold tracking-wider text-zinc-300 uppercase">
-                Password
-              </Text>
-              <TextInput
-                className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-                placeholder="••••••••"
-                placeholderTextColor="#52525b"
-                secureTextEntry
-                value={password}
-                onChangeText={setPassword}
-              />
-            </View>
-
-            {authError && (
-              <View className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
-                <Text className="text-center text-xs text-red-400">
-                  {authError}
-                </Text>
-              </View>
-            )}
-
-            <Pressable
-              onPress={handleAuth}
-              disabled={authLoading}
-              className="mt-2 flex items-center justify-center rounded-xl bg-purple-600 py-4 shadow-lg shadow-purple-600/20 active:bg-purple-700"
-            >
-              {authLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text className="text-base font-extrabold text-white">
-                  {isSignUp ? "Sign Up" : "Sign In"}
-                </Text>
-              )}
-            </Pressable>
 
             <View className="mt-6 flex-row justify-center">
               <Text className="text-sm text-zinc-400">
-                {isSignUp
-                  ? "Already have an account? "
-                  : "New to CAmpDeliver? "}
+                {isSignUp ? "Already have an account? " : "New to CAmpDeliver? "}
               </Text>
               <Pressable
                 onPress={() => {
                   setIsSignUp(!isSignUp);
+                  setStep(1);
                   setAuthError(null);
                 }}
               >
@@ -226,7 +504,7 @@ export default function Index() {
                 </Text>
               </Pressable>
             </View>
-          </View>
+          </Animated.View>
         </ScrollView>
       ) : (
         // DASHBOARD SCREEN
@@ -243,7 +521,6 @@ function DashboardView({
   user: User;
   onSignOut: () => void;
 }) {
-  console.log("DashboardView render. User ID:", user.id);
 
   const queryClient = useQueryClient();
   const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -369,14 +646,7 @@ function DashboardView({
     }),
   );
 
-  console.log("DashboardView query status:", {
-    isLoading,
-    hasProfile: !!profile,
-    profileData: JSON.stringify(profile),
-    profileError: error?.message,
-    ordersError: ordersError?.message,
-    availableQuests: availableQuests?.length,
-  });
+
 
   if (isLoading) {
     return (

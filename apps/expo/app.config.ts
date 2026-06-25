@@ -29,6 +29,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       backgroundColor: "#1F104A",
     },
     edgeToEdgeEnabled: true,
+    intentFilters: [
+      {
+        action: "VIEW",
+        data: [
+          { scheme: "tel" }
+        ]
+      }
+    ],
   },
   // extra: {
   //   eas: {

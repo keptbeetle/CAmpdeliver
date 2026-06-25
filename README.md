@@ -37,6 +37,10 @@ Both the **Next.js Web Dashboard** and **Expo Mobile App** currently support:
 - **Order Management**: 
   - Buyers can track their order status (`PENDING` -> `ACCEPTED` -> `PREPARING` -> `DELIVERED`).
   - Deliverers have access to "Confirm Availability" (which freezes the buyer's funds) and "Reject (Unavailable)" actions to manage the order lifecycle.
+- **Real-time Chat**: Fully integrated instant messaging between Buyer and Deliverer powered by Supabase Realtime (WebSockets) for ultra-low latency.
+- **Map Tracker & Location Sharing**: 
+  - Once an order transitions to the tracking state, both users' real-time locations and the route between them are rendered on a live map interface.
+  - Features real-time distance calculations (displaying distance in meters/kilometers directly on the map tracking screen).
 
 ### Backend
 - **tRPC API**: Robust API layer handling complex transactions (e.g., wallet freezing, balance deductions, and crediting the deliverer upon successful completion).

@@ -1,12 +1,35 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+import { supabase } from "~/utils/auth";
 
 export function GlobalTracker() {
-  const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
-  const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    void supabase.auth.getSession().then(({ data: { session } }) => {
+      setHasSession(!!session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setHasSession(!!session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const { data: profile } = useQuery({
+    ...trpc.auth.getMyProfile.queryOptions(),
+    enabled: hasSession,
+  });
+  const { data: orders } = useQuery({
+    ...trpc.order.myOrders.queryOptions(),
+    enabled: hasSession,
+  });
 
   // Find any active order that needs tracking
   const activeOrder = orders?.find(

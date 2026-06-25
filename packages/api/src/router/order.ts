@@ -314,4 +314,56 @@ export const orderRouter = {
 
       return { success: true };
     }),
+
+  getOrderContactPhoneNumber: protectedProcedure
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof val.orderId !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
+      return val as { orderId: string };
+    })
+    .query(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      }
+
+      if (order.buyerId !== ctx.user.id && order.delivererId !== ctx.user.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "You are not authorized for this order",
+        });
+      }
+
+      const targetId =
+        ctx.user.id === order.buyerId ? order.delivererId : order.buyerId;
+
+      if (!targetId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "No contact is available for this order yet.",
+        });
+      }
+
+      const contactProfile = await ctx.db.query.profiles.findFirst({
+        where: eq(profiles.id, targetId),
+      });
+
+      if (!contactProfile || !contactProfile.phoneNumber) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Contact phone number is not available.",
+        });
+      }
+
+      return { phoneNumber: contactProfile.phoneNumber };
+    }),
 } satisfies TRPCRouterRecord;
