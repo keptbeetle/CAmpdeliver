@@ -78,7 +78,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
               >
                 {!isMe && (
                   <span className="mb-1 text-[10px] font-bold text-zinc-400">
-                    {msg.sender?.name || "User"}
+                    {msg.sender.name || "User"}
                   </span>
                 )}
                 <span className="text-sm text-white">{msg.message}</span>

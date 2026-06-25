@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Pressable, ActivityIndicator, Alert, Platform } from "react-native";
+import { View, Text, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
@@ -7,6 +7,30 @@ import { useQuery } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+
+// Helper to fetch actual road-routing directions between two coordinates via OSRM
+async function fetchMobileRoute(
+  start: { latitude: number; longitude: number }, 
+  end: { latitude: number; longitude: number }
+): Promise<{ latitude: number; longitude: number }[]> {
+  try {
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`
+    );
+    interface OSRMResponse {
+      code: string;
+      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+    }
+    const data = (await res.json()) as OSRMResponse;
+    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
+      const coords = data.routes[0].geometry.coordinates;
+      return coords.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
+    }
+  } catch (error) {
+    console.error("OSRM routing error:", error);
+  }
+  return [start, end]; // Fallback to straight line
+}
 
 export default function OrderTrackerScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -22,6 +46,7 @@ export default function OrderTrackerScreen() {
 
   const [hasPermission, setHasPermission] = useState(false);
   const mapRef = React.useRef<MapView>(null);
+  const [routeCoordinates, setRouteCoordinates] = useState<{ latitude: number; longitude: number }[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -30,7 +55,7 @@ export default function OrderTrackerScreen() {
 
     const startTracking = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
+      if (status !== Location.PermissionStatus.GRANTED) {
         Alert.alert("Permission to access location was denied");
         return;
       }
@@ -73,43 +98,74 @@ export default function OrderTrackerScreen() {
 
     void startTracking();
 
+    // Periodically broadcast our own location state in case the initial broadcast failed before the socket connected
+    const intervalId = setInterval(() => {
+      const isD = isDeliverer; // Capture current value
+      if (isD && delivererLocation) {
+        void broadcastLocation({ latitude: delivererLocation.latitude, longitude: delivererLocation.longitude, role: "deliverer" });
+      } else if (!isD && buyerLocation) {
+        void broadcastLocation({ latitude: buyerLocation.latitude, longitude: buyerLocation.longitude, role: "buyer" });
+      }
+    }, 5000);
+
     return () => {
       if (locationSubscription) {
         locationSubscription.remove();
       }
+      clearInterval(intervalId);
     };
-  }, [isDeliverer, id, broadcastLocation]);
+  }, [isDeliverer, id, broadcastLocation, delivererLocation, buyerLocation]);
 
-  if (isLoading || !order) {
+  const canteenCoords = order ? {
+    latitude: order.canteenLatitude,
+    longitude: order.canteenLongitude,
+  } : null;
+
+  const deliveryCoords = order ? {
+    latitude: order.deliveryLatitude,
+    longitude: order.deliveryLongitude,
+  } : null;
+
+  const startLoc = delivererLocation ??
+    (canteenCoords && (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0) ? canteenCoords : null);
+
+  const endLoc = buyerLocation ??
+    (deliveryCoords && (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0) ? deliveryCoords : null);
+
+  const sLat = startLoc?.latitude;
+  const sLng = startLoc?.longitude;
+  const eLat = endLoc?.latitude;
+  const eLng = endLoc?.longitude;
+
+  // Fetch actual street path when coordinates update
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setRouteCoordinates([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    void fetchMobileRoute({ latitude: sLat, longitude: sLng }, { latitude: eLat, longitude: eLng }).then((coords) => {
+      if (isMounted) {
+        setRouteCoordinates(coords);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sLat, sLng, eLat, eLng]);
+
+  if (isLoading || !order || !canteenCoords || !deliveryCoords) {
     return (
       <View className="flex-1 items-center justify-center bg-zinc-950">
         <ActivityIndicator size="large" color="#a855f7" />
       </View>
     );
   }
-
-  const canteenCoords = {
-    latitude: order.canteenLatitude,
-    longitude: order.canteenLongitude,
-  };
-
-  const deliveryCoords = {
-    latitude: order.deliveryLatitude,
-    longitude: order.deliveryLongitude,
-  };
-
-  const polylineCoords = [];
-  
-  const startLoc = delivererLocation 
-    ? delivererLocation 
-    : (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0 ? canteenCoords : null);
-
-  const endLoc = buyerLocation
-    ? buyerLocation
-    : (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0 ? deliveryCoords : null);
-
-  if (startLoc) polylineCoords.push(startLoc);
-  if (endLoc) polylineCoords.push(endLoc);
 
   return (
     <View className="flex-1 bg-zinc-950">
@@ -149,12 +205,11 @@ export default function OrderTrackerScreen() {
           <Marker coordinate={buyerLocation} title="Customer / Buyer" description={!isDeliverer ? "You" : undefined} pinColor="red" />
         )}
 
-        {polylineCoords.length === 2 && (
+        {routeCoordinates.length > 0 && (
           <Polyline 
-            coordinates={polylineCoords}
-            strokeColor="rgba(168, 85, 247, 0.5)"
-            strokeWidth={4}
-            lineDashPattern={[10, 10]}
+            coordinates={routeCoordinates}
+            strokeColor="rgba(168, 85, 247, 0.8)"
+            strokeWidth={5}
           />
         )}
       </MapView>

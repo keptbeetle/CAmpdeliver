@@ -607,7 +607,7 @@ function DashboardView({
               {(order.status === "ACCEPTED" || order.status === "PREPARING") && (
                 <View className="mt-4 border-t border-white/10 pt-4">
                   <Pressable
-                    onPress={() => router.push(`/order/${order.id}/tracker` as any)}
+                    onPress={() => router.push(`/order/${order.id}/tracker`)}
                     className="items-center justify-center rounded-xl border border-purple-500/50 bg-purple-500/10 py-3 active:bg-purple-500/20"
                   >
                     <Text className="text-sm font-bold text-purple-300">Open Tracker</Text>

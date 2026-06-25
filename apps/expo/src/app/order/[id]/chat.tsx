@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -73,7 +73,7 @@ export default function OrderChatScreen() {
             <View className={`mb-4 max-w-[80%] rounded-2xl p-4 ${isMe ? "self-end bg-purple-600 rounded-br-none" : "self-start bg-zinc-800 rounded-bl-none"}`}>
               {!isMe && (
                 <Text className="mb-1 text-[10px] font-bold text-zinc-400">
-                  {item.sender?.name || "User"}
+                  {item.sender.name || "User"}
                 </Text>
               )}
               <Text className="text-sm text-white">{item.message}</Text>

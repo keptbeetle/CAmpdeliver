@@ -10,7 +10,7 @@ interface LocationPayload {
 export function useOrderRealtime(orderId: string) {
   const [delivererLocation, setDelivererLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [buyerLocation, setBuyerLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const channelRef = useRef<any>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     if (!orderId) return;
@@ -22,7 +22,7 @@ export function useOrderRealtime(orderId: string) {
         const data = payload.payload as LocationPayload;
         if (data.role === "deliverer") {
           setDelivererLocation({ latitude: data.latitude, longitude: data.longitude });
-        } else if (data.role === "buyer") {
+        } else {
           setBuyerLocation({ latitude: data.latitude, longitude: data.longitude });
         }
       });
@@ -43,7 +43,7 @@ export function useOrderRealtime(orderId: string) {
     // Optimistically update local state immediately
     if (location.role === "deliverer") {
       setDelivererLocation({ latitude: location.latitude, longitude: location.longitude });
-    } else if (location.role === "buyer") {
+    } else {
       setBuyerLocation({ latitude: location.latitude, longitude: location.longitude });
     }
 

@@ -11,6 +11,7 @@ import { useTRPC } from "~/trpc/react";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 
 // Fix for default Leaflet icon not showing correctly in Next.js
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -51,6 +52,30 @@ function MapController({ center }: { center: [number, number] }) {
   return null;
 }
 
+// Helper to fetch actual road-routing directions between two coordinates via OSRM
+async function fetchRoute(start: [number, number], end: [number, number]): Promise<[number, number][]> {
+  const [lat1, lon1] = start;
+  const [lat2, lon2] = end;
+  try {
+    const res = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`
+    );
+    interface OSRMResponse {
+      code: string;
+      routes?: { geometry?: { coordinates?: [number, number][] } }[];
+    }
+    const data = (await res.json()) as OSRMResponse;
+    if (data.code === "Ok" && data.routes?.[0]?.geometry?.coordinates) {
+      const coords = data.routes[0].geometry.coordinates;
+      // OSRM returns coordinates as [lng, lat], convert to [lat, lng] for Leaflet
+      return coords.map(([lng, lat]) => [lat, lng]);
+    }
+  } catch (error) {
+    console.error("OSRM routing error:", error);
+  }
+  return [start, end]; // Fallback to straight line
+}
+
 export default function TrackerView({ orderId }: { orderId: string }) {
   const router = useRouter();
   const trpc = useTRPC();
@@ -64,13 +89,27 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(orderId);
   const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(null);
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]);
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+
+  const canteenCoords: [number, number] | null = order ? [order.canteenLatitude, order.canteenLongitude] : null;
+  const deliveryCoords: [number, number] | null = order ? [order.deliveryLatitude, order.deliveryLongitude] : null;
+
+  const startLoc: [number, number] | null = delivererLocation 
+    ? [delivererLocation.latitude, delivererLocation.longitude]
+    : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null);
+
+  const endLoc: [number, number] | null = buyerLocation
+    ? [buyerLocation.latitude, buyerLocation.longitude]
+    : (deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0) ? deliveryCoords : null);
 
   // Set initial map center to canteen coordinates if they are valid
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (order) {
       const canteenLat = order.canteenLatitude;
       const canteenLng = order.canteenLongitude;
       if (canteenLat !== 0 || canteenLng !== 0) {
+        // eslint-disable-next-line
         setMapCenter([canteenLat, canteenLng]);
       }
     }
@@ -111,8 +150,23 @@ export default function TrackerView({ orderId }: { orderId: string }) {
       }
     );
 
+    // Periodically broadcast the latest known location to ensure it reaches the other client
+    const intervalId = setInterval(() => {
+      setMyWebLocation((currentLoc) => {
+        if (currentLoc) {
+          void broadcastLocation({
+            latitude: currentLoc[0],
+            longitude: currentLoc[1],
+            role,
+          });
+        }
+        return currentLoc;
+      });
+    }, 5000);
+
     return () => {
       navigator.geolocation.clearWatch(watchId);
+      clearInterval(intervalId);
     };
   }, [isDeliverer, orderId, broadcastLocation]);
 
@@ -133,6 +187,33 @@ export default function TrackerView({ orderId }: { orderId: string }) {
     }
   };
 
+  const sLat = startLoc?.[0];
+  const sLng = startLoc?.[1];
+  const eLat = endLoc?.[0];
+  const eLng = endLoc?.[1];
+
+  // Fetch actual street path when coordinates update
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
+      // eslint-disable-next-line
+      setRouteCoordinates([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    void fetchRoute([sLat, sLng], [eLat, eLng]).then((coords) => {
+      if (isMounted) {
+        setRouteCoordinates(coords);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [sLat, sLng, eLat, eLng]);
+
   if (isLoading || !order) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -141,26 +222,11 @@ export default function TrackerView({ orderId }: { orderId: string }) {
     );
   }
 
-  const canteenCoords: [number, number] = [order.canteenLatitude, order.canteenLongitude];
-  const deliveryCoords: [number, number] = [order.deliveryLatitude, order.deliveryLongitude];
-
-  const polylinePositions: [number, number][] = [];
-  
-  const startLoc = delivererLocation 
-    ? ([delivererLocation.latitude, delivererLocation.longitude] as [number, number])
-    : (canteenCoords[0] !== 0 || canteenCoords[1] !== 0 ? canteenCoords : null);
-
-  const endLoc = buyerLocation
-    ? ([buyerLocation.latitude, buyerLocation.longitude] as [number, number])
-    : (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0 ? deliveryCoords : null);
-
-  if (startLoc) polylinePositions.push(startLoc);
-  if (endLoc) polylinePositions.push(endLoc);
-
   // Determine fallback center if mapCenter is uninitialized
   const displayCenter: [number, number] = mapCenter[0] !== 0 || mapCenter[1] !== 0 
     ? mapCenter 
-    : (canteenCoords[0] !== 0 || canteenCoords[1] !== 0 ? canteenCoords : [30.0, 70.0] as [number, number]);
+    : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : [30.0, 70.0] as [number, number]);
+
 
   return (
     <div className="relative flex h-full flex-col">
@@ -224,8 +290,8 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             </Marker>
           )}
 
-          {polylinePositions.length === 2 && (
-            <Polyline positions={polylinePositions} color="#a855f7" dashArray="5, 10" />
+          {routeCoordinates.length > 0 && (
+            <Polyline positions={routeCoordinates} color="#a855f7" weight={5} opacity={0.7} />
           )}
         </MapContainer>
 
