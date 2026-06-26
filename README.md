@@ -30,17 +30,26 @@ This project is structured as a monorepo using **Turborepo** and **pnpm**, utili
 
 ### Frontend (Web & Mobile Parity)
 Both the **Next.js Web Dashboard** and **Expo Mobile App** currently support:
-- **Authentication**: Sign up, login, and secure sessions via Supabase.
+- **Authentication (Phone-Based)**: 
+  - **Sign Up**: Requires Name, Hostel Name, Phone Number, and Password. The phone number is verified via a custom OTP verification step before account creation.
+  - **Login**: Requires only Phone Number and Password (no email required).
+  - **Under the hood**: Handles E.164 phone number sanitization and resolves authentication sessions using a virtual email scheme (`+91XXXXXXXXXX@campus.edu`) mapped directly to Supabase Auth.
+  - **Session Refresh**: Powered by Supabase SSR middleware to automatically refresh auth tokens and maintain stable sessions across tRPC requests on web.
 - **Wallet System**: Users can simulate topping up their campus wallet with a dummy UTR number.
 - **Canteen Menu**: A comprehensive menu system allowing students to build a cart and "Broadcast" orders to the campus network.
 - **Quest Board**: An "Available Quests" feed where other students can view and accept pending delivery requests.
 - **Order Management**: 
   - Buyers can track their order status (`PENDING` -> `ACCEPTED` -> `PREPARING` -> `DELIVERED`).
   - Deliverers have access to "Confirm Availability" (which freezes the buyer's funds) and "Reject (Unavailable)" actions to manage the order lifecycle.
+- **Real-time Chat**: Fully integrated instant messaging between Buyer and Deliverer powered by Supabase Realtime (WebSockets) for ultra-low latency.
+- **Map Tracker & Location Sharing**: 
+  - Once an order transitions to the tracking state, both users' real-time locations and the route between them are rendered on a live map interface.
+  - Features real-time distance calculations (displaying distance in meters/kilometers directly on the map tracking screen).
 
 ### Backend
 - **tRPC API**: Robust API layer handling complex transactions (e.g., wallet freezing, balance deductions, and crediting the deliverer upon successful completion).
-- **Database Schema**: Fully structured relational models for `profiles`, `orders`, and `order_items`.
+- **OTP & Verification System**: Rate-limited OTP generation and verification procedures to securely validate phone numbers before user registration.
+- **Database Schema**: Relational models for `profiles` (with `hostelName` and `phoneNumber`), `orders`, `order_items`, and `phone_verifications`.
 - **Validation**: Strict input validation using Zod on all endpoints.
 
 ## ⚙️ How to Run Locally

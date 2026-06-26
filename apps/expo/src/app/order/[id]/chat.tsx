@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
-import { View, Text, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Ionicons } from "@expo/vector-icons";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
@@ -14,6 +15,52 @@ export default function OrderChatScreen() {
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: messages, isLoading } = useQuery(trpc.chat.getMessages.queryOptions({ orderId: id }));
+  const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
+
+  const order = orders?.find((o) => o.id === id);
+  const showCallButton =
+    order &&
+    (order.status === "ACCEPTED" ||
+      order.status === "PREPARING" ||
+      order.status === "DELIVERED"); // Let's also support OUT_FOR_DELIVERY which might map to status, wait, the orders status enum was BROADCASTED, ACCEPTED, PREPARING, DELIVERED, COMPLETED, CANCELLED. We will show on ACCEPTED, PREPARING, DELIVERED. Wait, let's look at the instruction: "Only render this icon if the order status is currently ACCEPTED, PREPARING, or OUT_FOR_DELIVERY. Disable or hide it once the order is DELIVERED to prevent unwanted post-transaction contact."
+  // Wait! Our OrderStatus enum in schema.ts is:
+  // "BROADCASTED" | "ACCEPTED" | "PREPARING" | "DELIVERED" | "COMPLETED" | "CANCELLED"
+  // So the active tracking states are ACCEPTED and PREPARING! (Since there is no explicit OUT_FOR_DELIVERY in our enum, and once it's DELIVERED, we hide it).
+  const isCallShortcutVisible = order && (order.status === "ACCEPTED" || order.status === "PREPARING");
+
+  const [callLoading, setCallLoading] = useState(false);
+  const { refetch: refetchContactPhone } = useQuery({
+    ...trpc.order.getOrderContactPhoneNumber.queryOptions({ orderId: id }),
+    enabled: false,
+  });
+
+  const handleCallPress = async () => {
+    setCallLoading(true);
+    try {
+      const result = await refetchContactPhone();
+      if (!result.data?.phoneNumber) {
+        Alert.alert("Error", "Could not retrieve contact phone number.");
+        return;
+      }
+      
+      const phoneUrl = `tel:${result.data.phoneNumber}`;
+      const supported = await Linking.canOpenURL(phoneUrl);
+      
+      if (supported) {
+        await Linking.openURL(phoneUrl);
+      } else {
+        Alert.alert(
+          "Dialer Error",
+          "Cannot place call. This device does not support cellular dialing."
+        );
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : "Failed to retrieve contact number.";
+      Alert.alert("Error", msg);
+    } finally {
+      setCallLoading(false);
+    }
+  };
 
   const { broadcastChatEvent } = useOrderRealtime(id, {
     onChatUpdate: () => {
@@ -50,7 +97,26 @@ export default function OrderChatScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <Stack.Screen options={{ title: "Order Chat", headerTintColor: "#fff", headerStyle: { backgroundColor: "#09090b" } }} />
+      <Stack.Screen 
+        options={{ 
+          title: "Order Chat", 
+          headerTintColor: "#fff", 
+          headerStyle: { backgroundColor: "#09090b" },
+          headerRight: () => isCallShortcutVisible ? (
+            <Pressable 
+              onPress={handleCallPress} 
+              disabled={callLoading}
+              className="mr-2 p-2 active:opacity-75"
+            >
+              {callLoading ? (
+                <ActivityIndicator size="small" color="#a855f7" />
+              ) : (
+                <Ionicons name="call" size={20} color="#a855f7" />
+              )}
+            </Pressable>
+          ) : null
+        }} 
+      />
 
       <FlatList
         data={messages}

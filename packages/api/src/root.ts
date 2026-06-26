@@ -2,6 +2,7 @@ import { authRouter } from "./router/auth";
 import { orderRouter } from "./router/order";
 import { walletRouter } from "./router/wallet";
 import { chatRouter } from "./router/chat";
+import { otpRouter } from "./router/otp";
 import { createTRPCRouter } from "./trpc";
 
 export const appRouter = createTRPCRouter({
@@ -9,6 +10,7 @@ export const appRouter = createTRPCRouter({
   order: orderRouter,
   wallet: walletRouter,
   chat: chatRouter,
+  otp: otpRouter,
 });
 
 // export type definition of API

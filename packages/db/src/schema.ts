@@ -1,6 +1,7 @@
 import { relations } from "drizzle-orm";
 import {
   doublePrecision,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -17,6 +18,9 @@ export const profiles = pgTable("profiles", {
   id: uuid("id").primaryKey().notNull(), // Linked to auth.users.id
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
+  phoneNumber: text("phone_number").unique(),
+  rollNumber: text("roll_number"),
+  hostelName: text("hostel_name"),
   avatarUrl: text("avatar_url"),
   role: text("role").$type<UserRole>().default("STUDENT").notNull(),
   walletBalance: integer("wallet_balance").default(0).notNull(), // In paise (e.g. 10000 = ₹100.00)
@@ -128,3 +132,14 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
     references: [orders.id],
   }),
 }));
+
+// Phone OTP Verifications table
+export const phoneVerifications = pgTable("phone_verifications", {
+  id: uuid("id").defaultRandom().primaryKey().notNull(),
+  phoneNumber: text("phone_number").notNull(),
+  otpCode: text("otp_code").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index("idx_phone_verifications_lookup").on(table.phoneNumber, table.createdAt.desc()),
+]);
