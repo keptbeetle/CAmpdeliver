@@ -26,7 +26,7 @@ export const orderRouter = {
     .input(z.object({
       latitude: z.number().optional(),
       longitude: z.number().optional(),
-    }).optional())
+    }))
     .query(async ({ ctx, input }) => {
       const ordersList = await ctx.db
         .select()
@@ -58,9 +58,9 @@ export const orderRouter = {
       const toRad = (value: number) => (value * Math.PI) / 180;
       const R = 6371e3; // metres
 
+      console.log(`[availableQuests] Request from: lat ${input.latitude}, lon ${input.longitude}`);
+
       const filtered = ordersList.filter((order) => {
-        if (order.canteenLatitude === 0 && order.canteenLongitude === 0) return true; // mock data fallback
-        
         const lat1 = input.latitude!;
         const lon1 = input.longitude!;
         const lat2 = order.canteenLatitude;
@@ -79,7 +79,9 @@ export const orderRouter = {
         const distance = R * c; // in metres
 
         // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
-        const maxRadius = canteenRadiusMap.get(order.canteenId) ?? 150;
+        const maxRadius = (order.canteenId ? canteenRadiusMap.get(order.canteenId) : undefined) ?? 150;
+        
+        console.log(`[availableQuests] Order ${order.id} distance: ${distance}m, max allowed: ${maxRadius}m`);
 
         // Return only orders within the specific canteen's radius
         return distance <= maxRadius;

@@ -4,8 +4,9 @@ import * as TaskManager from "expo-task-manager";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { useQuery } from "@tanstack/react-query";
+import { Platform } from "react-native";
 
-import { trpc } from "~/utils/api";
+import { trpc, queryClient } from "~/utils/api";
 
 const GEOFENCE_TASK_NAME = "LOCATION_GEOFENCE_TASK";
 
@@ -20,6 +21,15 @@ Notifications.setNotificationHandler({
   }),
 });
 
+if (Platform.OS === "android") {
+  void Notifications.setNotificationChannelAsync("default", {
+    name: "default",
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: "#FF231F7C",
+  });
+}
+
 // eslint-disable-next-line @typescript-eslint/require-await
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   const { eventType, region } = data as { eventType: Location.GeofencingEventType, region: Location.LocationRegion };
@@ -32,19 +42,36 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   if (eventType === Location.GeofencingEventType.Enter) {
     console.log(`[GeofenceManager] User entered geofence region:`, region);
     
-    // Trigger local notification
-    void Notifications.scheduleNotificationAsync({
-      content: {
-        title: "Quest Available!",
-        body: `You are near ${region.identifier}! Want to accept a delivery quest?`,
-        sound: true,
-      },
-      trigger: null, // immediate
-    });
+    try {
+      // Check if there are actually any available quests at this canteen before notifying
+      // Using queryClient.fetchQuery to automatically handle Auth tokens and SuperJSON serialization
+      const quests = await queryClient.fetchQuery(
+        trpc.order.availableQuests.queryOptions({
+          latitude: region.latitude,
+          longitude: region.longitude,
+        } as any)
+      );
+      
+      if (quests && quests.length > 0) {
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: "Quest Available!",
+            body: `There are ${quests.length} active delivery quest(s) near ${region.identifier}!`,
+            sound: true,
+          },
+          trigger: null,
+        });
+      } else {
+        console.log(`[GeofenceManager] Entered ${region.identifier}, but no active quests. Suppressing notification.`);
+      }
+    } catch (e) {
+      console.warn("[GeofenceManager] Failed to check for active quests in background", e);
+    }
   } else {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (eventType === Location.GeofencingEventType.Exit) {
       console.log(`[GeofenceManager] User exited geofence region:`, region);
+      // Removed exit notification as requested
     }
   }
 });
@@ -86,7 +113,7 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
           longitude: c.longitude,
           radius: c.radius,
           notifyOnEntry: true,
-          notifyOnExit: false, // Or true if you want exit events
+          notifyOnExit: true,
         }));
 
         await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, regions);

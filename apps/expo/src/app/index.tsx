@@ -587,34 +587,61 @@ function DashboardView({
   );
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | undefined>();
 
-  const fetchLocation = async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserLocation({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        });
-      }
-    } catch (e) {
-      console.warn("Failed to get location for quests", e);
-    }
-  };
-
   useEffect(() => {
-    void fetchLocation();
+    let locationSubscription: Location.LocationSubscription | null = null;
+
+    const startWatching = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          // Get initial position quickly
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+
+          // Watch for live updates as the user moves
+          locationSubscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 3000,
+              distanceInterval: 5,
+            },
+            (newLocation) => {
+              setUserLocation({
+                latitude: newLocation.coords.latitude,
+                longitude: newLocation.coords.longitude,
+              });
+            }
+          );
+        }
+      } catch (e) {
+        console.warn("Failed to get location for quests", e);
+      }
+    };
+
+    void startWatching();
+
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
   }, []);
 
   const { data: availableQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions(userLocation)
+    trpc.order.availableQuests.queryOptions({
+      latitude: userLocation?.latitude,
+      longitude: userLocation?.longitude,
+    } as any)
   );
 
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchLocation(); // Refresh user location first
+    // Location is auto-tracked via watchPositionAsync, so no need to fetchLocation manually here
     await Promise.all([
       queryClient.invalidateQueries({
         queryKey: trpc.auth.getMyProfile.queryKey(),
