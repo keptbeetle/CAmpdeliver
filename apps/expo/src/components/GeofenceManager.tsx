@@ -30,7 +30,6 @@ if (Platform.OS === "android") {
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/require-await
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   const { eventType, region } = data as { eventType: Location.GeofencingEventType, region: Location.LocationRegion };
   if (error) {
@@ -49,14 +48,14 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
         trpc.order.availableQuests.queryOptions({
           latitude: region.latitude,
           longitude: region.longitude,
-        } as any)
+        })
       );
       
-      if (quests && quests.length > 0) {
+      if (quests.length > 0) {
         void Notifications.scheduleNotificationAsync({
           content: {
-            title: "Quest Available!",
-            body: `There are ${quests.length} active delivery quest(s) near ${region.identifier}!`,
+            title: "New Delivery Quests",
+            body: `${quests.length} Quests available!`,
             sound: true,
           },
           trigger: null,

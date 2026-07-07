@@ -1,9 +1,10 @@
-import type { Session, User } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,6 +12,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
@@ -538,6 +540,8 @@ function DashboardView({
 }) {
 
   const queryClient = useQueryClient();
+  // Map Modal State
+  const [selectedMapQuest, setSelectedMapQuest] = useState<{lat: number, lng: number, name: string} | null>(null);
   const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
@@ -593,7 +597,7 @@ function DashboardView({
     const startWatching = async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
+        if (status === Location.PermissionStatus.GRANTED) {
           // Get initial position quickly
           const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserLocation({
@@ -634,7 +638,7 @@ function DashboardView({
     ...trpc.order.availableQuests.queryOptions({
       latitude: userLocation?.latitude,
       longitude: userLocation?.longitude,
-    } as any),
+    }),
     enabled: !!userLocation,
   });
 
@@ -853,7 +857,7 @@ function DashboardView({
                     {quest.canteenName}
                   </Text>
                   <Text className="text-xs text-zinc-400">
-                    To: {quest.deliveryLocationName}
+                    To: {quest.nearestLandmarkName ?? quest.deliveryLocationName}
                   </Text>
                 </View>
                 <View className="items-end">
@@ -862,23 +866,29 @@ function DashboardView({
                   </Text>
                 </View>
               </View>
-              <Pressable
-                onPress={() =>
-                  acceptOrderMutation.mutate({ orderId: quest.id })
-                }
-                disabled={acceptOrderMutation.isPending}
-                className={`mt-4 items-center justify-center rounded-xl py-3 ${
-                  acceptOrderMutation.isPending
-                    ? "bg-purple-600/50"
-                    : "bg-purple-600 active:bg-purple-700"
-                }`}
-              >
-                <Text className="text-sm font-bold text-white">
-                  {acceptOrderMutation.isPending
-                    ? "Accepting..."
-                    : "Accept Quest"}
-                </Text>
-              </Pressable>
+              
+              <View className="mt-4 flex-row gap-2">
+                <Pressable
+                  onPress={() => setSelectedMapQuest({ lat: quest.deliveryLatitude, lng: quest.deliveryLongitude, name: quest.deliveryLocationName })}
+                  className="flex-1 items-center justify-center rounded-xl bg-zinc-800 py-3 active:bg-zinc-700"
+                >
+                  <Text className="text-sm font-bold text-white">📍 Location</Text>
+                </Pressable>
+                
+                <Pressable
+                  onPress={() => acceptOrderMutation.mutate({ orderId: quest.id })}
+                  disabled={acceptOrderMutation.isPending}
+                  className={`flex-1 items-center justify-center rounded-xl py-3 ${
+                    acceptOrderMutation.isPending
+                      ? "bg-purple-600/50"
+                      : "bg-purple-600 active:bg-purple-700"
+                  }`}
+                >
+                  <Text className="text-sm font-bold text-white">
+                    {acceptOrderMutation.isPending ? "Accepting..." : "Accept Quest"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ))
         ) : (
@@ -1013,6 +1023,41 @@ function DashboardView({
             </Text>
           </View>
         )}
+
+        {/* Location Map Modal */}
+        <Modal
+          visible={!!selectedMapQuest}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setSelectedMapQuest(null)}
+        >
+          <View className="flex-1 bg-black/90 p-4 pt-20">
+            <View className="flex-1 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
+              <View className="flex-row items-center justify-between border-b border-white/10 bg-zinc-900 p-4">
+                <Text className="text-lg font-bold text-white">Delivery Location</Text>
+                <Pressable onPress={() => setSelectedMapQuest(null)}>
+                  <Text className="text-lg font-bold text-purple-400">Close</Text>
+                </Pressable>
+              </View>
+              {selectedMapQuest && (
+                <MapView
+                  className="flex-1"
+                  initialRegion={{
+                    latitude: selectedMapQuest.lat,
+                    longitude: selectedMapQuest.lng,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005,
+                  }}
+                >
+                  <Marker
+                    coordinate={{ latitude: selectedMapQuest.lat, longitude: selectedMapQuest.lng }}
+                    title={selectedMapQuest.name}
+                  />
+                </MapView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     );
   } catch (err: unknown) {

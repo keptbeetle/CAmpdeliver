@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import { and, desc, eq, ne, or, sql } from "@acme/db";
-import { orders, profiles, walletTransactions, canteens } from "@acme/db/schema";
+import { canteens, landmarks, orders, profiles, walletTransactions } from "@acme/db/schema";
 
 import { protectedProcedure } from "../trpc";
 
@@ -40,7 +40,7 @@ export const orderRouter = {
         .orderBy(desc(orders.createdAt))
         .limit(50);
         
-      if (!input?.latitude || !input?.longitude) {
+      if (input.latitude === undefined || input.longitude === undefined) {
         // If location is not provided, return nothing or all? The user wants geofencing to hide them if not in area.
         return []; 
       }
@@ -54,17 +54,19 @@ export const orderRouter = {
       });
       const canteenRadiusMap = new Map(allCanteens.map(c => [c.id, c.radius]));
 
+      // Fetch all active landmarks for delivery context
+      const allLandmarks = await ctx.db.query.landmarks.findMany({
+        where: eq(landmarks.isActive, true),
+      });
+
       // Haversine formula to filter by dynamic radius
       const toRad = (value: number) => (value * Math.PI) / 180;
       const R = 6371e3; // metres
 
-      const fs = require('fs');
-      const logMsg = `[availableQuests] Request from: lat ${input.latitude}, lon ${input.longitude}\n`;
-      fs.appendFileSync('order-debug.txt', logMsg);
+      const lat1 = input.latitude;
+      const lon1 = input.longitude;
 
       const filtered = ordersList.filter((order) => {
-        const lat1 = input.latitude!;
-        const lon1 = input.longitude!;
         const lat2 = order.canteenLatitude;
         const lon2 = order.canteenLongitude;
 
@@ -82,15 +84,56 @@ export const orderRouter = {
 
         // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
         const maxRadius = (order.canteenId ? canteenRadiusMap.get(order.canteenId) : undefined) ?? 150;
-        
-        const distLog = `[availableQuests] Order ${order.id} distance: ${distance}m, max allowed: ${maxRadius}m\n`;
-        fs.appendFileSync('order-debug.txt', distLog);
 
         // Return only orders within the specific canteen's radius
         return distance <= maxRadius;
       });
 
-      return filtered;
+      // Add nearestLandmarkName to each order
+      const ordersWithLandmarks = filtered.map(order => {
+        let nearestLandmark = null;
+        let minDistance = Infinity;
+
+        for (const landmark of allLandmarks) {
+          const lat1 = order.deliveryLatitude;
+          const lon1 = order.deliveryLongitude;
+          const lat2 = landmark.latitude;
+          const lon2 = landmark.longitude;
+
+          const phi1 = toRad(lat1);
+          const phi2 = toRad(lat2);
+          const deltaPhi = toRad(lat2 - lat1);
+          const deltaLambda = toRad(lon2 - lon1);
+
+          const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                    Math.cos(phi1) * Math.cos(phi2) *
+                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+          const distance = R * c; // in metres
+
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestLandmark = landmark;
+          }
+        }
+
+        let nearestLandmarkName = null;
+        if (nearestLandmark) {
+          if (minDistance <= nearestLandmark.radius) {
+            nearestLandmarkName = nearestLandmark.name;
+          } else {
+            nearestLandmarkName = `near ${nearestLandmark.name}`;
+          }
+        }
+
+        return {
+          ...order,
+          nearestLandmarkName
+        };
+      });
+
+      return ordersWithLandmarks;
     }),
 
   createOrder: protectedProcedure

@@ -63,6 +63,21 @@ export const canteens = pgTable("canteens", {
     .$onUpdate(() => new Date()),
 });
 
+// Landmarks table
+export const landmarks = pgTable("landmarks", {
+  id: uuid("id").primaryKey().defaultRandom().notNull(),
+  name: text("name").notNull(),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  radius: integer("radius").default(50).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+});
+
 // Menu Items table
 export const menuItems = pgTable("menu_items", {
   id: uuid("id").primaryKey().defaultRandom().notNull(),

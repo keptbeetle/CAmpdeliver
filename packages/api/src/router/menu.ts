@@ -3,7 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 import { eq } from "@acme/db";
 import { menuItems } from "@acme/db/schema";
-import { adminProcedure, createTRPCRouter, publicProcedure } from "../trpc";
+import { adminProcedure, publicProcedure } from "../trpc";
 
 export const menuRouter = {
   listByCanteen: publicProcedure

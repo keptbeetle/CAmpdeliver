@@ -64,7 +64,7 @@ export function Dashboard() {
     trpc.order.myOrders.queryOptions(),
   );
   const { data: availableQuests, isLoading: isLoadingQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions(),
+    trpc.order.availableQuests.queryOptions({}),
   );
 
   const acceptOrderMutation = useMutation(
@@ -173,12 +173,20 @@ export function Dashboard() {
         </div>
         <div className="flex items-center gap-4">
           {profile.role === "ADMIN" && (
-            <Button
-              onClick={() => router.push("/admin/canteens")}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
-            >
-              Admin Panel
-            </Button>
+            <>
+              <Button
+                onClick={() => router.push("/admin/canteens")}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white"
+              >
+                Canteens
+              </Button>
+              <Button
+                onClick={() => router.push("/admin/landmarks")}
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                Landmarks
+              </Button>
+            </>
           )}
           <Button
             onClick={handleSignOut}
