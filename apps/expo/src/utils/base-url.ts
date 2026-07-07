@@ -17,8 +17,8 @@ export const getBaseUrl = () => {
   const localhost = debuggerHost?.split(":")[0];
 
   if (!localhost) {
-    // Fallback for Android emulator background tasks where hostUri is missing
-    return "http://10.0.2.2:3000";
+    // Fallback for standalone APK testing on physical device over Wi-Fi
+    return "http://10.216.55.121:3000";
   }
   return `http://${localhost}:3000`;
 };
