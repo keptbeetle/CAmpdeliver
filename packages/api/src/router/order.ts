@@ -58,7 +58,9 @@ export const orderRouter = {
       const toRad = (value: number) => (value * Math.PI) / 180;
       const R = 6371e3; // metres
 
-      console.log(`[availableQuests] Request from: lat ${input.latitude}, lon ${input.longitude}`);
+      const fs = require('fs');
+      const logMsg = `[availableQuests] Request from: lat ${input.latitude}, lon ${input.longitude}\n`;
+      fs.appendFileSync('order-debug.txt', logMsg);
 
       const filtered = ordersList.filter((order) => {
         const lat1 = input.latitude!;
@@ -81,7 +83,8 @@ export const orderRouter = {
         // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
         const maxRadius = (order.canteenId ? canteenRadiusMap.get(order.canteenId) : undefined) ?? 150;
         
-        console.log(`[availableQuests] Order ${order.id} distance: ${distance}m, max allowed: ${maxRadius}m`);
+        const distLog = `[availableQuests] Order ${order.id} distance: ${distance}m, max allowed: ${maxRadius}m\n`;
+        fs.appendFileSync('order-debug.txt', distLog);
 
         // Return only orders within the specific canteen's radius
         return distance <= maxRadius;

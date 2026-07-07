@@ -1,0 +1,8 @@
+[availableQuests] Request from: lat 23.176685, lon 80.0223617
+[availableQuests] Order 5a810bd7-e457-40d2-87f8-5e44846b5a31 distance: 149.59352517875982m, max allowed: 70m
+[availableQuests] Request from: lat 23.1780097266814, lon 80.0226168190046
+[availableQuests] Order 5a810bd7-e457-40d2-87f8-5e44846b5a31 distance: 0m, max allowed: 70m
+[availableQuests] Request from: lat 23.1777117, lon 80.0224333
+[availableQuests] Order 5a810bd7-e457-40d2-87f8-5e44846b5a31 distance: 38.080303304433606m, max allowed: 70m
+[availableQuests] Request from: lat 23.1777117, lon 80.0224333
+[availableQuests] Request from: lat 23.1777117, lon 80.0224333

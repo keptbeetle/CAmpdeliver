@@ -17,10 +17,8 @@ export const getBaseUrl = () => {
   const localhost = debuggerHost?.split(":")[0];
 
   if (!localhost) {
-    // return "https://turbo.t3.gg";
-    throw new Error(
-      "Failed to get localhost. Please point to your production server.",
-    );
+    // Fallback for Android emulator background tasks where hostUri is missing
+    return "http://10.0.2.2:3000";
   }
   return `http://${localhost}:3000`;
 };

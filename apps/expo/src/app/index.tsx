@@ -630,12 +630,13 @@ function DashboardView({
     };
   }, []);
 
-  const { data: availableQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions({
+  const { data: availableQuests } = useQuery({
+    ...trpc.order.availableQuests.queryOptions({
       latitude: userLocation?.latitude,
       longitude: userLocation?.longitude,
-    } as any)
-  );
+    } as any),
+    enabled: !!userLocation,
+  });
 
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
