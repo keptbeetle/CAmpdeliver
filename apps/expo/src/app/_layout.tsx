@@ -6,6 +6,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 import { queryClient } from "~/utils/api";
 import { GlobalTracker } from "~/components/GlobalTracker";
+import { GeofenceManager } from "~/components/GeofenceManager";
 
 import "../styles.css";
 
@@ -21,18 +22,20 @@ export default function RootLayout() {
             The Stack component displays the current page.
             It also allows you to configure your screens 
           */}
-        <Stack
-          screenOptions={{
-            headerStyle: {
-              backgroundColor: "#c03484",
-            },
-            contentStyle: {
-              backgroundColor: colorScheme == "dark" ? "#09090B" : "#FFFFFF",
-            },
-          }}
-        />
-        <GlobalTracker />
-        <StatusBar />
+        <GeofenceManager>
+          <Stack
+            screenOptions={{
+              headerStyle: {
+                backgroundColor: "#c03484",
+              },
+              contentStyle: {
+                backgroundColor: colorScheme == "dark" ? "#09090B" : "#FFFFFF",
+              },
+            }}
+          />
+          <GlobalTracker />
+          <StatusBar />
+        </GeofenceManager>
       </SafeAreaProvider>
     </QueryClientProvider>
   );

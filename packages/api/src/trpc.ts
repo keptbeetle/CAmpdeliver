@@ -13,6 +13,8 @@ import superjson from "superjson";
 import { z, ZodError } from "zod/v4";
 
 import { db } from "@acme/db/client";
+import { profiles } from "@acme/db/schema";
+import { eq } from "@acme/db";
 
 /**
  * 1. CONTEXT
@@ -170,3 +172,29 @@ export const protectedProcedure = t.procedure
       },
     });
   });
+
+/**
+ * Admin procedure
+ *
+ * Only accessible to users with the ADMIN role.
+ */
+export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const [profile] = await ctx.db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.id, ctx.user.id))
+    .limit(1);
+
+  if (profile?.role !== "ADMIN") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Only administrators can perform this action",
+    });
+  }
+
+  return next({
+    ctx: {
+      profile,
+    },
+  });
+});

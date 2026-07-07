@@ -6,7 +6,7 @@ import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "~/trpc/react";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 
@@ -126,7 +126,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const order = orders?.find((o) => o.id === orderId);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(orderId, {
+  const { delivererLocation, buyerLocation } = useOrderRealtime(orderId, {
     onOrderUpdate: () => {
       void queryClient.invalidateQueries({
         queryKey: trpc.order.myOrders.queryKey(),
@@ -146,24 +146,26 @@ export default function TrackerView({ orderId }: { orderId: string }) {
 
   const startLoc: [number, number] | null = delivererLocation 
     ? [delivererLocation.latitude, delivererLocation.longitude]
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     : (order?.delivererLatitude && order?.delivererLongitude 
         ? [order.delivererLatitude, order.delivererLongitude] 
         : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null));
 
   const endLoc: [number, number] | null = buyerLocation
     ? [buyerLocation.latitude, buyerLocation.longitude]
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     : (order?.buyerLatitude && order?.buyerLongitude 
         ? [order.buyerLatitude, order.buyerLongitude] 
         : (deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0) ? deliveryCoords : null));
 
   // Set initial map center to canteen coordinates if they are valid
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (order) {
       const canteenLat = order.canteenLatitude;
       const canteenLng = order.canteenLongitude;
       if (canteenLat !== 0 || canteenLng !== 0) {
-        // eslint-disable-next-line
+        // eslint-disable-next-line react-hooks/set-state-in-effect 
         setMapCenter([canteenLat, canteenLng]);
       }
     }
@@ -222,11 +224,12 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const eLng = endLoc?.[1];
 
   // Fetch actual street path when coordinates update
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
-      // eslint-disable-next-line
+      // eslint-disable-next-line react-hooks/set-state-in-effect 
       setRouteCoordinates([]);
+       
       setDistance(null);
       return;
     }

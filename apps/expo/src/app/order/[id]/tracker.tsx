@@ -3,7 +3,7 @@ import { View, Text, Pressable, ActivityIndicator, Alert } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapView, { Marker, Polyline, UrlTile, PROVIDER_DEFAULT } from "react-native-maps";
 import * as Location from "expo-location";
-import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
@@ -78,11 +78,12 @@ export default function OrderTrackerScreen() {
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: orders, isLoading } = useQuery(trpc.order.myOrders.queryOptions());
+  const { data: activeCanteens } = useQuery(trpc.canteen.listActive.queryOptions());
   
   const order = orders?.find((o) => o.id === id);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation, broadcastLocation } = useOrderRealtime(id, {
+  const { delivererLocation, buyerLocation } = useOrderRealtime(id, {
     onOrderUpdate: () => {
       void queryClient.invalidateQueries({
         queryKey: trpc.order.myOrders.queryKey(),
@@ -124,11 +125,13 @@ export default function OrderTrackerScreen() {
   } : null;
 
   const startLoc = delivererLocation ??
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     (order?.delivererLatitude && order?.delivererLongitude 
       ? { latitude: order.delivererLatitude, longitude: order.delivererLongitude }
       : (canteenCoords && (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0) ? canteenCoords : null));
 
   const endLoc = buyerLocation ??
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     (order?.buyerLatitude && order?.buyerLongitude 
       ? { latitude: order.buyerLatitude, longitude: order.buyerLongitude }
       : (deliveryCoords && (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0) ? deliveryCoords : null));
@@ -139,11 +142,12 @@ export default function OrderTrackerScreen() {
   const eLng = endLoc?.longitude;
 
   // Fetch actual street path when coordinates update
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   useEffect(() => {
     if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect 
       setRouteCoordinates([]);
+       
       setDistance(null);
       return;
     }
@@ -195,8 +199,17 @@ export default function OrderTrackerScreen() {
         />
 
         {canteenCoords.latitude !== 0 && canteenCoords.longitude !== 0 && (
-          <Marker coordinate={canteenCoords} title="Canteen" description={order.canteenName} pinColor="blue" />
+          <Marker coordinate={canteenCoords} title="Selected Canteen" description={order.canteenName} pinColor="blue" />
         )}
+        {activeCanteens?.filter(c => c.name !== order.canteenName).map((c) => (
+          <Marker
+            key={c.id}
+            coordinate={{ latitude: c.latitude, longitude: c.longitude }}
+            title={c.name}
+            description="Active Canteen"
+            pinColor="teal"
+          />
+        ))}
         {deliveryCoords.latitude !== 0 && deliveryCoords.longitude !== 0 && (
           <Marker coordinate={deliveryCoords} title="Dropoff" description={order.deliveryLocationName} pinColor="green" />
         )}

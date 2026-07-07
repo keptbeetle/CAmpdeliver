@@ -41,6 +41,7 @@ export const authRouter = {
       return newProfile;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (!profile.phoneNumber && profile.email?.endsWith("@campus.edu")) {
       const extractedPhone = profile.email.replace("@campus.edu", "");
       const [updatedProfile] = await ctx.db

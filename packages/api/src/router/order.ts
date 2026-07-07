@@ -2,7 +2,7 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 
 import { and, desc, eq, ne, or, sql } from "@acme/db";
-import { orders, profiles, walletTransactions } from "@acme/db/schema";
+import { orders, profiles, walletTransactions, canteens } from "@acme/db/schema";
 
 import { protectedProcedure } from "../trpc";
 
@@ -40,12 +40,20 @@ export const orderRouter = {
       if (!val || typeof val !== "object") throw new Error("Invalid input");
       const v = val as {
         items: { name: string; quantity: number; price: number }[];
-        canteenName: string;
+        canteenId: string;
         deliveryLocationName: string;
       };
       return v;
     })
     .mutation(async ({ ctx, input }) => {
+      const canteen = await ctx.db.query.canteens.findFirst({
+        where: eq(canteens.id, input.canteenId),
+      });
+
+      if (!canteen) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Canteen not found" });
+      }
+
       // Calculate total food price
       const foodPrice = input.items.reduce(
         (sum, item) => sum + item.price * item.quantity,
@@ -61,9 +69,10 @@ export const orderRouter = {
           items: input.items,
           foodPrice,
           deliveryFee,
-          canteenName: input.canteenName,
-          canteenLatitude: 0, // Mock for now
-          canteenLongitude: 0,
+          canteenId: canteen.id,
+          canteenName: canteen.name,
+          canteenLatitude: canteen.latitude,
+          canteenLongitude: canteen.longitude,
           deliveryLocationName: input.deliveryLocationName,
           deliveryLatitude: 0,
           deliveryLongitude: 0,
@@ -358,6 +367,7 @@ export const orderRouter = {
       });
 
       let phoneNumber = contactProfile?.phoneNumber;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (!phoneNumber && contactProfile?.email?.endsWith("@campus.edu")) {
         phoneNumber = contactProfile.email.replace("@campus.edu", "");
       }

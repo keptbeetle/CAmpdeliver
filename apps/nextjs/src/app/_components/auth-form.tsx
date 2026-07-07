@@ -115,6 +115,7 @@ export function AuthForm() {
         });
         if (error) throw error;
       } else {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         const virtualEmail = result.user?.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
         const { error } = await supabaseClient.auth.signInWithPassword({
           email: virtualEmail,

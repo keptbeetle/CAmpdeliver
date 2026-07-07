@@ -38,7 +38,7 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
             "x-trpc-source": "expo-react",
           };
           if (token) {
-            headers["Authorization"] = `Bearer ${token}`;
+            headers.Authorization = `Bearer ${token}`;
           }
           return headers;
         },

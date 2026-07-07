@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { View, Text, TextInput, Pressable, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, Linking } from "react-native";
 import { useLocalSearchParams, Stack } from "expo-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -6,7 +6,6 @@ import { Ionicons } from "@expo/vector-icons";
 
 import { trpc } from "~/utils/api";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
-import { supabase } from "~/utils/auth";
 
 export default function OrderChatScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -18,11 +17,7 @@ export default function OrderChatScreen() {
   const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
 
   const order = orders?.find((o) => o.id === id);
-  const showCallButton =
-    order &&
-    (order.status === "ACCEPTED" ||
-      order.status === "PREPARING" ||
-      order.status === "DELIVERED"); // Let's also support OUT_FOR_DELIVERY which might map to status, wait, the orders status enum was BROADCASTED, ACCEPTED, PREPARING, DELIVERED, COMPLETED, CANCELLED. We will show on ACCEPTED, PREPARING, DELIVERED. Wait, let's look at the instruction: "Only render this icon if the order status is currently ACCEPTED, PREPARING, or OUT_FOR_DELIVERY. Disable or hide it once the order is DELIVERED to prevent unwanted post-transaction contact."
+
   // Wait! Our OrderStatus enum in schema.ts is:
   // "BROADCASTED" | "ACCEPTED" | "PREPARING" | "DELIVERED" | "COMPLETED" | "CANCELLED"
   // So the active tracking states are ACCEPTED and PREPARING! (Since there is no explicit OUT_FOR_DELIVERY in our enum, and once it's DELIVERED, we hide it).

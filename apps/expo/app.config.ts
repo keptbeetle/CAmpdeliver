@@ -68,9 +68,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-location",
       {
         locationAlwaysAndWhenInUsePermission:
-          "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
+          "Allow CAmpDeliver to use your location to check if you are near a canteen.",
         locationWhenInUsePermission:
           "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
+        isAndroidBackgroundLocationEnabled: true,
       },
     ],
   ],

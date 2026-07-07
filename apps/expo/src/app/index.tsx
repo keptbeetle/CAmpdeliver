@@ -524,17 +524,15 @@ export default function Index() {
         </ScrollView>
       ) : (
         // DASHBOARD SCREEN
-        <DashboardView user={session.user} onSignOut={handleSignOut} />
+        <DashboardView onSignOut={handleSignOut} />
       )}
     </SafeAreaView>
   );
 }
 
 function DashboardView({
-  user,
   onSignOut,
 }: {
-  user: User;
   onSignOut: () => void;
 }) {
 
@@ -583,7 +581,7 @@ function DashboardView({
   } = useQuery(trpc.auth.getMyProfile.queryOptions());
 
   // Fetch orders via tRPC
-  const { data: orders, error: ordersError } = useQuery(
+  const { data: orders } = useQuery(
     trpc.order.myOrders.queryOptions(),
   );
   const { data: availableQuests } = useQuery(

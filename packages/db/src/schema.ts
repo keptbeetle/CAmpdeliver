@@ -8,6 +8,7 @@ import {
   text,
   timestamp,
   uuid,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 // Roles enum: STUDENT, DELIVERER, ADMIN
@@ -47,6 +48,37 @@ export interface OrderItem {
   price: number; // In paise
 }
 
+// Canteens table
+export const canteens = pgTable("canteens", {
+  id: uuid("id").primaryKey().defaultRandom().notNull(),
+  name: text("name").notNull(),
+  latitude: doublePrecision("latitude").notNull(),
+  longitude: doublePrecision("longitude").notNull(),
+  radius: integer("radius").default(50).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+});
+
+// Menu Items table
+export const menuItems = pgTable("menu_items", {
+  id: uuid("id").primaryKey().defaultRandom().notNull(),
+  canteenId: uuid("canteen_id")
+    .references(() => canteens.id, { onDelete: "cascade" })
+    .notNull(),
+  name: text("name").notNull(),
+  price: integer("price").notNull(), // In paise
+  isAvailable: boolean("is_available").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at")
+    .defaultNow()
+    .notNull()
+    .$onUpdate(() => new Date()),
+});
+
 // Orders table
 export const orders = pgTable("orders", {
   id: uuid("id").primaryKey().defaultRandom().notNull(),
@@ -54,6 +86,9 @@ export const orders = pgTable("orders", {
     .references(() => profiles.id, { onDelete: "cascade" })
     .notNull(),
   delivererId: uuid("deliverer_id").references(() => profiles.id, {
+    onDelete: "set null",
+  }),
+  canteenId: uuid("canteen_id").references(() => canteens.id, {
     onDelete: "set null",
   }),
   status: text("status").$type<OrderStatus>().default("BROADCASTED").notNull(),
@@ -77,6 +112,25 @@ export const orders = pgTable("orders", {
     .notNull()
     .$onUpdate(() => new Date()),
 });
+
+export const canteensRelations = relations(canteens, ({ many }) => ({
+  menuItems: many(menuItems),
+  orders: many(orders),
+}));
+
+export const menuItemsRelations = relations(menuItems, ({ one }) => ({
+  canteen: one(canteens, {
+    fields: [menuItems.canteenId],
+    references: [canteens.id],
+  }),
+}));
+
+export const ordersRelations = relations(orders, ({ one }) => ({
+  canteen: one(canteens, {
+    fields: [orders.canteenId],
+    references: [canteens.id],
+  }),
+}));
 
 // Wallet Transaction types: TOP_UP, ORDER_FREEZE, ORDER_UNFREEZE, DELIVERY_PAYOUT, ADMIN_COMMISSION, REFUND
 export type TransactionType =
