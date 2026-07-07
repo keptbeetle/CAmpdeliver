@@ -587,21 +587,23 @@ function DashboardView({
   );
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | undefined>();
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          setUserLocation({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          });
-        }
-      } catch (e) {
-        console.warn("Failed to get location for quests", e);
+  const fetchLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === "granted") {
+        const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
       }
-    })();
+    } catch (e) {
+      console.warn("Failed to get location for quests", e);
+    }
+  };
+
+  useEffect(() => {
+    void fetchLocation();
   }, []);
 
   const { data: availableQuests } = useQuery(
@@ -612,6 +614,7 @@ function DashboardView({
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    await fetchLocation(); // Refresh user location first
     await Promise.all([
       queryClient.invalidateQueries({
         queryKey: trpc.auth.getMyProfile.queryKey(),
