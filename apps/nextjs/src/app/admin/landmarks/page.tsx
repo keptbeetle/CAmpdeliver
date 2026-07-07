@@ -37,7 +37,10 @@ export default function AdminLandmarksPage() {
       setFormData({ name: "", latitude: 30.0, longitude: 70.0, radius: 150, isActive: true });
       void queryClient.invalidateQueries({ queryKey: trpc.landmark.listAll.queryKey() });
     },
-    onError: (e) => alert(`Failed to create landmark: ${e.message}`)
+    onError: (e) => {
+      console.error("Create Landmark Error:", e);
+      alert(`Failed to create landmark: ${e.message}`);
+    }
   }));
 
   const updateLandmark = useMutation(trpc.landmark.update.mutationOptions({
@@ -45,7 +48,10 @@ export default function AdminLandmarksPage() {
       alert("Landmark updated successfully!");
       void queryClient.invalidateQueries({ queryKey: trpc.landmark.listAll.queryKey() });
     },
-    onError: (e) => alert(`Failed to update landmark: ${e.message}`)
+    onError: (e) => {
+      console.error("Update Landmark Error:", e);
+      alert(`Failed to update landmark: ${e.message}`);
+    }
   }));
 
   const deleteLandmark = useMutation(trpc.landmark.delete.mutationOptions({
@@ -54,13 +60,20 @@ export default function AdminLandmarksPage() {
       setSelectedLandmarkId(null);
       void queryClient.invalidateQueries({ queryKey: trpc.landmark.listAll.queryKey() });
     },
-    onError: (e) => alert(`Failed to delete landmark: ${e.message}`)
+    onError: (e) => {
+      console.error("Delete Landmark Error:", e);
+      alert(`Failed to delete landmark: ${e.message}`);
+    }
   }));
 
   if (isProfileLoading) return <div className="p-12 text-white">Loading...</div>;
   if (profile?.role !== "ADMIN") return <div className="p-12 text-white">Access Denied</div>;
 
   const handleSaveLandmark = () => {
+    if (!formData.name.trim()) {
+      alert("Please enter a name for the landmark.");
+      return;
+    }
     if (selectedLandmarkId) {
       updateLandmark.mutate({ id: selectedLandmarkId, ...formData });
     } else {

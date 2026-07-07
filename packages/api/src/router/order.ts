@@ -143,6 +143,8 @@ export const orderRouter = {
         items: { name: string; quantity: number; price: number }[];
         canteenId: string;
         deliveryLocationName: string;
+        deliveryLatitude: number;
+        deliveryLongitude: number;
       };
       return v;
     })
@@ -175,8 +177,8 @@ export const orderRouter = {
           canteenLatitude: canteen.latitude,
           canteenLongitude: canteen.longitude,
           deliveryLocationName: input.deliveryLocationName,
-          deliveryLatitude: 0,
-          deliveryLongitude: 0,
+          deliveryLatitude: input.deliveryLatitude,
+          deliveryLongitude: input.deliveryLongitude,
           otp: Math.floor(1000 + Math.random() * 9000).toString(), // Mock OTP
         })
         .returning();

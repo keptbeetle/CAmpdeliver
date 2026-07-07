@@ -99,6 +99,8 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         quantity: c.quantity,
       })),
       deliveryLocationName: "My Hostel Room", // Hardcoded for demo
+      deliveryLatitude: 30.0,
+      deliveryLongitude: 78.0,
     });
   };
 

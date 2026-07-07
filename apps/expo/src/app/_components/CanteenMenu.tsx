@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import * as Location from "expo-location";
 
 import { trpc } from "~/utils/api";
 
@@ -19,6 +20,8 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
   const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
   const selectedCanteen = canteens?.find((c) => c.id === activeCanteenId);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [deliveryLocation, setDeliveryLocation] = useState("");
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
@@ -75,21 +78,46 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   const deliveryFee = 500; // 5 rupees default
   const totalCost = totalFoodPrice + deliveryFee;
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cart.length === 0) {
       Alert.alert("Notice", "Cart is empty");
       return;
     }
+    if (!deliveryLocation.trim()) {
+      Alert.alert("Notice", "Please enter your delivery location (e.g. Room 304)");
+      return;
+    }
 
-    createOrderMutation.mutate({
-      canteenId: selectedCanteen?.id ?? "",
-      items: cart.map((c) => ({
-        name: c.name,
-        price: c.price,
-        quantity: c.quantity,
-      })),
-      deliveryLocationName: "My Hostel Room", // Hardcoded for demo
-    });
+    setPlacingOrder(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert("Permission Denied", "Location permission is required to place an order.");
+        setPlacingOrder(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      await createOrderMutation.mutateAsync({
+        canteenId: selectedCanteen?.id ?? "",
+        items: cart.map((c) => ({
+          name: c.name,
+          price: c.price,
+          quantity: c.quantity,
+        })),
+        deliveryLocationName: deliveryLocation.trim(),
+        deliveryLatitude: location.coords.latitude,
+        deliveryLongitude: location.coords.longitude,
+      });
+    } catch (e) {
+      console.error("Failed to place order:", e);
+      Alert.alert("Error", "Could not get your location to place the order.");
+    } finally {
+      setPlacingOrder(false);
+    }
   };
 
   const formatCurrency = (paise: number) => {
@@ -156,6 +184,19 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         )}
       </View>
 
+      <View className="mb-6 rounded-2xl border border-white/5 bg-black/20 p-4">
+        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
+          Delivery Details
+        </Text>
+        <TextInput
+          className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
+          placeholder="e.g. Room 304, Block C"
+          placeholderTextColor="#52525b"
+          value={deliveryLocation}
+          onChangeText={setDeliveryLocation}
+        />
+      </View>
+
       <View className="rounded-2xl border border-white/5 bg-black/20 p-4">
         <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
           Your Cart
@@ -211,15 +252,17 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
             <Pressable
               onPress={handlePlaceOrder}
-              disabled={createOrderMutation.isPending}
+              disabled={placingOrder || createOrderMutation.isPending}
               className={`mt-6 items-center justify-center rounded-xl py-4 ${
-                createOrderMutation.isPending
+                placingOrder || createOrderMutation.isPending
                   ? "bg-indigo-600/50"
                   : "bg-indigo-600 active:bg-indigo-700"
               }`}
             >
               <Text className="text-base font-extrabold text-white">
-                {createOrderMutation.isPending
+                {placingOrder
+                  ? "Locating..."
+                  : createOrderMutation.isPending
                   ? "Broadcasting..."
                   : "Broadcast Order"}
               </Text>

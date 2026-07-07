@@ -17,6 +17,7 @@ import * as Location from "expo-location";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Notifications from "expo-notifications";
 
 import { CanteenMenu } from "~/app/_components/CanteenMenu";
 import { trpc } from "~/utils/api";
@@ -642,6 +643,44 @@ function DashboardView({
     enabled: !!userLocation,
   });
 
+  const notifiedQuestIdsRef = useRef<Set<string>>(new Set());
+
+  // Watch availableQuests to trigger sequential local push notifications for stationary users
+  useEffect(() => {
+    if (!availableQuests) return;
+
+    // First load: just populate the set so we don't spam notifications for already existing quests
+    if (notifiedQuestIdsRef.current.size === 0) {
+      availableQuests.forEach((q) => notifiedQuestIdsRef.current.add(q.id));
+      return;
+    }
+
+    // Subsequent updates: check for new quests
+    availableQuests.forEach((q) => {
+      if (!notifiedQuestIdsRef.current.has(q.id)) {
+        notifiedQuestIdsRef.current.add(q.id);
+
+        // Trigger a notification for this specific new quest
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: `New Quest: ${q.canteenName}`,
+            body: `Deliver to ${q.deliveryLocationName}${q.nearestLandmarkName ? ` (${q.nearestLandmarkName})` : ""}`,
+            sound: true,
+          },
+          trigger: null,
+        });
+      }
+    });
+
+    // Cleanup old IDs that are no longer available to avoid memory growth
+    const currentIds = new Set(availableQuests.map((q) => q.id));
+    notifiedQuestIdsRef.current.forEach((id) => {
+      if (!currentIds.has(id)) {
+        notifiedQuestIdsRef.current.delete(id);
+      }
+    });
+  }, [availableQuests]);
+
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
@@ -857,7 +896,7 @@ function DashboardView({
                     {quest.canteenName}
                   </Text>
                   <Text className="text-xs text-zinc-400">
-                    To: {quest.nearestLandmarkName ?? quest.deliveryLocationName}
+                    To: {quest.deliveryLocationName}{quest.nearestLandmarkName ? ` (${quest.nearestLandmarkName})` : ""}
                   </Text>
                 </View>
                 <View className="items-end">
