@@ -37,6 +37,11 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         ]
       }
     ],
+    config: {
+      googleMaps: {
+        apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSy_DummyKeyToPreventCrash_123456",
+      },
+    },
   },
   // extra: {
   //   eas: {

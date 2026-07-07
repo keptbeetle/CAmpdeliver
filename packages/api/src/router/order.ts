@@ -1,5 +1,6 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod/v4";
 
 import { and, desc, eq, ne, or, sql } from "@acme/db";
 import { orders, profiles, walletTransactions, canteens } from "@acme/db/schema";
@@ -21,19 +22,71 @@ export const orderRouter = {
       .limit(10);
   }),
 
-  availableQuests: protectedProcedure.query(({ ctx }) => {
-    return ctx.db
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.status, "BROADCASTED"),
-          ne(orders.buyerId, ctx.user.id), // Can't accept your own orders
-        ),
-      )
-      .orderBy(desc(orders.createdAt))
-      .limit(10);
-  }),
+  availableQuests: protectedProcedure
+    .input(z.object({
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+    }).optional())
+    .query(async ({ ctx, input }) => {
+      const ordersList = await ctx.db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.status, "BROADCASTED"),
+            ne(orders.buyerId, ctx.user.id), // Can't accept your own orders
+          ),
+        )
+        .orderBy(desc(orders.createdAt))
+        .limit(50);
+        
+      if (!input?.latitude || !input?.longitude) {
+        // If location is not provided, return nothing or all? The user wants geofencing to hide them if not in area.
+        return []; 
+      }
+
+      // Fetch all canteens to get their defined radius
+      const allCanteens = await ctx.db.query.canteens.findMany({
+        columns: {
+          id: true,
+          radius: true,
+        },
+      });
+      const canteenRadiusMap = new Map(allCanteens.map(c => [c.id, c.radius]));
+
+      // Haversine formula to filter by dynamic radius
+      const toRad = (value: number) => (value * Math.PI) / 180;
+      const R = 6371e3; // metres
+
+      const filtered = ordersList.filter((order) => {
+        if (order.canteenLatitude === 0 && order.canteenLongitude === 0) return true; // mock data fallback
+        
+        const lat1 = input.latitude!;
+        const lon1 = input.longitude!;
+        const lat2 = order.canteenLatitude;
+        const lon2 = order.canteenLongitude;
+
+        const phi1 = toRad(lat1);
+        const phi2 = toRad(lat2);
+        const deltaPhi = toRad(lat2 - lat1);
+        const deltaLambda = toRad(lon2 - lon1);
+
+        const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                  Math.cos(phi1) * Math.cos(phi2) *
+                  Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        const distance = R * c; // in metres
+
+        // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
+        const maxRadius = canteenRadiusMap.get(order.canteenId) ?? 150;
+
+        // Return only orders within the specific canteen's radius
+        return distance <= maxRadius;
+      });
+
+      return filtered;
+    }),
 
   createOrder: protectedProcedure
     .input((val: unknown) => {

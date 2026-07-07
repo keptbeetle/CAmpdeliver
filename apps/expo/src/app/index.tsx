@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as Location from "expo-location";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -584,8 +585,27 @@ function DashboardView({
   const { data: orders } = useQuery(
     trpc.order.myOrders.queryOptions(),
   );
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | undefined>();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === "granted") {
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to get location for quests", e);
+      }
+    })();
+  }, []);
+
   const { data: availableQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions(),
+    trpc.order.availableQuests.queryOptions(userLocation)
   );
 
   const router = useRouter();
