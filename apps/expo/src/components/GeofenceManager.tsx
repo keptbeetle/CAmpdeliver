@@ -30,6 +30,18 @@ if (Platform.OS === "android") {
   });
 }
 
+const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371e3;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaPhi = ((lat2 - lat1) * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   const { eventType, region } = data as { eventType: Location.GeofencingEventType, region: Location.LocationRegion };
   if (error) {
@@ -37,13 +49,10 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
     return;
   }
 
-  // region object will have identifier, latitude, longitude, radius
   if (eventType === Location.GeofencingEventType.Enter) {
     console.log(`[GeofenceManager] User entered geofence region:`, region);
     
     try {
-      // Check if there are actually any available quests at this canteen before notifying
-      // Using queryClient.fetchQuery to automatically handle Auth tokens and SuperJSON serialization
       const quests = await queryClient.fetchQuery(
         trpc.order.availableQuests.queryOptions({
           latitude: region.latitude,
@@ -70,7 +79,6 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (eventType === Location.GeofencingEventType.Exit) {
       console.log(`[GeofenceManager] User exited geofence region:`, region);
-      // Removed exit notification as requested
     }
   }
 });
@@ -117,6 +125,31 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
 
         await Location.startGeofencingAsync(GEOFENCE_TASK_NAME, regions);
         console.log(`[GeofenceManager] Geofencing started for ${regions.length} active canteens.`);
+
+        // Check if user is ALREADY inside any canteen region on startup
+        const currentLocation = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const insideRegions = regions.filter(r => 
+          getDistance(currentLocation.coords.latitude, currentLocation.coords.longitude, r.latitude, r.longitude) <= r.radius
+        );
+
+        for (const region of insideRegions) {
+          const quests = await queryClient.fetchQuery(
+            trpc.order.availableQuests.queryOptions({
+              latitude: region.latitude,
+              longitude: region.longitude,
+            })
+          );
+          if (quests.length > 0) {
+            void Notifications.scheduleNotificationAsync({
+              content: {
+                title: "New Delivery Quests",
+                body: `You're at ${region.identifier}! ${quests.length} Quests available!`,
+                sound: true,
+              },
+              trigger: null,
+            });
+          }
+        }
       } catch (e) {
         console.error("[GeofenceManager] Setup error:", e);
       }

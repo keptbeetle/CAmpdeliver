@@ -22,6 +22,8 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   >([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [deliveryLocation, setDeliveryLocation] = useState("");
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
   const selectedCanteen = canteens?.find((c) => c.id === activeCanteenId);
@@ -90,18 +92,40 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
       setError("Cart is empty");
       return;
     }
+    if (!deliveryLocation.trim()) {
+      setError("Please enter your delivery location");
+      return;
+    }
 
-    createOrderMutation.mutate({
-      canteenId: selectedCanteen?.id ?? "",
-      items: cart.map((c) => ({
-        name: c.name,
-        price: c.price,
-        quantity: c.quantity,
-      })),
-      deliveryLocationName: "My Hostel Room", // Hardcoded for demo
-      deliveryLatitude: 30.0,
-      deliveryLongitude: 78.0,
-    });
+    setPlacingOrder(true);
+    setError("");
+
+    if (typeof window !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          createOrderMutation.mutate({
+            canteenId: selectedCanteen?.id ?? "",
+            items: cart.map((c) => ({
+              name: c.name,
+              price: c.price,
+              quantity: c.quantity,
+            })),
+            deliveryLocationName: deliveryLocation.trim(),
+            deliveryLatitude: position.coords.latitude,
+            deliveryLongitude: position.coords.longitude,
+          });
+          setPlacingOrder(false);
+        },
+        (error) => {
+          setError("Could not retrieve your location. Please allow location access.");
+          setPlacingOrder(false);
+        },
+        { enableHighAccuracy: true }
+      );
+    } else {
+      setError("Geolocation is not supported by your browser");
+      setPlacingOrder(false);
+    }
   };
 
   const formatCurrency = (paise: number) => {
@@ -170,6 +194,17 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         {/* Cart */}
         <div className="flex flex-col gap-3">
           <h4 className="text-sm font-semibold tracking-widest text-zinc-400 uppercase">
+            Delivery Details
+          </h4>
+          <input
+            type="text"
+            placeholder="e.g. Room 304, Block C"
+            value={deliveryLocation}
+            onChange={(e) => setDeliveryLocation(e.target.value)}
+            className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500 focus:outline-none"
+          />
+
+          <h4 className="mt-2 text-sm font-semibold tracking-widest text-zinc-400 uppercase">
             Your Cart
           </h4>
           {cart.length === 0 ? (
@@ -225,10 +260,12 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
               <Button
                 onClick={handlePlaceOrder}
-                disabled={createOrderMutation.isPending}
+                disabled={placingOrder || createOrderMutation.isPending}
                 className="mt-4 w-full rounded-xl bg-indigo-600 py-2 font-bold text-white transition-colors hover:bg-indigo-500"
               >
-                {createOrderMutation.isPending
+                {placingOrder
+                  ? "Locating..."
+                  : createOrderMutation.isPending
                   ? "Broadcasting..."
                   : "Broadcast Order"}
               </Button>
