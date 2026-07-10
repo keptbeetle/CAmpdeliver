@@ -644,14 +644,16 @@ function DashboardView({
   });
 
   const notifiedQuestIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedQuestsRef = useRef<boolean>(false);
 
   // Watch availableQuests to trigger sequential local push notifications for stationary users
   useEffect(() => {
     if (!availableQuests) return;
 
     // First load: just populate the set so we don't spam notifications for already existing quests
-    if (notifiedQuestIdsRef.current.size === 0) {
+    if (!hasInitializedQuestsRef.current) {
       availableQuests.forEach((q) => notifiedQuestIdsRef.current.add(q.id));
+      hasInitializedQuestsRef.current = true;
       return;
     }
 
