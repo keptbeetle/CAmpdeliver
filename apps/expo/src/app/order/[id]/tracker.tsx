@@ -298,14 +298,12 @@ export default function OrderTrackerScreen() {
               {isDeliverer 
                 ? "You are delivering this order" 
                 : order.status === "PREPARING"
-                  ? "Deliverer is preparing the order"
+                  ? "Your order is being prepared"
                   : order.status === "ON_THE_WAY"
                     ? "Deliverer is on the way"
                     : order.status === "NEAR_YOU"
                       ? "Deliverer is near you"
-                      : order.status === "DELIVERED" || order.status === "COMPLETED"
-                        ? "Order delivered"
-                        : "Waiting for deliverer"}
+                      : "Waiting for deliverer"}
             </Text>
           </View>
           <Pressable
@@ -318,13 +316,14 @@ export default function OrderTrackerScreen() {
 
         {/* Dynamic Action Area */}
         <View className="border-t border-white/10 pt-4">
-          {!isDeliverer ? (
+          {!isDeliverer && order.otp && (
             <View className="items-center rounded-xl bg-zinc-800/50 p-4">
               <Text className="mb-1 text-xs font-bold text-zinc-400 uppercase tracking-widest">Your Delivery OTP</Text>
               <Text className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</Text>
               <Text className="mt-2 text-center text-xs text-zinc-500">Share this code with your deliverer to receive your order.</Text>
             </View>
-          ) : (
+          )}
+          {isDeliverer && (
             <View>
               {order.status === "PREPARING" && (
                 <Pressable
