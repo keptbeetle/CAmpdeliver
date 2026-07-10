@@ -373,7 +373,7 @@ export function Dashboard() {
                     </div>
                   )}
 
-                  {order.status === "PREPARING" && (
+                  {["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (
                     <div className="mt-4 border-t border-white/10 pt-3">
                       <Button
                         variant="outline"

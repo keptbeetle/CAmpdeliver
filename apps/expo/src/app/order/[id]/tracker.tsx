@@ -363,9 +363,11 @@ export default function OrderTrackerScreen() {
                     <Pressable
                       disabled={verifyDeliveryMutation.isPending || otpInput.length < 4}
                       onPress={() => verifyDeliveryMutation.mutate({ orderId: order.id, otp: otpInput })}
-                      className={`items-center justify-center rounded-xl px-6 ${
-                        otpInput.length === 4 ? "bg-green-600 active:bg-green-700" : "bg-zinc-700 opacity-50"
-                      }`}
+                      className={
+                        otpInput.length === 4
+                          ? "items-center justify-center rounded-xl px-6 bg-green-600 active:bg-green-700"
+                          : "items-center justify-center rounded-xl px-6 bg-zinc-700 opacity-50"
+                      }
                     >
                       <Text className="font-bold text-white">
                         {verifyDeliveryMutation.isPending ? "..." : "Verify"}

@@ -1044,7 +1044,7 @@ function DashboardView({
                 </View>
               )}
 
-              {order.status === "PREPARING" && (
+              {["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (
                 <View className="mt-4 border-t border-white/10 pt-4">
                   <Pressable
                     onPress={() => router.push(`/order/${order.id}/tracker`)}
