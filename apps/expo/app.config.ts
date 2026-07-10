@@ -2,8 +2,8 @@ import type { ConfigContext, ExpoConfig } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "expo",
-  slug: "expo",
+  name: "CAmpDeliver",
+  slug: "campdeliver",
   scheme: "expo",
   version: "0.1.0",
   orientation: "portrait",
@@ -43,11 +43,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       },
     },
   },
-  // extra: {
-  //   eas: {
-  //     projectId: "your-eas-project-id",
-  //   },
-  // },
+  extra: {
+    eas: {
+      projectId: "b658b0d5-1c62-4f07-8329-38563db9dfa3",
+    },
+    apiUrl: process.env.EXPO_PUBLIC_API_URL || "https://c-ampdeliver-nextjs-git-feature-can-424742-keptbeetles-projects.vercel.app",
+  },
   experiments: {
     tsconfigPaths: true,
     typedRoutes: true,

@@ -22,7 +22,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   >([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const [deliveryLocation, setDeliveryLocation] = useState("");
   const [placingOrder, setPlacingOrder] = useState(false);
 
   const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
@@ -92,10 +91,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
       setError("Cart is empty");
       return;
     }
-    if (!deliveryLocation.trim()) {
-      setError("Please enter your delivery location");
-      return;
-    }
 
     setPlacingOrder(true);
     setError("");
@@ -110,17 +105,18 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
               price: c.price,
               quantity: c.quantity,
             })),
-            deliveryLocationName: deliveryLocation.trim(),
+            deliveryLocationName: "Current Location",
             deliveryLatitude: position.coords.latitude,
             deliveryLongitude: position.coords.longitude,
           });
           setPlacingOrder(false);
         },
         (error) => {
-          setError("Could not retrieve your location. Please allow location access.");
+          console.error(error);
+          setError("Could not retrieve your location. Please ensure location services are enabled.");
           setPlacingOrder(false);
         },
-        { enableHighAccuracy: true }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
       );
     } else {
       setError("Geolocation is not supported by your browser");
@@ -193,17 +189,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
         {/* Cart */}
         <div className="flex flex-col gap-3">
-          <h4 className="text-sm font-semibold tracking-widest text-zinc-400 uppercase">
-            Delivery Details
-          </h4>
-          <input
-            type="text"
-            placeholder="e.g. Room 304, Block C"
-            value={deliveryLocation}
-            onChange={(e) => setDeliveryLocation(e.target.value)}
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500 focus:outline-none"
-          />
-
           <h4 className="mt-2 text-sm font-semibold tracking-widest text-zinc-400 uppercase">
             Your Cart
           </h4>
