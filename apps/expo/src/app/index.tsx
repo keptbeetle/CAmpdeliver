@@ -646,7 +646,7 @@ function DashboardView({
   const notifiedQuestIdsRef = useRef<Set<string>>(new Set());
   const hasInitializedQuestsRef = useRef<boolean>(false);
 
-  // Watch availableQuests to trigger sequential local push notifications for stationary users
+  // Robust notification trigger for stationary users
   useEffect(() => {
     if (!availableQuests) return;
 
@@ -657,12 +657,15 @@ function DashboardView({
       return;
     }
 
-    // Subsequent updates: check for new quests
+    // Check for newly added quests
+    let hasNewQuest = false;
     availableQuests.forEach((q) => {
       if (!notifiedQuestIdsRef.current.has(q.id)) {
+        hasNewQuest = true;
         notifiedQuestIdsRef.current.add(q.id);
 
-        // Trigger a notification for this specific new quest
+        // Schedule via OS alarm manager (1 second delay) to guarantee delivery 
+        // and avoid dropping frames during heavy UI re-renders
         void Notifications.scheduleNotificationAsync({
           content: {
             title: `New Quest: ${q.canteenName}`,
@@ -674,13 +677,15 @@ function DashboardView({
       }
     });
 
-    // Cleanup old IDs that are no longer available to avoid memory growth
-    const currentIds = new Set(availableQuests.map((q) => q.id));
-    notifiedQuestIdsRef.current.forEach((id) => {
-      if (!currentIds.has(id)) {
-        notifiedQuestIdsRef.current.delete(id);
-      }
-    });
+    // Cleanup old IDs
+    if (!hasNewQuest) {
+      const currentIds = new Set(availableQuests.map((q) => q.id));
+      notifiedQuestIdsRef.current.forEach((id) => {
+        if (!currentIds.has(id)) {
+          notifiedQuestIdsRef.current.delete(id);
+        }
+      });
+    }
   }, [availableQuests]);
 
   const router = useRouter();
