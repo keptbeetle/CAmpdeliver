@@ -21,7 +21,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
   const selectedCanteen = canteens?.find((c) => c.id === activeCanteenId);
   const [placingOrder, setPlacingOrder] = useState(false);
-  const [deliveryLocation, setDeliveryLocation] = useState("");
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
@@ -83,10 +82,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
       Alert.alert("Notice", "Cart is empty");
       return;
     }
-    if (!deliveryLocation.trim()) {
-      Alert.alert("Notice", "Please enter your delivery location (e.g. Room 304)");
-      return;
-    }
 
     setPlacingOrder(true);
     try {
@@ -108,7 +103,7 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
           price: c.price,
           quantity: c.quantity,
         })),
-        deliveryLocationName: deliveryLocation.trim(),
+        deliveryLocationName: "Current Location",
         deliveryLatitude: location.coords.latitude,
         deliveryLongitude: location.coords.longitude,
       });
@@ -184,18 +179,6 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         )}
       </View>
 
-      <View className="mb-6 rounded-2xl border border-white/5 bg-black/20 p-4">
-        <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
-          Delivery Details
-        </Text>
-        <TextInput
-          className="rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white focus:border-purple-500"
-          placeholder="e.g. Room 304, Block C"
-          placeholderTextColor="#52525b"
-          value={deliveryLocation}
-          onChangeText={setDeliveryLocation}
-        />
-      </View>
 
       <View className="rounded-2xl border border-white/5 bg-black/20 p-4">
         <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">

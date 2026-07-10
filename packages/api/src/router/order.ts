@@ -484,4 +484,135 @@ export const orderRouter = {
 
       return { phoneNumber };
     }),
+
+  updateOrderStatus: protectedProcedure
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof (val as { orderId: unknown }).orderId !== "string" ||
+        !("status" in val) ||
+        typeof (val as { status: unknown }).status !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
+      return val as { orderId: string; status: "ON_THE_WAY" | "NEAR_YOU" };
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (order.delivererId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can update this order" });
+      }
+
+      const [updatedOrder] = await ctx.db
+        .update(orders)
+        .set({ status: input.status })
+        .where(eq(orders.id, input.orderId))
+        .returning();
+
+      return updatedOrder;
+    }),
+
+  verifyDelivery: protectedProcedure
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof (val as { orderId: unknown }).orderId !== "string" ||
+        !("otp" in val) ||
+        typeof (val as { otp: unknown }).otp !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
+      return val as { orderId: string; otp: string };
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (order.delivererId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can complete this order" });
+      }
+      if (order.status === "DELIVERED" || order.status === "COMPLETED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Order is already completed" });
+      }
+      if (order.otp !== input.otp) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid OTP" });
+      }
+
+      const totalCost = order.foodPrice + order.deliveryFee; // total frozen
+      const adminCut = 275; // 2.75 RS
+      const delivererCut = 225; // 2.25 RS
+      const delivererTotal = order.foodPrice + delivererCut;
+
+      try {
+        await ctx.db.transaction(async (tx) => {
+          // 1. Deduct from buyer's frozen balance
+          const buyer = await tx.query.profiles.findFirst({
+            where: eq(profiles.id, order.buyerId),
+          });
+          if (!buyer) throw new Error("Buyer not found");
+
+          await tx
+            .update(profiles)
+            .set({ frozenBalance: sql`${profiles.frozenBalance} - ${totalCost}` })
+            .where(eq(profiles.id, order.buyerId));
+
+          // 2. Add admin cut
+          const admin = await tx.query.profiles.findFirst({
+            where: eq(profiles.role, "ADMIN"),
+          });
+          
+          if (admin) {
+             await tx
+              .update(profiles)
+              .set({ walletBalance: sql`${profiles.walletBalance} + ${adminCut}` })
+              .where(eq(profiles.id, admin.id));
+              
+             await tx.insert(walletTransactions).values({
+               userId: admin.id,
+               amount: adminCut,
+               type: "ADMIN_COMMISSION",
+               referenceId: order.id,
+               status: "SUCCESS"
+             });
+          } else {
+             throw new Error("No admin account found to receive commission");
+          }
+
+          // 3. Add deliverer cut
+          await tx
+            .update(profiles)
+            .set({ walletBalance: sql`${profiles.walletBalance} + ${delivererTotal}` })
+            .where(eq(profiles.id, order.delivererId!));
+
+          await tx.insert(walletTransactions).values({
+            userId: order.delivererId!,
+            amount: delivererTotal,
+            type: "DELIVERY_PAYOUT",
+            referenceId: order.id,
+            status: "SUCCESS"
+          });
+
+          // 4. Update order status
+          await tx
+            .update(orders)
+            .set({ status: "DELIVERED" })
+            .where(eq(orders.id, order.id));
+        });
+      } catch (err) {
+         console.error("Wallet transfer failed", err);
+         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Failed to transfer wallet funds" });
+      }
+
+      return { success: true };
+    }),
 } satisfies TRPCRouterRecord;

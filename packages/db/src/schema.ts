@@ -33,11 +33,13 @@ export const profiles = pgTable("profiles", {
     .$onUpdate(() => new Date()),
 });
 
-// Order Status enum: BROADCASTED, ACCEPTED, PREPARING, DELIVERED, COMPLETED, CANCELLED
+// Order Status enum: BROADCASTED, ACCEPTED, PREPARING, ON_THE_WAY, NEAR_YOU, DELIVERED, COMPLETED, CANCELLED
 export type OrderStatus =
   | "BROADCASTED"
   | "ACCEPTED"
   | "PREPARING"
+  | "ON_THE_WAY"
+  | "NEAR_YOU"
   | "DELIVERED"
   | "COMPLETED"
   | "CANCELLED";
