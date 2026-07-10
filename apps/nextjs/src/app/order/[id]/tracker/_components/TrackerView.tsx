@@ -341,36 +341,47 @@ export default function TrackerView({ orderId }: { orderId: string }) {
         </button>
       </div>
 
-      <div className="absolute bottom-6 left-6 right-6 z-[1000] flex items-center justify-between rounded-xl bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md border border-zinc-800">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
-            {distance !== null && (
-              <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
-                {formatDistance(distance)} away
-              </span>
-            )}
+      <div className="absolute bottom-6 left-6 right-6 z-[1000] flex flex-col gap-4 rounded-xl bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md border border-zinc-800">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
+              {distance !== null && (
+                <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
+                  {formatDistance(distance)} away
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-zinc-400">
+              {isDeliverer 
+                ? "You are delivering this order" 
+                : order.status === "PREPARING"
+                  ? "Deliverer is preparing the order"
+                  : order.status === "ON_THE_WAY"
+                    ? "Deliverer is on the way"
+                    : order.status === "NEAR_YOU"
+                      ? "Deliverer is near you"
+                      : order.status === "DELIVERED" || order.status === "COMPLETED"
+                        ? "Order delivered"
+                        : "Waiting for deliverer"}
+            </p>
           </div>
-          <p className="mt-1 text-xs text-zinc-400">
-            {isDeliverer 
-              ? "You are delivering this order" 
-              : order.status === "PREPARING"
-                ? "Deliverer is preparing the order"
-                : order.status === "ON_THE_WAY"
-                  ? "Deliverer is on the way"
-                  : order.status === "NEAR_YOU"
-                    ? "Deliverer is near you"
-                    : order.status === "DELIVERED" || order.status === "COMPLETED"
-                      ? "Order delivered"
-                      : "Waiting for deliverer"}
-          </p>
+          <button
+            onClick={() => router.push(`/order/${orderId}/chat`)}
+            className="rounded-xl bg-purple-600 px-6 py-3 font-bold text-white shadow-lg hover:bg-purple-500"
+          >
+            Open Chat
+          </button>
         </div>
-        <button
-          onClick={() => router.push(`/order/${orderId}/chat`)}
-          className="rounded-xl bg-purple-600 px-6 py-3 font-bold text-white shadow-lg hover:bg-purple-500"
-        >
-          Open Chat
-        </button>
+        
+        {/* OTP Display for Buyer */}
+        {!isDeliverer && order.otp && (
+          <div className="mt-2 flex flex-col items-center justify-center rounded-xl bg-zinc-800/50 p-4 border border-zinc-700/50">
+            <span className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Your Delivery OTP</span>
+            <span className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</span>
+            <span className="mt-2 text-center text-xs text-zinc-500">Share this code with your deliverer to receive your order.</span>
+          </div>
+        )}
       </div>
     </div>
   );
