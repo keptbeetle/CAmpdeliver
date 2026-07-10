@@ -179,7 +179,6 @@ export const orderRouter = {
           deliveryLocationName: input.deliveryLocationName,
           deliveryLatitude: input.deliveryLatitude,
           deliveryLongitude: input.deliveryLongitude,
-          otp: Math.floor(1000 + Math.random() * 9000).toString(), // Mock OTP
         })
         .returning();
 
@@ -306,10 +305,13 @@ export const orderRouter = {
             referenceId: order.id,
           });
 
-          // Update order status
+          // Generate a mock OTP when confirming availability
+          const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+          // Update order status and set OTP
           await tx
             .update(orders)
-            .set({ status: "PREPARING" })
+            .set({ status: "PREPARING", otp: otpCode })
             .where(eq(orders.id, order.id));
 
           return null;

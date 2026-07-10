@@ -352,7 +352,17 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             )}
           </div>
           <p className="mt-1 text-xs text-zinc-400">
-            {isDeliverer ? "You are delivering this order" : "Deliverer is on the way"}
+            {isDeliverer 
+              ? "You are delivering this order" 
+              : order.status === "PREPARING"
+                ? "Deliverer is preparing the order"
+                : order.status === "ON_THE_WAY"
+                  ? "Deliverer is on the way"
+                  : order.status === "NEAR_YOU"
+                    ? "Deliverer is near you"
+                    : order.status === "DELIVERED" || order.status === "COMPLETED"
+                      ? "Order delivered"
+                      : "Waiting for deliverer"}
           </p>
         </div>
         <button
