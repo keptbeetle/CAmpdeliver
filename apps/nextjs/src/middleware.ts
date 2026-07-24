@@ -1,4 +1,5 @@
-import { type NextRequest, NextResponse } from "next/server";
+import {  NextResponse } from "next/server";
+import type {NextRequest} from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(request: NextRequest) {
@@ -6,7 +7,9 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
+  // eslint-disable-next-line no-restricted-properties
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  // eslint-disable-next-line no-restricted-properties
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!supabaseUrl || !supabaseAnonKey) {

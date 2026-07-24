@@ -78,8 +78,27 @@ export const otpRouter = createTRPCRouter({
         expiresAt,
       });
 
+      // Always log the OTP to server console logs for debugging/testing
+      console.log(`[OTP-LOG] Generated OTP for ${phoneNumber} is: ${otpCode}`);
+
+      // List of dummy/test numbers that bypass real SMS sending
+      const isTestNumber = [
+        "+911234567890",
+        "+911111111111",
+        "+912222222222",
+        "+913333333333",
+        "+914444444444",
+        "+915555555555",
+        "+916666666666",
+        "+917777777777",
+        "+918888888888",
+        "+919999999999"
+      ].includes(phoneNumber);
+
       // Dispatch SMS
-      if (process.env.NODE_ENV === "development") {
+      if (isTestNumber) {
+        console.log(`[SMS-MOCK-TEST-NUMBER] Bypassing real SMS for test number ${phoneNumber}.`);
+      } else if (process.env.NODE_ENV === "development") {
         console.log("\n========================================");
         console.log(`[SMS-MOCK] OTP for ${phoneNumber} is: ${otpCode}`);
         console.log("========================================\n");
@@ -105,7 +124,6 @@ export const otpRouter = createTRPCRouter({
         }
       } else {
         console.warn("FAST2SMS_API_KEY not configured. Falling back to terminal log.");
-        console.log(`[SMS-MOCK-FALLBACK] OTP for ${phoneNumber} is: ${otpCode}`);
       }
 
       return { success: true };

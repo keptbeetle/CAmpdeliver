@@ -1,40 +1,26 @@
 import { useState } from "react";
-import { Alert, Pressable, Text, View } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
+import * as Location from "expo-location";
 
 import { trpc } from "~/utils/api";
-import { supabase } from "~/utils/auth";
 
-const CANTEENS = [
-  {
-    id: "c1",
-    name: "Main Campus Cafeteria",
-    items: [
-      { id: "i1", name: "Masala Dosa", price: 6000 },
-      { id: "i2", name: "Veg Sandwich", price: 4000 },
-      { id: "i3", name: "Cold Coffee", price: 3500 },
-    ],
-  },
-  {
-    id: "c2",
-    name: "Hostel Night Canteen",
-    items: [
-      { id: "i4", name: "Maggi", price: 3000 },
-      { id: "i5", name: "Egg Roll", price: 4500 },
-      { id: "i6", name: "Tea", price: 1500 },
-    ],
-  },
-];
+
+// Removed static CANTEENS array
 
 export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | Promise<void> }) {
   const queryClient = useQueryClient();
 
-  const [selectedCanteenId, setSelectedCanteenId] = useState(CANTEENS[0]?.id);
+  const { data: canteens } = useQuery(trpc.canteen.listActiveWithMenu.queryOptions());
+
+  const [selectedCanteenId, setSelectedCanteenId] = useState<string | undefined>();
   const [cart, setCart] = useState<
     { id: string; name: string; price: number; quantity: number }[]
   >([]);
 
-  const selectedCanteen = CANTEENS.find((c) => c.id === selectedCanteenId);
+  const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
+  const selectedCanteen = canteens?.find((c) => c.id === activeCanteenId);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
@@ -91,21 +77,42 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   const deliveryFee = 500; // 5 rupees default
   const totalCost = totalFoodPrice + deliveryFee;
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (cart.length === 0) {
       Alert.alert("Notice", "Cart is empty");
       return;
     }
 
-    createOrderMutation.mutate({
-      canteenName: selectedCanteen?.name ?? "Unknown",
-      items: cart.map((c) => ({
-        name: c.name,
-        price: c.price,
-        quantity: c.quantity,
-      })),
-      deliveryLocationName: "My Hostel Room", // Hardcoded for demo
-    });
+    setPlacingOrder(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert("Permission Denied", "Location permission is required to place an order.");
+        setPlacingOrder(false);
+        return;
+      }
+
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      await createOrderMutation.mutateAsync({
+        canteenId: selectedCanteen?.id ?? "",
+        items: cart.map((c) => ({
+          name: c.name,
+          price: c.price,
+          quantity: c.quantity,
+        })),
+        deliveryLocationName: "Current Location",
+        deliveryLatitude: location.coords.latitude,
+        deliveryLongitude: location.coords.longitude,
+      });
+    } catch (e) {
+      console.error("Failed to place order:", e);
+      Alert.alert("Error", "Could not get your location to place the order.");
+    } finally {
+      setPlacingOrder(false);
+    }
   };
 
   const formatCurrency = (paise: number) => {
@@ -120,7 +127,7 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
       {/* Canteen Selector */}
       <View className="mb-4 flex-row flex-wrap gap-2">
-        {CANTEENS.map((c) => (
+        {canteens?.map((c) => (
           <Pressable
             key={c.id}
             onPress={() => {
@@ -128,13 +135,13 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
               setCart([]);
             }}
             className={`rounded-xl px-4 py-2 ${
-              selectedCanteenId === c.id
+              activeCanteenId === c.id
                 ? "bg-purple-600"
                 : "border border-zinc-800 bg-black/40"
             }`}
           >
             <Text
-              className={`text-sm font-bold ${selectedCanteenId === c.id ? "text-white" : "text-zinc-400"}`}
+              className={`text-sm font-bold ${activeCanteenId === c.id ? "text-white" : "text-zinc-400"}`}
             >
               {c.name}
             </Text>
@@ -146,7 +153,7 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
           Menu
         </Text>
-        {selectedCanteen?.items.map((item) => (
+        {selectedCanteen?.menuItems.map((item) => (
           <View
             key={item.id}
             className="mb-2 flex-row items-center justify-between rounded-xl border border-white/5 bg-zinc-900 p-3"
@@ -165,7 +172,13 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
             </Pressable>
           </View>
         ))}
+        {(!selectedCanteen?.menuItems || selectedCanteen.menuItems.length === 0) && (
+          <View className="items-center justify-center py-4">
+            <Text className="text-sm text-zinc-500">No items available</Text>
+          </View>
+        )}
       </View>
+
 
       <View className="rounded-2xl border border-white/5 bg-black/20 p-4">
         <Text className="mb-3 text-xs font-bold tracking-widest text-zinc-400 uppercase">
@@ -222,15 +235,17 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
             <Pressable
               onPress={handlePlaceOrder}
-              disabled={createOrderMutation.isPending}
+              disabled={placingOrder || createOrderMutation.isPending}
               className={`mt-6 items-center justify-center rounded-xl py-4 ${
-                createOrderMutation.isPending
+                placingOrder || createOrderMutation.isPending
                   ? "bg-indigo-600/50"
                   : "bg-indigo-600 active:bg-indigo-700"
               }`}
             >
               <Text className="text-base font-extrabold text-white">
-                {createOrderMutation.isPending
+                {placingOrder
+                  ? "Locating..."
+                  : createOrderMutation.isPending
                   ? "Broadcasting..."
                   : "Broadcast Order"}
               </Text>

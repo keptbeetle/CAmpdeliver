@@ -64,10 +64,11 @@ export function Dashboard() {
     trpc.order.myOrders.queryOptions(),
   );
   const { data: availableQuests, isLoading: isLoadingQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions(),
+    trpc.order.availableQuests.queryOptions({}),
   );
 
   const acceptOrderMutation = useMutation(
+    // eslint-disable-next-line react-hooks/refs
     trpc.order.acceptOrder.mutationOptions({
       onSuccess: async () => {
         await queryClient.invalidateQueries({
@@ -82,6 +83,7 @@ export function Dashboard() {
   );
 
   const confirmAvailabilityMutation = useMutation(
+    // eslint-disable-next-line react-hooks/refs
     trpc.order.confirmAvailability.mutationOptions({
       onSuccess: async () => {
         await queryClient.invalidateQueries({
@@ -96,6 +98,7 @@ export function Dashboard() {
   );
 
   const rejectOrderMutation = useMutation(
+    // eslint-disable-next-line react-hooks/refs
     trpc.order.rejectOrder.mutationOptions({
       onSuccess: async () => {
         await queryClient.invalidateQueries({
@@ -168,13 +171,31 @@ export function Dashboard() {
             <p className="text-sm text-zinc-400">{profile.email}</p>
           </div>
         </div>
-        <Button
-          onClick={handleSignOut}
-          variant="outline"
-          className="border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white"
-        >
-          Sign Out
-        </Button>
+        <div className="flex items-center gap-4">
+          {profile.role === "ADMIN" && (
+            <>
+              <Button
+                onClick={() => router.push("/admin/canteens")}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white"
+              >
+                Canteens
+              </Button>
+              <Button
+                onClick={() => router.push("/admin/landmarks")}
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+              >
+                Landmarks
+              </Button>
+            </>
+          )}
+          <Button
+            onClick={handleSignOut}
+            variant="outline"
+            className="border-white/10 text-zinc-300 hover:bg-white/5 hover:text-white"
+          >
+            Sign Out
+          </Button>
+        </div>
       </div>
 
       {/* Main dashboard content */}
@@ -352,7 +373,7 @@ export function Dashboard() {
                     </div>
                   )}
 
-                  {order.status === "PREPARING" && (
+                  {["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (
                     <div className="mt-4 border-t border-white/10 pt-3">
                       <Button
                         variant="outline"

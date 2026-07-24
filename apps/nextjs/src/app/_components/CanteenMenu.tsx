@@ -1,46 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 
 import { Button } from "@acme/ui/button";
 
 import { useTRPC } from "~/trpc/react";
-import { supabaseClient } from "~/auth/client";
 
-const CANTEENS = [
-  {
-    id: "c1",
-    name: "Main Campus Cafeteria",
-    items: [
-      { id: "i1", name: "Masala Dosa", price: 6000 }, // in paise
-      { id: "i2", name: "Veg Sandwich", price: 4000 },
-      { id: "i3", name: "Cold Coffee", price: 3500 },
-    ],
-  },
-  {
-    id: "c2",
-    name: "Library Brews",
-    items: [
-      { id: "i4", name: "Cappuccino", price: 4500 },
-      { id: "i5", name: "Blueberry Muffin", price: 3000 },
-      { id: "i6", name: "Green Tea", price: 2500 },
-    ],
-  },
-];
+
+// Removed static CANTEENS array
 
 export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | Promise<void> }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const [selectedCanteenId, setSelectedCanteenId] = useState(CANTEENS[0]?.id);
+  const { data: canteens } = useQuery(trpc.canteen.listActiveWithMenu.queryOptions());
+
+  const [selectedCanteenId, setSelectedCanteenId] = useState<string | undefined>();
   const [cart, setCart] = useState<
     { id: string; name: string; price: number; quantity: number }[]
   >([]);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const [placingOrder, setPlacingOrder] = useState(false);
 
-  const selectedCanteen = CANTEENS.find((c) => c.id === selectedCanteenId);
+  const activeCanteenId = selectedCanteenId ?? canteens?.[0]?.id;
+  const selectedCanteen = canteens?.find((c) => c.id === activeCanteenId);
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
@@ -107,15 +92,36 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
       return;
     }
 
-    createOrderMutation.mutate({
-      canteenName: selectedCanteen?.name ?? "Unknown",
-      items: cart.map((c) => ({
-        name: c.name,
-        price: c.price,
-        quantity: c.quantity,
-      })),
-      deliveryLocationName: "My Hostel Room", // Hardcoded for demo
-    });
+    setPlacingOrder(true);
+    setError("");
+
+    if (typeof window !== "undefined" && "geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          createOrderMutation.mutate({
+            canteenId: selectedCanteen?.id ?? "",
+            items: cart.map((c) => ({
+              name: c.name,
+              price: c.price,
+              quantity: c.quantity,
+            })),
+            deliveryLocationName: "Current Location",
+            deliveryLatitude: position.coords.latitude,
+            deliveryLongitude: position.coords.longitude,
+          });
+          setPlacingOrder(false);
+        },
+        (error) => {
+          console.error(error);
+          setError("Could not retrieve your location. Please ensure location services are enabled.");
+          setPlacingOrder(false);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 }
+      );
+    } else {
+      setError("Geolocation is not supported by your browser");
+      setPlacingOrder(false);
+    }
   };
 
   const formatCurrency = (paise: number) => {
@@ -133,14 +139,14 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
           Order Food
         </h3>
         <select
-          value={selectedCanteenId}
+          value={activeCanteenId ?? ""}
           onChange={(e) => {
             setSelectedCanteenId(e.target.value);
             setCart([]); // Clear cart on canteen change
           }}
           className="rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-sm text-white focus:ring-2 focus:ring-purple-500 focus:outline-none"
         >
-          {CANTEENS.map((c) => (
+          {canteens?.map((c) => (
             <option key={c.id} value={c.id} className="bg-zinc-900">
               {c.name}
             </option>
@@ -154,7 +160,7 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
           <h4 className="text-sm font-semibold tracking-widest text-zinc-400 uppercase">
             Menu
           </h4>
-          {selectedCanteen?.items.map((item) => (
+          {selectedCanteen?.menuItems.map((item) => (
             <div
               key={item.id}
               className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 p-3"
@@ -174,11 +180,16 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
               </Button>
             </div>
           ))}
+          {(!selectedCanteen?.menuItems || selectedCanteen.menuItems.length === 0) && (
+            <div className="flex min-h-[100px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/10">
+              <p className="text-sm text-zinc-500">No items available</p>
+            </div>
+          )}
         </div>
 
         {/* Cart */}
         <div className="flex flex-col gap-3">
-          <h4 className="text-sm font-semibold tracking-widest text-zinc-400 uppercase">
+          <h4 className="mt-2 text-sm font-semibold tracking-widest text-zinc-400 uppercase">
             Your Cart
           </h4>
           {cart.length === 0 ? (
@@ -234,10 +245,12 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
 
               <Button
                 onClick={handlePlaceOrder}
-                disabled={createOrderMutation.isPending}
+                disabled={placingOrder || createOrderMutation.isPending}
                 className="mt-4 w-full rounded-xl bg-indigo-600 py-2 font-bold text-white transition-colors hover:bg-indigo-500"
               >
-                {createOrderMutation.isPending
+                {placingOrder
+                  ? "Locating..."
+                  : createOrderMutation.isPending
                   ? "Broadcasting..."
                   : "Broadcast Order"}
               </Button>

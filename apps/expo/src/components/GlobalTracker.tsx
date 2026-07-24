@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { trpc } from "~/utils/api";
@@ -98,7 +98,7 @@ export function GlobalTracker() {
       if (locationSubscription) {
         locationSubscription.remove();
       }
-      if (intervalId) clearInterval(intervalId);
+      clearInterval(intervalId);
     };
   }, [id, isDeliverer, role, broadcastLocation, updateLocation, hasSession]);
 

@@ -1,8 +1,9 @@
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod/v4";
 
 import { and, desc, eq, ne, or, sql } from "@acme/db";
-import { orders, profiles, walletTransactions } from "@acme/db/schema";
+import { canteens, landmarks, orders, profiles, walletTransactions } from "@acme/db/schema";
 
 import { protectedProcedure } from "../trpc";
 
@@ -21,31 +22,141 @@ export const orderRouter = {
       .limit(10);
   }),
 
-  availableQuests: protectedProcedure.query(({ ctx }) => {
-    return ctx.db
-      .select()
-      .from(orders)
-      .where(
-        and(
-          eq(orders.status, "BROADCASTED"),
-          ne(orders.buyerId, ctx.user.id), // Can't accept your own orders
-        ),
-      )
-      .orderBy(desc(orders.createdAt))
-      .limit(10);
-  }),
+  availableQuests: protectedProcedure
+    .input(z.object({
+      latitude: z.number().optional(),
+      longitude: z.number().optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const ordersList = await ctx.db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.status, "BROADCASTED"),
+            ne(orders.buyerId, ctx.user.id), // Can't accept your own orders
+          ),
+        )
+        .orderBy(desc(orders.createdAt))
+        .limit(50);
+        
+      if (input.latitude === undefined || input.longitude === undefined) {
+        // If location is not provided, return nothing or all? The user wants geofencing to hide them if not in area.
+        return []; 
+      }
+
+      // Fetch all canteens to get their defined radius
+      const allCanteens = await ctx.db.query.canteens.findMany({
+        columns: {
+          id: true,
+          radius: true,
+        },
+      });
+      const canteenRadiusMap = new Map(allCanteens.map(c => [c.id, c.radius]));
+
+      // Fetch all active landmarks for delivery context
+      const allLandmarks = await ctx.db.query.landmarks.findMany({
+        where: eq(landmarks.isActive, true),
+      });
+
+      // Haversine formula to filter by dynamic radius
+      const toRad = (value: number) => (value * Math.PI) / 180;
+      const R = 6371e3; // metres
+
+      const lat1 = input.latitude;
+      const lon1 = input.longitude;
+
+      const filtered = ordersList.filter((order) => {
+        const lat2 = order.canteenLatitude;
+        const lon2 = order.canteenLongitude;
+
+        const phi1 = toRad(lat1);
+        const phi2 = toRad(lat2);
+        const deltaPhi = toRad(lat2 - lat1);
+        const deltaLambda = toRad(lon2 - lon1);
+
+        const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                  Math.cos(phi1) * Math.cos(phi2) *
+                  Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        const distance = R * c; // in metres
+
+        // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
+        const maxRadius = (order.canteenId ? canteenRadiusMap.get(order.canteenId) : undefined) ?? 150;
+
+        // Return only orders within the specific canteen's radius
+        return distance <= maxRadius;
+      });
+
+      // Add nearestLandmarkName to each order
+      const ordersWithLandmarks = filtered.map(order => {
+        let nearestLandmark = null;
+        let minDistance = Infinity;
+
+        for (const landmark of allLandmarks) {
+          const lat1 = order.deliveryLatitude;
+          const lon1 = order.deliveryLongitude;
+          const lat2 = landmark.latitude;
+          const lon2 = landmark.longitude;
+
+          const phi1 = toRad(lat1);
+          const phi2 = toRad(lat2);
+          const deltaPhi = toRad(lat2 - lat1);
+          const deltaLambda = toRad(lon2 - lon1);
+
+          const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+                    Math.cos(phi1) * Math.cos(phi2) *
+                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+          const distance = R * c; // in metres
+
+          if (distance < minDistance) {
+            minDistance = distance;
+            nearestLandmark = landmark;
+          }
+        }
+
+        let nearestLandmarkName = null;
+        if (nearestLandmark) {
+          if (minDistance <= nearestLandmark.radius) {
+            nearestLandmarkName = nearestLandmark.name;
+          } else {
+            nearestLandmarkName = `near ${nearestLandmark.name}`;
+          }
+        }
+
+        return {
+          ...order,
+          nearestLandmarkName
+        };
+      });
+
+      return ordersWithLandmarks;
+    }),
 
   createOrder: protectedProcedure
     .input((val: unknown) => {
       if (!val || typeof val !== "object") throw new Error("Invalid input");
       const v = val as {
         items: { name: string; quantity: number; price: number }[];
-        canteenName: string;
+        canteenId: string;
         deliveryLocationName: string;
+        deliveryLatitude: number;
+        deliveryLongitude: number;
       };
       return v;
     })
     .mutation(async ({ ctx, input }) => {
+      const canteen = await ctx.db.query.canteens.findFirst({
+        where: eq(canteens.id, input.canteenId),
+      });
+
+      if (!canteen) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Canteen not found" });
+      }
+
       // Calculate total food price
       const foodPrice = input.items.reduce(
         (sum, item) => sum + item.price * item.quantity,
@@ -61,13 +172,13 @@ export const orderRouter = {
           items: input.items,
           foodPrice,
           deliveryFee,
-          canteenName: input.canteenName,
-          canteenLatitude: 0, // Mock for now
-          canteenLongitude: 0,
+          canteenId: canteen.id,
+          canteenName: canteen.name,
+          canteenLatitude: canteen.latitude,
+          canteenLongitude: canteen.longitude,
           deliveryLocationName: input.deliveryLocationName,
-          deliveryLatitude: 0,
-          deliveryLongitude: 0,
-          otp: Math.floor(1000 + Math.random() * 9000).toString(), // Mock OTP
+          deliveryLatitude: input.deliveryLatitude,
+          deliveryLongitude: input.deliveryLongitude,
         })
         .returning();
 
@@ -194,10 +305,13 @@ export const orderRouter = {
             referenceId: order.id,
           });
 
-          // Update order status
+          // Generate a mock OTP when confirming availability
+          const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+          // Update order status and set OTP
           await tx
             .update(orders)
-            .set({ status: "PREPARING" })
+            .set({ status: "PREPARING", otp: otpCode })
             .where(eq(orders.id, order.id));
 
           return null;
@@ -358,6 +472,7 @@ export const orderRouter = {
       });
 
       let phoneNumber = contactProfile?.phoneNumber;
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       if (!phoneNumber && contactProfile?.email?.endsWith("@campus.edu")) {
         phoneNumber = contactProfile.email.replace("@campus.edu", "");
       }
@@ -370,5 +485,136 @@ export const orderRouter = {
       }
 
       return { phoneNumber };
+    }),
+
+  updateOrderStatus: protectedProcedure
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof (val as { orderId: unknown }).orderId !== "string" ||
+        !("status" in val) ||
+        typeof (val as { status: unknown }).status !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
+      return val as { orderId: string; status: "ON_THE_WAY" | "NEAR_YOU" };
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (order.delivererId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can update this order" });
+      }
+
+      const [updatedOrder] = await ctx.db
+        .update(orders)
+        .set({ status: input.status })
+        .where(eq(orders.id, input.orderId))
+        .returning();
+
+      return updatedOrder;
+    }),
+
+  verifyDelivery: protectedProcedure
+    .input((val: unknown) => {
+      if (
+        !val ||
+        typeof val !== "object" ||
+        !("orderId" in val) ||
+        typeof (val as { orderId: unknown }).orderId !== "string" ||
+        !("otp" in val) ||
+        typeof (val as { otp: unknown }).otp !== "string"
+      ) {
+        throw new Error("Invalid input");
+      }
+      return val as { orderId: string; otp: string };
+    })
+    .mutation(async ({ ctx, input }) => {
+      const order = await ctx.db.query.orders.findFirst({
+        where: eq(orders.id, input.orderId),
+      });
+
+      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (order.delivererId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can complete this order" });
+      }
+      if (order.status === "DELIVERED" || order.status === "COMPLETED") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Order is already completed" });
+      }
+      if (order.otp !== input.otp) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid OTP" });
+      }
+
+      const totalCost = order.foodPrice + order.deliveryFee; // total frozen
+      const adminCut = 275; // 2.75 RS
+      const delivererCut = 225; // 2.25 RS
+      const delivererTotal = order.foodPrice + delivererCut;
+
+      try {
+        await ctx.db.transaction(async (tx) => {
+          // 1. Deduct from buyer's frozen balance
+          const buyer = await tx.query.profiles.findFirst({
+            where: eq(profiles.id, order.buyerId),
+          });
+          if (!buyer) throw new Error("Buyer not found");
+
+          await tx
+            .update(profiles)
+            .set({ frozenBalance: sql`${profiles.frozenBalance} - ${totalCost}` })
+            .where(eq(profiles.id, order.buyerId));
+
+          // 2. Add admin cut
+          const admin = await tx.query.profiles.findFirst({
+            where: eq(profiles.role, "ADMIN"),
+          });
+          
+          if (admin) {
+             await tx
+              .update(profiles)
+              .set({ walletBalance: sql`${profiles.walletBalance} + ${adminCut}` })
+              .where(eq(profiles.id, admin.id));
+              
+             await tx.insert(walletTransactions).values({
+               userId: admin.id,
+               amount: adminCut,
+               type: "ADMIN_COMMISSION",
+               referenceId: order.id,
+               status: "SUCCESS"
+             });
+          } else {
+             throw new Error("No admin account found to receive commission");
+          }
+
+          // 3. Add deliverer cut
+          await tx
+            .update(profiles)
+            .set({ walletBalance: sql`${profiles.walletBalance} + ${delivererTotal}` })
+            .where(eq(profiles.id, order.delivererId!));
+
+          await tx.insert(walletTransactions).values({
+            userId: order.delivererId!,
+            amount: delivererTotal,
+            type: "DELIVERY_PAYOUT",
+            referenceId: order.id,
+            status: "SUCCESS"
+          });
+
+          // 4. Update order status
+          await tx
+            .update(orders)
+            .set({ status: "DELIVERED" })
+            .where(eq(orders.id, order.id));
+        });
+      } catch (err) {
+         console.error("Wallet transfer failed", err);
+         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Failed to transfer wallet funds" });
+      }
+
+      return { success: true };
     }),
 } satisfies TRPCRouterRecord;

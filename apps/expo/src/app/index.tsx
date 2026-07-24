@@ -1,9 +1,10 @@
-import type { Session, User } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Animated,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -11,9 +12,12 @@ import {
   TextInput,
   View,
 } from "react-native";
+import MapView, { Marker } from "react-native-maps";
+import * as Location from "expo-location";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as Notifications from "expo-notifications";
 
 import { CanteenMenu } from "~/app/_components/CanteenMenu";
 import { trpc } from "~/utils/api";
@@ -524,21 +528,21 @@ export default function Index() {
         </ScrollView>
       ) : (
         // DASHBOARD SCREEN
-        <DashboardView user={session.user} onSignOut={handleSignOut} />
+        <DashboardView onSignOut={handleSignOut} />
       )}
     </SafeAreaView>
   );
 }
 
 function DashboardView({
-  user,
   onSignOut,
 }: {
-  user: User;
   onSignOut: () => void;
 }) {
 
   const queryClient = useQueryClient();
+  // Map Modal State
+  const [selectedMapQuest, setSelectedMapQuest] = useState<{lat: number, lng: number, name: string} | null>(null);
   const globalChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
@@ -583,17 +587,112 @@ function DashboardView({
   } = useQuery(trpc.auth.getMyProfile.queryOptions());
 
   // Fetch orders via tRPC
-  const { data: orders, error: ordersError } = useQuery(
+  const { data: orders } = useQuery(
     trpc.order.myOrders.queryOptions(),
   );
-  const { data: availableQuests } = useQuery(
-    trpc.order.availableQuests.queryOptions(),
-  );
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | undefined>();
+
+  useEffect(() => {
+    let locationSubscription: Location.LocationSubscription | null = null;
+
+    const startWatching = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === Location.PermissionStatus.GRANTED) {
+          // Get initial position quickly
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          setUserLocation({
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          });
+
+          // Watch for live updates as the user moves
+          locationSubscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 3000,
+              distanceInterval: 5,
+            },
+            (newLocation) => {
+              setUserLocation({
+                latitude: newLocation.coords.latitude,
+                longitude: newLocation.coords.longitude,
+              });
+            }
+          );
+        }
+      } catch (e) {
+        console.warn("Failed to get location for quests", e);
+      }
+    };
+
+    void startWatching();
+
+    return () => {
+      if (locationSubscription) {
+        locationSubscription.remove();
+      }
+    };
+  }, []);
+
+  const { data: availableQuests } = useQuery({
+    ...trpc.order.availableQuests.queryOptions({
+      latitude: userLocation?.latitude,
+      longitude: userLocation?.longitude,
+    }),
+    enabled: !!userLocation,
+  });
+
+  const notifiedQuestIdsRef = useRef<Set<string>>(new Set());
+  const hasInitializedQuestsRef = useRef<boolean>(false);
+
+  // Robust notification trigger for stationary users
+  useEffect(() => {
+    if (!availableQuests) return;
+
+    // First load: just populate the set so we don't spam notifications for already existing quests
+    if (!hasInitializedQuestsRef.current) {
+      availableQuests.forEach((q) => notifiedQuestIdsRef.current.add(q.id));
+      hasInitializedQuestsRef.current = true;
+      return;
+    }
+
+    // Check for newly added quests
+    let hasNewQuest = false;
+    availableQuests.forEach((q) => {
+      if (!notifiedQuestIdsRef.current.has(q.id)) {
+        hasNewQuest = true;
+        notifiedQuestIdsRef.current.add(q.id);
+
+        // Schedule via OS alarm manager (1 second delay) to guarantee delivery 
+        // and avoid dropping frames during heavy UI re-renders
+        void Notifications.scheduleNotificationAsync({
+          content: {
+            title: `New Quest: ${q.canteenName}`,
+            body: `Deliver to ${q.deliveryLocationName}${q.nearestLandmarkName ? ` (${q.nearestLandmarkName})` : ""}`,
+            sound: true,
+          },
+          trigger: null,
+        });
+      }
+    });
+
+    // Cleanup old IDs
+    if (!hasNewQuest) {
+      const currentIds = new Set(availableQuests.map((q) => q.id));
+      notifiedQuestIdsRef.current.forEach((id) => {
+        if (!currentIds.has(id)) {
+          notifiedQuestIdsRef.current.delete(id);
+        }
+      });
+    }
+  }, [availableQuests]);
 
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
+    // Location is auto-tracked via watchPositionAsync, so no need to fetchLocation manually here
     await Promise.all([
       queryClient.invalidateQueries({
         queryKey: trpc.auth.getMyProfile.queryKey(),
@@ -804,7 +903,7 @@ function DashboardView({
                     {quest.canteenName}
                   </Text>
                   <Text className="text-xs text-zinc-400">
-                    To: {quest.deliveryLocationName}
+                    To: {quest.deliveryLocationName}{quest.nearestLandmarkName ? ` (${quest.nearestLandmarkName})` : ""}
                   </Text>
                 </View>
                 <View className="items-end">
@@ -813,23 +912,29 @@ function DashboardView({
                   </Text>
                 </View>
               </View>
-              <Pressable
-                onPress={() =>
-                  acceptOrderMutation.mutate({ orderId: quest.id })
-                }
-                disabled={acceptOrderMutation.isPending}
-                className={`mt-4 items-center justify-center rounded-xl py-3 ${
-                  acceptOrderMutation.isPending
-                    ? "bg-purple-600/50"
-                    : "bg-purple-600 active:bg-purple-700"
-                }`}
-              >
-                <Text className="text-sm font-bold text-white">
-                  {acceptOrderMutation.isPending
-                    ? "Accepting..."
-                    : "Accept Quest"}
-                </Text>
-              </Pressable>
+              
+              <View className="mt-4 flex-row gap-2">
+                <Pressable
+                  onPress={() => setSelectedMapQuest({ lat: quest.deliveryLatitude, lng: quest.deliveryLongitude, name: quest.deliveryLocationName })}
+                  className="flex-1 items-center justify-center rounded-xl bg-zinc-800 py-3 active:bg-zinc-700"
+                >
+                  <Text className="text-sm font-bold text-white">📍 Location</Text>
+                </Pressable>
+                
+                <Pressable
+                  onPress={() => acceptOrderMutation.mutate({ orderId: quest.id })}
+                  disabled={acceptOrderMutation.isPending}
+                  className={`flex-1 items-center justify-center rounded-xl py-3 ${
+                    acceptOrderMutation.isPending
+                      ? "bg-purple-600/50"
+                      : "bg-purple-600 active:bg-purple-700"
+                  }`}
+                >
+                  <Text className="text-sm font-bold text-white">
+                    {acceptOrderMutation.isPending ? "Accepting..." : "Accept Quest"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           ))
         ) : (
@@ -939,7 +1044,7 @@ function DashboardView({
                 </View>
               )}
 
-              {order.status === "PREPARING" && (
+              {["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (
                 <View className="mt-4 border-t border-white/10 pt-4">
                   <Pressable
                     onPress={() => router.push(`/order/${order.id}/tracker`)}
@@ -964,6 +1069,41 @@ function DashboardView({
             </Text>
           </View>
         )}
+
+        {/* Location Map Modal */}
+        <Modal
+          visible={!!selectedMapQuest}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setSelectedMapQuest(null)}
+        >
+          <View className="flex-1 bg-black/90 p-4 pt-20">
+            <View className="flex-1 overflow-hidden rounded-3xl border border-zinc-800 bg-zinc-950">
+              <View className="flex-row items-center justify-between border-b border-white/10 bg-zinc-900 p-4">
+                <Text className="text-lg font-bold text-white">Delivery Location</Text>
+                <Pressable onPress={() => setSelectedMapQuest(null)}>
+                  <Text className="text-lg font-bold text-purple-400">Close</Text>
+                </Pressable>
+              </View>
+              {selectedMapQuest && (
+                <MapView
+                  className="flex-1"
+                  initialRegion={{
+                    latitude: selectedMapQuest.lat,
+                    longitude: selectedMapQuest.lng,
+                    latitudeDelta: 0.005,
+                    longitudeDelta: 0.005,
+                  }}
+                >
+                  <Marker
+                    coordinate={{ latitude: selectedMapQuest.lat, longitude: selectedMapQuest.lng }}
+                    title={selectedMapQuest.name}
+                  />
+                </MapView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     );
   } catch (err: unknown) {
