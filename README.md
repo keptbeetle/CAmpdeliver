@@ -10,12 +10,12 @@ The application is engineered as a modern, high-performance full-stack monorepo 
 
 Built on top of the **T3 Stack** philosophy within a **Turborepo** monorepo using **pnpm**:
 
-- **Web Frontend**: [Next.js 15](https://nextjs.org/) (App Router), React 19, Tailwind CSS v4
+- **Web Frontend**: [Next.js 15](https://nextjs.org/) (App Router), React 19, Tailwind CSS v4, Lucide Icons
 - **Mobile Frontend**: [Expo](https://expo.dev/) (React Native), [NativeWind](https://nativewind.dev/)
 - **API Layer**: [tRPC v11](https://trpc.io/) for end-to-end type safety between server and clients
 - **Database & ORM**: PostgreSQL with [Drizzle ORM](https://orm.drizzle.team/)
 - **Authentication & Realtime**: [Supabase Auth](https://supabase.com/) & Supabase Realtime (WebSockets)
-- **State & Data Fetching**: [@tanstack/react-query](https://tanstack.com/)
+- **State & Data Fetching**: [@tanstack/react-query](https://tanstack.com/) & Local React Cart Context
 - **Validation**: [Zod](https://zod.dev/) schemas shared across packages
 
 ---
@@ -37,48 +37,29 @@ CAmpDeliver/
 
 ---
 
-## ⚡ Current Implementation Status & Progress
+## ⚡ Branch History & Implementation Status
 
-The platform has reached feature-complete parity across both Web and Mobile platforms for core user flows:
+### ✅ 1. Merged Feature: Delivery Tracking & OTP Verification (`feature/delivery-tracking-otp` $\rightarrow$ `main`)
+The core delivery tracking and verification engine was completed and merged directly into `main`:
+- **Phone-First Auth**: E.164 phone sanitization, virtual email mapping (`+91XXXXXXXXXX@campus.edu`), and 6-digit signup OTP verification.
+- **Interactive Dual-Marker Map Tracker**: Real-time live map rendering buyer & deliverer positions, OSRM road routing, and dynamic distance calculations.
+- **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` $\rightarrow$ `NEAR_YOU`).
+- **Real-Time P2P Chat**: WebSocket streaming via Supabase Realtime for instant messaging between buyer and deliverer per active order.
+- **Escrow Wallet Ledger & 4-Digit Handover OTP**: Funds (`foodPrice` + `deliveryFee`) frozen upon acceptance and released to deliverer upon 4-digit OTP verification.
 
-### 🔐 1. Authentication & Profile Management
-- **Phone-First Authentication**: Users register and log in using their 10-digit mobile number and password (no email input required for end-users).
-- **Virtual Email Mapping**: Internally maps phone numbers to Supabase Auth using a virtual email scheme (`+91XXXXXXXXXX@campus.edu`).
-- **6-Digit Phone OTP Verification**: Registration flow includes mandatory phone verification via a custom 6-digit OTP step before user creation.
-- **Anti-Abuse Rate Limiting**: Restricts OTP dispatch to a maximum of 3 requests per phone number within a 15-minute window.
-- **Session Handling & SSR Middleware**: Uses `@supabase/ssr` middleware to refresh auth tokens seamlessly across tRPC requests on web and secure token storage on mobile.
-- **Campus Profiles**: Stores student details including Full Name, Hostel Name, Phone Number, and Role (`STUDENT`, `DELIVERER`, `ADMIN`).
+---
 
-### 💳 2. Campus Virtual Wallet & Financial Ledger
-- **Dual-Balance Architecture**: Manages both active `walletBalance` and escrowed `frozenBalance` stored in integer paise (e.g. 10000 paise = ₹100.00).
-- **Simulated Top-Ups**: Students can simulate wallet deposits by submitting a unique UTR (Unique Transaction Reference) number.
-- **Escrow & Fund Freezing**: 
-  - When an order is accepted, the required total amount (`foodPrice` + `deliveryFee`) is frozen in the buyer's wallet.
-  - Funds are safely released and credited to the deliverer upon verified order completion.
-- **Auditable Transaction History**: Tracks transaction types including `TOP_UP`, `ORDER_FREEZE`, `ORDER_UNFREEZE`, `DELIVERY_PAYOUT`, `ADMIN_COMMISSION`, and `REFUND`.
+### 🎨 2. Active Branch: Web UI Redesign & Mobile-First Overhaul (`feature/web-ui-overhaul`)
+A new feature branch `feature/web-ui-overhaul` was created to overhaul the Next.js frontend into a modern, mobile-first design system:
+- **Persistent Bottom Navigation (`BottomNav.tsx`)**: Fixed bottom navigation bar for **Home** (`/`), **Available Quests** (`/quests`), **My Orders** (`/orders`), and **Wallet** (`/wallet`).
+- **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags.
+- **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub.
+- **Interactive Cart & Stepper Controls (`CartContext.tsx`)**: Local cart state with `[-] [ Count ] [+]` quantity steppers, canteen boundary validation, and a sticky bottom cart bar.
+- **Full Checkout Experience (`/checkout`)**: Item breakdown, campus landmark drop-off picker, room/block details input, and bill breakdown.
+- **Order Status Hub (`/orders/[id]/status`)**: 4-step visual progress timeline, quick shortcuts for Live Map & Chat, and delivery OTP verification card.
 
-### 🍱 3. Canteens, Campus Landmarks & Menu System
-- **Landmark Directory**: Dynamic database of campus canteens and hostels with exact GPS coordinates (`latitude`, `longitude`) and geofence boundary radii.
-- **Live Menu Catalog**: Canteen menus with item prices, categories, and real-time availability toggles (`isAvailable`).
-- **Cart Builder**: Interactive cart allowing custom item selections and automatic delivery fee calculation.
-
-### 📋 4. Quest Marketplace & Order Lifecycle
-- **Broadcast Ordering**: Buyers publish food delivery requests ("Quests") visible to all logged-in students across campus.
-- **Quest Board**: Deliverers can view available delivery requests, inspect order items, canteen pickup location, and delivery destination before accepting.
-- **Order State Machine**: Enforces status transitions across the delivery pipeline:
-  $$\text{BROADCASTED} \longrightarrow \text{ACCEPTED} \longrightarrow \text{PREPARING} \longrightarrow \text{ON\_THE\_WAY} \longrightarrow \text{NEAR\_YOU} \longrightarrow \text{DELIVERED} \longrightarrow \text{COMPLETED}$$
-- **OTP Delivery Handover**: Generates a secure 4-digit verification code required at delivery pickup/dropoff to finalize order completion and release funds.
-
-### 💬 5. Real-Time Peer-to-Peer Chat
-- **Instant Messaging**: Dedicated order chat linking the buyer and deliverer for direct communication.
-- **WebSocket Streaming**: Powered by Supabase Realtime for instant message delivery without manual polling.
-- **Persistent History**: Chat logs saved in the `chat_messages` table for dispute resolution.
-
-### 📍 6. Live Location Tracking & Geofencing
-- **Interactive Dual-Marker Map Tracker**: Real-time live map showing both buyer and deliverer positions, dynamic route lines, and live distance calculations (in meters/kilometers).
-- **Geofence Manager (`GeofenceManager.tsx`)**: Automatic proximity detection against canteen and hostel GPS radii:
-  - Automatically updates status (e.g., triggering `ON_THE_WAY` or `NEAR_YOU`) when the deliverer enters within landmark boundary radii (e.g. 50 meters).
-- **Continuous Location Broadcasting**: Background and foreground location updates synced across devices.
+> [!NOTE]
+> All 5 phases of the web UI redesign are fully implemented and typechecked. Minor UI polish, responsive edge-case testing, and styling refinements are currently underway on the `feature/web-ui-overhaul` branch.
 
 ---
 
@@ -91,18 +72,13 @@ The platform has reached feature-complete parity across both Web and Mobile plat
 
 ### 🛠️ Developer Workarounds for Testing OTPs:
 1. **Server Console Output (Recommended)**:
-   Every generated OTP code is logged directly to the server terminal. Check your running server terminal output for lines like:
+   Every generated OTP code is logged directly to the server terminal:
    ```text
    [OTP-LOG] Generated OTP for +919876543210 is: 482910
    [SMS-MOCK] OTP for +919876543210 is: 482910
    ```
 2. **Built-in Test Phone Numbers**:
-   The backend automatically bypasses external SMS dispatches for standard dummy numbers. You can use any of the following phone numbers for instant testing with terminal-logged OTPs:
-   - `+911234567890`
-   - `+911111111111`
-   - `+912222222222`
-   - `+913333333333`
-   - `+919999999999`
+   The backend automatically bypasses external SMS dispatches for standard dummy numbers (`+911234567890`, `+911111111111`, `+912222222222`, `+913333333333`, `+919999999999`).
 
 ---
 
@@ -114,7 +90,7 @@ To test full end-to-end workflows (Buyer placing an order, Deliverer accepting a
 
 To experience the real-time interaction between **Buyer** and **Deliverer**:
 
-- **Device A (Buyer)**: Open the **Web Application** on a physical mobile phone connected to your local Wi-Fi, or run a desktop browser in an Incognito window / separate browser profile.
+- **Device A (Buyer)**: Open the **Web Application** on a physical mobile phone connected to your local Wi-Fi, or run a desktop browser in an Incognito window.
 - **Device B (Deliverer)**: Open the **Expo Mobile App** inside an Android Emulator / iOS Simulator on your PC (or a second mobile device via Expo Go).
 
 #### Connecting Physical Phone to Local Web App:
@@ -130,17 +106,15 @@ To test live GPS route tracking, distance calculations, and automatic geofence t
 
 #### Option A: Android Studio Emulator (PC)
 1. Open the Android Emulator running the **Expo Mobile App** (Deliverer view).
-2. Click the **Three Dots (`...`)** menu on the emulator sidebar to open **Extended Controls**.
-3. Select **Location**:
+2. Click **Extended Controls (`...`)** $\rightarrow$ **Location**:
    - Manually enter coordinates (Latitude & Longitude) corresponding to campus canteens or hostels.
-   - Or load a `.gpx` / `.kml` route file to simulate walking from the canteen to the hostel.
-4. Watch the Expo app automatically calculate distance to the buyer, display updated markers on the map, and trigger the `GeofenceManager` when entering landmark radii.
+   - Or load a `.gpx` / `.kml` route file to simulate walking from canteen to hostel.
+3. Watch the Expo app automatically calculate distance to buyer, update map markers, and trigger `GeofenceManager` when entering landmark radii.
 
 #### Option B: Google Chrome DevTools (Web)
-1. Press `F12` or right-click and choose **Inspect** on the Next.js web application.
-2. Click the **Three Dots** menu in DevTools top-right $\rightarrow$ **More tools** $\rightarrow$ **Sensors**.
-3. Under **Geolocation**, select **Other...** and input custom coordinates.
-4. Move coordinates closer to the canteen or delivery location to test real-time distance updates and status progression.
+1. Press `F12` $\rightarrow$ **More tools** $\rightarrow$ **Sensors**.
+2. Under **Geolocation**, select **Other...** and input custom coordinates.
+3. Move coordinates closer to canteen or drop-off location to test real-time distance updates and status progression.
 
 ---
 
