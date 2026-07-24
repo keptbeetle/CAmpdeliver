@@ -319,7 +319,7 @@ export default function OrderTrackerScreen() {
           {!isDeliverer && order.otp && (
             <View className="items-center rounded-xl bg-zinc-800/50 p-4">
               <Text className="mb-1 text-xs font-bold text-zinc-400 uppercase tracking-widest">Your Delivery OTP</Text>
-              <Text className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</Text>
+              <Text className="text-3xl font-black tracking-widest text-white">{order.otp}</Text>
               <Text className="mt-2 text-center text-xs text-zinc-500">Share this code with your deliverer to receive your order.</Text>
             </View>
           )}
@@ -352,7 +352,7 @@ export default function OrderTrackerScreen() {
                   <Text className="mb-2 text-xs font-bold tracking-widest text-zinc-400 uppercase">Verify Delivery</Text>
                   <View className="w-full flex-row gap-2">
                     <TextInput
-                      className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-center text-lg font-bold tracking-[0.2em] text-white"
+                      className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-center text-lg font-bold tracking-widest text-white"
                       placeholder="Enter OTP"
                       placeholderTextColor="#52525b"
                       keyboardType="number-pad"
