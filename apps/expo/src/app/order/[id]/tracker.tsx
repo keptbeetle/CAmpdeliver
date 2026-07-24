@@ -350,9 +350,15 @@ export default function OrderTrackerScreen() {
               {order.status === "NEAR_YOU" && (
                 <View className="items-center">
                   <Text className="mb-2 text-xs font-bold tracking-widest text-zinc-400 uppercase">Verify Delivery</Text>
-                  <View className="w-full flex-row gap-2">
+                  <View className="w-full flex-row items-center gap-2">
                     <TextInput
-                      className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-center text-lg font-bold tracking-widest text-white"
+                      className="flex-1 rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 text-white"
+                      style={{
+                        textAlign: "center",
+                        fontSize: 18,
+                        fontWeight: "bold",
+                        letterSpacing: 8,
+                      }}
                       placeholder="Enter OTP"
                       placeholderTextColor="#52525b"
                       keyboardType="number-pad"
@@ -365,8 +371,8 @@ export default function OrderTrackerScreen() {
                       onPress={() => verifyDeliveryMutation.mutate({ orderId: order.id, otp: otpInput })}
                       className={
                         otpInput.length === 4
-                          ? "items-center justify-center rounded-xl px-6 bg-green-600 active:bg-green-700"
-                          : "items-center justify-center rounded-xl px-6 bg-zinc-700 opacity-50"
+                          ? "items-center justify-center rounded-xl px-6 py-3 bg-green-600 active:bg-green-700"
+                          : "items-center justify-center rounded-xl px-6 py-3 bg-zinc-700 opacity-50"
                       }
                     >
                       <Text className="font-bold text-white">
