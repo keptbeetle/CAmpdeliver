@@ -2,14 +2,17 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
 import { cn } from "@acme/ui";
-import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
+import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
 import "~/app/styles.css";
+import { CartProvider } from "~/app/_components/cart/CartContext";
 import { GlobalTracker } from "~/app/_components/GlobalTracker";
+import { BottomNav } from "~/app/_components/layout/BottomNav";
+import { Header } from "~/app/_components/layout/Header";
 
 export const metadata: Metadata = {
   metadataBase: new URL(
@@ -36,8 +39,8 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "white" },
-    { media: "(prefers-color-scheme: dark)", color: "black" },
+    { media: "(prefers-color-scheme: light)", color: "#09090b" },
+    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
   ],
 };
 
@@ -52,23 +55,26 @@ const geistMono = Geist_Mono({
 
 export default function RootLayout(props: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="dark">
       <body
         className={cn(
-          "bg-background text-foreground min-h-screen font-sans antialiased",
+          "min-h-screen bg-zinc-950 font-sans text-white antialiased selection:bg-purple-500 selection:text-white",
           geistSans.variable,
           geistMono.variable,
         )}
       >
         <ThemeProvider>
           <TRPCReactProvider>
-            {props.children}
-            <GlobalTracker />
+            <CartProvider>
+              <div className="relative mx-auto flex min-h-screen max-w-md flex-col bg-zinc-950 shadow-2xl">
+                <Header />
+                <main className="flex-1 pb-24">{props.children}</main>
+                <BottomNav />
+                <GlobalTracker />
+              </div>
+              <Toaster />
+            </CartProvider>
           </TRPCReactProvider>
-          <div className="absolute right-4 bottom-4">
-            <ThemeToggle />
-          </div>
-          <Toaster />
         </ThemeProvider>
       </body>
     </html>
