@@ -241,13 +241,14 @@ export default function OrderTrackerScreen() {
           latitudeDelta: 0.01,
           longitudeDelta: 0.01,
         }}
-        mapType="none"
+        mapType="standard"
         showsUserLocation={hasPermission}
         showsMyLocationButton={true}
       >
         <UrlTile
           urlTemplate="https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
           maximumZ={19}
+          tileSize={256}
           flipY={false}
         />
 

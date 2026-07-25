@@ -77,6 +77,15 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="wallet"
+        options={{
+          title: "Wallet",
+          tabBarIcon: ({ color, focused }) => (
+            <Feather name="credit-card" size={focused ? 23 : 21} color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
