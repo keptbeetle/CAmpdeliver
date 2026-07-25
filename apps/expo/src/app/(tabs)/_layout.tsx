@@ -69,9 +69,9 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="orders"
+        name="history_tab"
         options={{
-          title: "My Orders",
+          title: "Your Orders",
           tabBarIcon: ({ color, focused }) => (
             <Feather name="shopping-bag" size={focused ? 23 : 21} color={color} />
           ),

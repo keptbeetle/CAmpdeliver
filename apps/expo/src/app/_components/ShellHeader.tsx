@@ -102,7 +102,7 @@ export function ShellHeader({ title = "CAmpDeliver", subtitle }: ShellHeaderProp
             <View style={styles.linkGroup}>
               <DrawerLink icon="user" label="My Profile" onPress={() => Alert.alert("Profile", "Profile editing is coming to the mobile app.")} />
               <DrawerLink icon="settings" label="Settings" onPress={() => Alert.alert("Settings", "Settings are coming to the mobile app.")} />
-              <DrawerLink icon="clock" label="Past Order History" onPress={() => closeAndGo("/orders")} />
+              <DrawerLink icon="clock" label="Past Order History" onPress={() => closeAndGo("/history_tab")} />
             </View>
 
             {isAdmin ? (
