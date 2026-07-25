@@ -1,5 +1,6 @@
+import { useCallback, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 
@@ -14,6 +15,14 @@ import {
 
 export function ActiveOrderBar() {
   const router = useRouter();
+  const [isHidden, setIsHidden] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      setIsHidden(false);
+    }, [])
+  );
+
   const { data: orders } = useQuery({
     ...trpc.order.myOrders.queryOptions(),
     refetchInterval: 5000,
@@ -23,7 +32,7 @@ export function ActiveOrderBar() {
     ACTIVE_ORDER_STATUSES.includes(order.status),
   );
 
-  if (!activeOrder) return null;
+  if (!activeOrder || isHidden) return null;
 
   const progress = statusProgress[activeOrder.status] ?? 25;
 
@@ -33,6 +42,14 @@ export function ActiveOrderBar() {
         onPress={() => router.push(`/orders/${activeOrder.id}/status` as never)}
         style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       >
+        <Pressable
+          onPress={() => setIsHidden(true)}
+          style={styles.closeBtn}
+          hitSlop={10}
+        >
+          <Feather name="x" size={14} color="#ddd6fe" />
+        </Pressable>
+
         <View style={styles.row}>
           <View style={styles.iconBox}>
             <Feather name="navigation" size={18} color="#ddd6fe" />
@@ -70,6 +87,20 @@ const styles = StyleSheet.create({
     shadowOffset: { height: 8, width: 0 },
     shadowOpacity: 0.3,
     shadowRadius: 16,
+  },
+  closeBtn: {
+    position: "absolute",
+    right: -8,
+    top: -8,
+    zIndex: 10,
+    backgroundColor: "#3f3f46",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#52525b",
+    height: 24,
+    width: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
   copy: {
     flex: 1,
