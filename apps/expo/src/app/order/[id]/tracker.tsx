@@ -218,7 +218,7 @@ export default function OrderTrackerScreen() {
           The delivery has been verified and the session is now closed.
         </Text>
         <Pressable
-          onPress={() => router.replace("/")}
+          onPress={() => router.replace("/" as never)}
           className="mt-8 rounded-xl bg-purple-600 px-8 py-4 active:bg-purple-700"
         >
           <Text className="font-bold text-white">Back to Dashboard</Text>
@@ -307,7 +307,7 @@ export default function OrderTrackerScreen() {
             </Text>
           </View>
           <Pressable
-            onPress={() => router.push(`/order/${id}/chat`)}
+            onPress={() => router.push(`/order/${id}/chat` as never)}
             className="ml-4 items-center justify-center rounded-xl bg-purple-600/20 px-4 py-2 border border-purple-500/50 active:bg-purple-600/40"
           >
             <Text className="text-sm font-bold text-purple-300">Chat</Text>
