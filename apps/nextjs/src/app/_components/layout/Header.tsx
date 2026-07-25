@@ -42,7 +42,7 @@ export function Header() {
   return (
     <>
       <header className="sticky top-0 z-40 w-full border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-3">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
           {/* Logo & Brand */}
           <Link href="/" className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-xs font-black text-white shadow-md shadow-purple-600/30">
@@ -175,7 +175,7 @@ export function Header() {
                   </p>
 
                   <Link
-                    href="/admin"
+                    href="/admin/canteens"
                     onClick={() => setIsOpen(false)}
                     className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-amber-300 hover:bg-amber-950/30"
                   >
@@ -184,7 +184,7 @@ export function Header() {
                   </Link>
 
                   <Link
-                    href="/admin"
+                    href="/admin/landmarks"
                     onClick={() => setIsOpen(false)}
                     className="flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-amber-300 hover:bg-amber-950/30"
                   >

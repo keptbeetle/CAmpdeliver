@@ -39,7 +39,7 @@ export function BottomNav() {
   ];
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 w-full -translate-x-1/2 max-w-md border-t border-zinc-800/80 bg-zinc-950/95 p-2 backdrop-blur-lg">
+    <nav className="fixed bottom-0 left-1/2 z-40 w-full -translate-x-1/2 max-w-6xl border-t border-zinc-800/80 bg-zinc-950/95 p-2 backdrop-blur-lg">
       <div className="flex items-center justify-around">
         {navItems.map((item) => {
           const isActive = item.exact

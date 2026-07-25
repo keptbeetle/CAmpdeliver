@@ -66,7 +66,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         <ThemeProvider>
           <TRPCReactProvider>
             <CartProvider>
-              <div className="relative mx-auto flex min-h-screen max-w-md flex-col bg-zinc-950 shadow-2xl">
+              <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col bg-zinc-950 shadow-2xl">
                 <Header />
                 <main className="flex-1 pb-24">{props.children}</main>
                 <BottomNav />

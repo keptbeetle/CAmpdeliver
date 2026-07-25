@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
-  Building2,
   CheckCircle2,
+  Loader2,
   MapPin,
   Minus,
   Plus,
@@ -19,6 +19,23 @@ import {
 import { useCart } from "~/app/_components/cart/CartContext";
 import { useTRPC } from "~/trpc/react";
 
+/** Haversine distance in metres */
+function haversineDistance(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371e3;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export default function CheckoutPage() {
   const router = useRouter();
   const trpc = useTRPC();
@@ -27,9 +44,65 @@ export default function CheckoutPage() {
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
 
-  const [selectedLandmarkId, setSelectedLandmarkId] = useState<string>("");
-  const [roomNumber, setRoomNumber] = useState<string>("");
+  // Auto-detected location state
+  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<"loading" | "success" | "error">("loading");
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [resolvedLocationName, setResolvedLocationName] = useState<string>("Detecting location…");
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Auto-fetch GPS on mount
+  useEffect(() => {
+    if (typeof window === "undefined" || !("geolocation" in navigator)) {
+      setLocationStatus("error");
+      setLocationError("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    setLocationStatus("loading");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserCoords({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+        setLocationStatus("success");
+      },
+      (err) => {
+        setLocationStatus("error");
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission denied. Please enable location access."
+            : "Could not detect your location. Please try again.",
+        );
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+    );
+  }, []);
+
+  // Resolve nearest landmark when GPS + landmarks are ready
+  useEffect(() => {
+    if (!userCoords || !landmarks || landmarks.length === 0) return;
+
+    let nearest: { name: string; distance: number } | null = null;
+    for (const lm of landmarks as { id: string; name: string; latitude: number; longitude: number; radius: number }[]) {
+      const dist = haversineDistance(userCoords.lat, userCoords.lng, lm.latitude, lm.longitude);
+      if (!nearest || dist < nearest.distance) {
+        nearest = { name: lm.name, distance: dist };
+      }
+    }
+
+    if (nearest) {
+      if (nearest.distance <= 100) {
+        setResolvedLocationName(nearest.name);
+      } else {
+        setResolvedLocationName(`Near ${nearest.name}`);
+      }
+    } else {
+      setResolvedLocationName("Current Location");
+    }
+  }, [userCoords, landmarks]);
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
@@ -65,8 +138,6 @@ export default function CheckoutPage() {
     );
   }
 
-  const selectedLandmark = landmarks?.find((l: { id: string }) => l.id === selectedLandmarkId);
-
   const deliveryFee = 500; // ₹5 in paise
   const finalTotal = totalPrice + deliveryFee;
 
@@ -78,20 +149,16 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (!selectedLandmark) {
-      setErrorMsg("Please select a drop-off landmark.");
+    if (!userCoords) {
+      setErrorMsg("Could not detect your location. Please enable location services and reload.");
       return;
     }
 
-    const fullLocationName = roomNumber.trim()
-      ? `${selectedLandmark.name} (${roomNumber.trim()})`
-      : selectedLandmark.name;
-
     createOrderMutation.mutate({
       canteenId,
-      deliveryLocationName: fullLocationName,
-      deliveryLatitude: selectedLandmark.latitude,
-      deliveryLongitude: selectedLandmark.longitude,
+      deliveryLocationName: resolvedLocationName,
+      deliveryLatitude: userCoords.lat,
+      deliveryLongitude: userCoords.lng,
       items: items.map((i) => ({
         name: i.name,
         quantity: i.quantity,
@@ -101,7 +168,7 @@ export default function CheckoutPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-6 pb-28">
+    <div className="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6">
       {/* Top Header */}
       <div className="flex items-center gap-3">
         <Link
@@ -163,47 +230,47 @@ export default function CheckoutPage() {
         </div>
       </div>
 
-      {/* Campus Drop-off Landmark Picker */}
-      <div className="flex flex-col gap-4 rounded-3xl border border-zinc-800/80 bg-zinc-900/60 p-4">
+      {/* Auto-Detected Delivery Location */}
+      <div className="flex flex-col gap-3 rounded-3xl border border-zinc-800/80 bg-zinc-900/60 p-4">
         <h3 className="flex items-center gap-2 text-sm font-bold text-white">
           <MapPin className="h-4 w-4 text-purple-400" />
-          Delivery Drop-off Location
+          Delivery Location
         </h3>
 
-        {/* Landmark Dropdown */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-            Select Hostel / Landmark
-          </label>
-          <select
-            value={selectedLandmarkId}
-            onChange={(e) => setSelectedLandmarkId(e.target.value)}
-            className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white focus:border-purple-500 focus:outline-none"
-          >
-            <option value="">-- Choose Drop-off Landmark --</option>
-            {landmarks?.map((l: { id: string; name: string }) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Specific Room / Block Details */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-zinc-400 uppercase tracking-wider">
-            Room / Floor / Block (Optional)
-          </label>
-          <div className="relative">
-            <Building2 className="absolute top-3.5 left-3.5 h-4 w-4 text-zinc-500" />
-            <input
-              type="text"
-              placeholder="e.g. Room 304, Block B"
-              value={roomNumber}
-              onChange={(e) => setRoomNumber(e.target.value)}
-              className="w-full rounded-xl border border-zinc-800 bg-zinc-950 pl-10 pr-4 py-3 text-sm text-white placeholder-zinc-600 focus:border-purple-500 focus:outline-none"
-            />
-          </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-3.5">
+          {locationStatus === "loading" && (
+            <>
+              <Loader2 className="h-5 w-5 animate-spin text-purple-400" />
+              <div>
+                <p className="text-sm font-semibold text-zinc-300">Detecting your location…</p>
+                <p className="text-xs text-zinc-500">Please allow location access if prompted</p>
+              </div>
+            </>
+          )}
+          {locationStatus === "success" && (
+            <>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-950/80 text-emerald-400">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-white">{resolvedLocationName}</p>
+                <p className="text-xs text-zinc-500">
+                  GPS: {userCoords?.lat.toFixed(5)}, {userCoords?.lng.toFixed(5)}
+                </p>
+              </div>
+            </>
+          )}
+          {locationStatus === "error" && (
+            <>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-950/80 text-red-400">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-red-300">Location unavailable</p>
+                <p className="text-xs text-zinc-500">{locationError}</p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -243,17 +310,18 @@ export default function CheckoutPage() {
 
       {/* Place Order CTA Button */}
       <button
-        disabled={createOrderMutation.isPending}
+        disabled={createOrderMutation.isPending || locationStatus !== "success"}
         onClick={handlePlaceOrder}
         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-600 py-4 text-sm font-black text-white shadow-xl shadow-purple-600/30 transition-all hover:bg-purple-500 active:scale-95 disabled:opacity-50"
       >
         <CheckCircle2 className="h-5 w-5" />
         <span>
           {createOrderMutation.isPending
-            ? "Broadcasting Order..."
+            ? "Broadcasting Order…"
             : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
         </span>
       </button>
     </div>
   );
 }
+

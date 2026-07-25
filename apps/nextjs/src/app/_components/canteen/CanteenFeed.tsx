@@ -45,13 +45,13 @@ export function CanteenFeed() {
   );
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-4">
+    <div className="flex flex-col gap-6 px-4 py-4 sm:px-6">
       {/* Hero Banner Carousel */}
       <div className="flex w-full gap-3 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory">
         {HERO_BANNERS.map((banner) => (
           <div
             key={banner.id}
-            className={`relative flex min-w-[280px] flex-1 snap-start flex-col justify-between overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br ${banner.gradient} p-5 shadow-xl`}
+            className={`relative flex min-w-[260px] max-w-[340px] flex-1 snap-start flex-col justify-between overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br ${banner.gradient} p-5 shadow-xl`}
           >
             <div className="flex items-center justify-between">
               <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white uppercase backdrop-blur-md">
@@ -85,7 +85,7 @@ export function CanteenFeed() {
 
       {/* YouTube-Style Grid Feed */}
       {isLoading ? (
-        <div className="grid grid-cols-1 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3].map((n) => (
             <div
               key={n}
@@ -98,7 +98,7 @@ export function CanteenFeed() {
           ))}
         </div>
       ) : canteens && canteens.length > 0 ? (
-        <div className="grid grid-cols-1 gap-5">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {canteens.map((canteen: { id: string; name: string }, idx: number) => {
             const fallbackImg =
               FALLBACK_THUMBNAILS[idx % FALLBACK_THUMBNAILS.length];
@@ -110,7 +110,7 @@ export function CanteenFeed() {
                 className="group relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 transition-all hover:border-purple-500/50 hover:bg-zinc-900 hover:shadow-xl hover:shadow-purple-950/20 active:scale-[0.99]"
               >
                 {/* YouTube Video-Card Thumbnail */}
-                <div className="relative aspect-video w-full overflow-hidden bg-zinc-950">
+                <div className="relative aspect-video max-h-48 w-full overflow-hidden bg-zinc-950">
                   <img
                     src={fallbackImg}
                     alt={canteen.name}

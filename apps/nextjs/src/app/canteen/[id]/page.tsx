@@ -68,7 +68,7 @@ export default function CanteenDetailPage({
       </div>
 
       {/* Menu Header */}
-      <div className="px-4 pt-6">
+      <div className="px-4 pt-6 sm:px-6">
         <h2 className="text-lg font-bold text-white">Recommended Menu</h2>
         <p className="text-xs text-zinc-400">
           Freshly prepared items available for instant delivery
@@ -76,7 +76,7 @@ export default function CanteenDetailPage({
       </div>
 
       {/* Food Items List */}
-      <div className="flex flex-col gap-4 px-4 pt-4">
+      <div className="flex flex-col gap-4 px-4 pt-4 sm:px-6 sm:grid sm:grid-cols-2 lg:grid-cols-3">
         {isLoading ? (
           [1, 2, 3, 4].map((n) => (
             <div
@@ -163,7 +163,7 @@ export default function CanteenDetailPage({
 
       {/* Sticky Bottom Cart Card */}
       {totalItems > 0 && (
-        <div className="fixed bottom-16 left-1/2 z-40 w-full -translate-x-1/2 max-w-md px-4">
+        <div className="fixed bottom-16 left-1/2 z-40 w-full -translate-x-1/2 max-w-6xl px-4 sm:px-6">
           <div className="flex items-center justify-between rounded-2xl border border-purple-500/50 bg-purple-950/95 p-3.5 shadow-2xl backdrop-blur-xl">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-600 text-white font-black text-xs">

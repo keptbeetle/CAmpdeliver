@@ -5,6 +5,38 @@ import * as Location from "expo-location";
 
 import { trpc } from "~/utils/api";
 
+/** Haversine distance in metres */
+function haversineDistance(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number,
+): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371e3;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function resolveNearestLandmarkName(
+  lat: number,
+  lng: number,
+  landmarks: { name: string; latitude: number; longitude: number; radius: number }[],
+): string {
+  let nearest: { name: string; distance: number } | null = null;
+  for (const lm of landmarks) {
+    const dist = haversineDistance(lat, lng, lm.latitude, lm.longitude);
+    if (!nearest || dist < nearest.distance) {
+      nearest = { name: lm.name, distance: dist };
+    }
+  }
+  if (nearest) {
+    return nearest.distance <= 100 ? nearest.name : `Near ${nearest.name}`;
+  }
+  return "Current Location";
+}
 
 // Removed static CANTEENS array
 
@@ -12,6 +44,7 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
   const queryClient = useQueryClient();
 
   const { data: canteens } = useQuery(trpc.canteen.listActiveWithMenu.queryOptions());
+  const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
 
   const [selectedCanteenId, setSelectedCanteenId] = useState<string | undefined>();
   const [cart, setCart] = useState<
@@ -96,6 +129,14 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
         accuracy: Location.Accuracy.Balanced,
       });
 
+      const lat = location.coords.latitude;
+      const lng = location.coords.longitude;
+
+      // Resolve nearest landmark name
+      const locationName = landmarks && landmarks.length > 0
+        ? resolveNearestLandmarkName(lat, lng, landmarks as { name: string; latitude: number; longitude: number; radius: number }[])
+        : "Current Location";
+
       await createOrderMutation.mutateAsync({
         canteenId: selectedCanteen?.id ?? "",
         items: cart.map((c) => ({
@@ -103,9 +144,9 @@ export function CanteenMenu({ onOrderCreated }: { onOrderCreated?: () => void | 
           price: c.price,
           quantity: c.quantity,
         })),
-        deliveryLocationName: "Current Location",
-        deliveryLatitude: location.coords.latitude,
-        deliveryLongitude: location.coords.longitude,
+        deliveryLocationName: locationName,
+        deliveryLatitude: lat,
+        deliveryLongitude: lng,
       });
     } catch (e) {
       console.error("Failed to place order:", e);
