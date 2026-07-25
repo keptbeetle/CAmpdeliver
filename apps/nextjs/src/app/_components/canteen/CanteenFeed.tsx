@@ -91,7 +91,7 @@ export function CanteenFeed() {
               key={n}
               className="animate-pulse rounded-3xl border border-zinc-800 bg-zinc-900/50 p-4"
             >
-              <div className="aspect-video w-full rounded-2xl bg-zinc-800" />
+              <div className="w-full pt-[56.25%] rounded-2xl bg-zinc-800" />
               <div className="mt-3 h-5 w-3/4 rounded-md bg-zinc-800" />
               <div className="mt-2 h-4 w-1/2 rounded-md bg-zinc-800" />
             </div>
@@ -110,7 +110,7 @@ export function CanteenFeed() {
                 className="group relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 transition-all hover:border-purple-500/50 hover:bg-zinc-900 hover:shadow-xl hover:shadow-purple-950/20 active:scale-[0.99]"
               >
                 {/* YouTube Video-Card Thumbnail */}
-                <div className="relative w-full aspect-video overflow-hidden bg-zinc-950">
+                <div className="relative w-full pt-[56.25%] overflow-hidden bg-zinc-950">
                   <img
                     src={fallbackImg}
                     alt={canteen.name}
