@@ -11,7 +11,9 @@ export default async function HomePage() {
       <div className="absolute top-0 left-0 -z-10 h-full w-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-purple-950/20 via-zinc-950 to-black"></div>
 
       {user ? (
-        <Dashboard />
+        <div className="w-full flex-1 pt-4">
+          <Dashboard />
+        </div>
       ) : (
         <div className="flex flex-col items-center gap-6">
           <div className="flex items-center gap-3">

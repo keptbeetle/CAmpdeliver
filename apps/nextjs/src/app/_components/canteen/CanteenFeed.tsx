@@ -45,7 +45,7 @@ export function CanteenFeed() {
   );
 
   return (
-    <div className="flex flex-col gap-6 px-4 py-4 sm:px-6">
+    <div className="flex w-full min-w-0 max-w-full flex-col gap-6 px-4 py-4 sm:px-6">
       {/* Hero Banner Carousel */}
       <div className="flex w-full gap-3 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory">
         {HERO_BANNERS.map((banner) => (
@@ -91,7 +91,7 @@ export function CanteenFeed() {
               key={n}
               className="animate-pulse rounded-3xl border border-zinc-800 bg-zinc-900/50 p-4"
             >
-              <div className="w-full pt-[56.25%] rounded-2xl bg-zinc-800" />
+              <div className="w-full pt-[40.25%] rounded-2xl bg-zinc-800" />
               <div className="mt-3 h-5 w-3/4 rounded-md bg-zinc-800" />
               <div className="mt-2 h-4 w-1/2 rounded-md bg-zinc-800" />
             </div>

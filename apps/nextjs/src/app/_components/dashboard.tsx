@@ -54,7 +54,7 @@ export function Dashboard() {
   }
 
   return (
-    <div className="relative flex flex-col gap-6">
+    <div className="relative flex w-full min-w-0 max-w-full flex-col gap-6">
       <CanteenFeed />
       <ActiveOrderBanner />
     </div>
