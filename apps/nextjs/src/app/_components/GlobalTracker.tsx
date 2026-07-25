@@ -1,41 +1,50 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { useTRPC } from "~/trpc/react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+import { useTRPC } from "~/trpc/react";
+
+const TRACKED_STATUSES = [
+  "ACCEPTED",
+  "PREPARING",
+  "ON_THE_WAY",
+  "NEAR_YOU",
+] as const;
 
 export function GlobalTracker() {
   const trpc = useTRPC();
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
 
-  // Find any active order that needs tracking
   const activeOrder = orders?.find(
-    (o) => o.status === "PREPARING" || o.status === "ACCEPTED"
+    (order) =>
+      order.delivererId === profile?.id &&
+      TRACKED_STATUSES.some((status) => status === order.status),
   );
-  const id = activeOrder?.id;
-  const isDeliverer = activeOrder?.delivererId === profile?.id;
-  const role = isDeliverer ? "deliverer" : "buyer";
+  const orderId = activeOrder?.id;
 
-  const { broadcastLocation } = useOrderRealtime(id ?? "");
-  const { mutateAsync: updateLocation } = useMutation(trpc.order.updateLocation.mutationOptions());
-
-  const myWebLocationRef = useRef<[number, number] | null>(null);
+  const { broadcastLocation } = useOrderRealtime(orderId ?? "");
+  const { mutateAsync: updateLocation } = useMutation(
+    trpc.order.updateLocation.mutationOptions(),
+  );
+  const latestLocationRef = useRef<[number, number] | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("geolocation" in navigator) || !id) return;
+    if (
+      typeof window === "undefined" ||
+      !("geolocation" in navigator) ||
+      !orderId
+    ) {
+      return;
+    }
 
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        myWebLocationRef.current = [latitude, longitude];
-
-        void broadcastLocation({
-          latitude,
-          longitude,
-          role,
-        });
+        latestLocationRef.current = [latitude, longitude];
+        void broadcastLocation({ latitude, longitude });
       },
       (error) => {
         console.error("GlobalTracker geolocation error:", error);
@@ -44,32 +53,25 @@ export function GlobalTracker() {
         enableHighAccuracy: true,
         timeout: 15000,
         maximumAge: 0,
-      }
+      },
     );
 
-    const intervalId = setInterval(() => {
-      const currentLoc = myWebLocationRef.current;
-      if (currentLoc) {
-        const [lat, lng] = currentLoc;
-        void broadcastLocation({
-          latitude: lat,
-          longitude: lng,
-          role,
-        });
-        void updateLocation({
-          orderId: id,
-          latitude: lat,
-          longitude: lng,
-          role,
-        }).catch((err) => console.error("GlobalTracker persisting location error:", err));
-      }
+    const intervalId = window.setInterval(() => {
+      const currentLocation = latestLocationRef.current;
+      if (!currentLocation) return;
+
+      const [latitude, longitude] = currentLocation;
+      void broadcastLocation({ latitude, longitude });
+      void updateLocation({ orderId, latitude, longitude }).catch((error) =>
+        console.error("GlobalTracker persisting location error:", error),
+      );
     }, 5000);
 
     return () => {
       navigator.geolocation.clearWatch(watchId);
-      clearInterval(intervalId);
+      window.clearInterval(intervalId);
     };
-  }, [id, isDeliverer, role, broadcastLocation, updateLocation]);
+  }, [broadcastLocation, orderId, updateLocation]);
 
   return null;
 }

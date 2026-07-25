@@ -6,6 +6,10 @@ import { and, desc, eq, ne, or, sql } from "@acme/db";
 import { canteens, landmarks, orders, profiles, walletTransactions } from "@acme/db/schema";
 
 import { protectedProcedure } from "../trpc";
+import {
+  createOrderInputSchema,
+  updateDelivererLocationInputSchema,
+} from "./order-input";
 
 export const orderRouter = {
   myOrders: protectedProcedure.query(({ ctx }) => {
@@ -137,17 +141,7 @@ export const orderRouter = {
     }),
 
   createOrder: protectedProcedure
-    .input((val: unknown) => {
-      if (!val || typeof val !== "object") throw new Error("Invalid input");
-      const v = val as {
-        items: { name: string; quantity: number; price: number }[];
-        canteenId: string;
-        deliveryLocationName: string;
-        deliveryLatitude: number;
-        deliveryLongitude: number;
-      };
-      return v;
-    })
+    .input(createOrderInputSchema)
     .mutation(async ({ ctx, input }) => {
       const canteen = await ctx.db.query.canteens.findFirst({
         where: eq(canteens.id, input.canteenId),
@@ -382,16 +376,7 @@ export const orderRouter = {
     }),
 
   updateLocation: protectedProcedure
-    .input((val: unknown) => {
-      if (!val || typeof val !== "object") throw new Error("Invalid input");
-      const v = val as {
-        orderId: string;
-        latitude: number;
-        longitude: number;
-        role: "deliverer" | "buyer";
-      };
-      return v;
-    })
+    .input(updateDelivererLocationInputSchema)
     .mutation(async ({ ctx, input }) => {
       const order = await ctx.db.query.orders.findFirst({
         where: eq(orders.id, input.orderId),
@@ -401,30 +386,31 @@ export const orderRouter = {
         throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       }
 
-      if (order.buyerId !== ctx.user.id && order.delivererId !== ctx.user.id) {
+      if (order.delivererId !== ctx.user.id) {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "You are not authorized for this order",
+          message: "Only the assigned deliverer can update location",
         });
       }
 
-      if (input.role === "deliverer") {
-        await ctx.db
-          .update(orders)
-          .set({
-            delivererLatitude: input.latitude,
-            delivererLongitude: input.longitude,
-          })
-          .where(eq(orders.id, input.orderId));
-      } else {
-        await ctx.db
-          .update(orders)
-          .set({
-            buyerLatitude: input.latitude,
-            buyerLongitude: input.longitude,
-          })
-          .where(eq(orders.id, input.orderId));
+      if (
+        !["ACCEPTED", "PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(
+          order.status,
+        )
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Location tracking is not active for this order",
+        });
       }
+
+      await ctx.db
+        .update(orders)
+        .set({
+          delivererLatitude: input.latitude,
+          delivererLongitude: input.longitude,
+        })
+        .where(eq(orders.id, input.orderId));
 
       return { success: true };
     }),
@@ -540,7 +526,8 @@ export const orderRouter = {
       });
 
       if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
-      if (order.delivererId !== ctx.user.id) {
+      const delivererId = order.delivererId;
+      if (delivererId !== ctx.user.id) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can complete this order" });
       }
       if (order.status === "DELIVERED" || order.status === "COMPLETED") {
@@ -594,10 +581,10 @@ export const orderRouter = {
           await tx
             .update(profiles)
             .set({ walletBalance: sql`${profiles.walletBalance} + ${delivererTotal}` })
-            .where(eq(profiles.id, order.delivererId!));
+            .where(eq(profiles.id, delivererId));
 
           await tx.insert(walletTransactions).values({
-            userId: order.delivererId!,
+            userId: delivererId,
             amount: delivererTotal,
             type: "DELIVERY_PAYOUT",
             referenceId: order.id,
