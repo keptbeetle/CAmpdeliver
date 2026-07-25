@@ -50,16 +50,19 @@ The core delivery tracking and verification engine was completed and merged dire
 ---
 
 ### 🎨 2. Active Branch: Web UI Redesign & Mobile-First Overhaul (`feature/web-ui-overhaul`)
-A new feature branch `feature/web-ui-overhaul` was created to overhaul the Next.js frontend into a modern, mobile-first design system:
+A new feature branch `feature/web-ui-overhaul` was created to overhaul the Next.js frontend into a modern, mobile-first design system and polish the Expo mobile app:
 - **Persistent Bottom Navigation (`BottomNav.tsx`)**: Fixed bottom navigation bar for **Home** (`/`), **Available Quests** (`/quests`), **My Orders** (`/orders`), and **Wallet** (`/wallet`).
-- **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags.
-- **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub.
+- **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags. The flex layout was recently stabilized to prevent horizontal overflow on narrow mobile screens.
+- **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub. Repositioned the close button as an external floating badge to prevent text overlap.
 - **Interactive Cart & Stepper Controls (`CartContext.tsx`)**: Local cart state with `[-] [ Count ] [+]` quantity steppers, canteen boundary validation, and a sticky bottom cart bar.
 - **Full Checkout Experience (`/checkout`)**: Item breakdown, campus landmark drop-off picker, room/block details input, and bill breakdown.
 - **Order Status Hub (`/orders/[id]/status`)**: 4-step visual progress timeline, quick shortcuts for Live Map & Chat, and delivery OTP verification card.
+- **Mobile Map Stability (Expo)**: Improved Android map reliability by switching `mapType` to standard and configuring `UrlTile` properly, ensuring maps do not appear blank without a Google Maps API Key.
+- **Mobile Wallet Integration (Expo)**: Introduced the digital wallet tab directly into the Android bottom navigation, allowing for seamless mock balance top-ups matching the Web App functionality.
+- **EAS APK Builds**: Configured `eas.json` to generate installable standalone `.apk` files under the `preview` profile for easy Android testing.
 
 > [!NOTE]
-> All 5 phases of the web UI redesign are fully implemented and typechecked. Minor UI polish, responsive edge-case testing, and styling refinements are currently underway on the `feature/web-ui-overhaul` branch.
+> All core features for the web UI redesign and mobile parity are fully implemented and typechecked. Minor UI polish, responsive edge-case testing, and styling refinements are currently underway on the `feature/web-ui-overhaul` branch.
 
 ---
 
