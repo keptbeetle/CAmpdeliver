@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 
@@ -13,14 +13,35 @@ import {
   statusProgress,
 } from "./theme";
 
+let globalIsHidden = false;
+const listeners = new Set<() => void>();
+
+function setGlobalIsHidden(val: boolean) {
+  globalIsHidden = val;
+  listeners.forEach(l => l());
+}
+
+function useGlobalIsHidden() {
+  const [hidden, setHidden] = useState(globalIsHidden);
+  useEffect(() => {
+    const listener = () => setHidden(globalIsHidden);
+    listeners.add(listener);
+    return () => { listeners.delete(listener); };
+  }, []);
+  return [hidden, setGlobalIsHidden] as const;
+}
+
 export function ActiveOrderBar() {
   const router = useRouter();
-  const [isHidden, setIsHidden] = useState(false);
+  const pathname = usePathname();
+  const [isHidden, setIsHidden] = useGlobalIsHidden();
 
   useFocusEffect(
     useCallback(() => {
-      setIsHidden(false);
-    }, [])
+      if (pathname === "/") {
+        setGlobalIsHidden(false);
+      }
+    }, [pathname])
   );
 
   const { data: orders } = useQuery({

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Navigation } from "lucide-react";
+import { ChevronRight, Navigation, X } from "lucide-react";
 
 import { useTRPC } from "~/trpc/react";
 
@@ -30,8 +32,37 @@ const STATUS_LABELS: Record<string, string> = {
   NEAR_YOU: "Deliverer is Near You!",
 };
 
+let globalIsHidden = false;
+const listeners = new Set<() => void>();
+
+function setGlobalIsHidden(val: boolean) {
+  globalIsHidden = val;
+  listeners.forEach((l) => l());
+}
+
+function useGlobalIsHidden() {
+  const [hidden, setHidden] = useState(globalIsHidden);
+  useEffect(() => {
+    const listener = () => setHidden(globalIsHidden);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
+  return [hidden, setGlobalIsHidden] as const;
+}
+
 export function ActiveOrderBanner() {
   const trpc = useTRPC();
+  const pathname = usePathname();
+  const [isHidden, setIsHidden] = useGlobalIsHidden();
+
+  useEffect(() => {
+    if (pathname === "/") {
+      setGlobalIsHidden(false);
+    }
+  }, [pathname]);
+
   const { data: orders } = useQuery({
     ...trpc.order.myOrders.queryOptions(),
     refetchInterval: 5000,
@@ -41,7 +72,7 @@ export function ActiveOrderBanner() {
     ACTIVE_STATUSES.includes(o.status),
   );
 
-  if (!activeOrder) return null;
+  if (!activeOrder || isHidden) return null;
 
   const progress = STATUS_PROGRESS[activeOrder.status] ?? 25;
   const statusLabel = STATUS_LABELS[activeOrder.status] ?? activeOrder.status;
@@ -52,6 +83,17 @@ export function ActiveOrderBanner() {
         href={`/orders/${activeOrder.id}/status`}
         className="group relative flex flex-col gap-2 overflow-hidden rounded-2xl border border-purple-500/40 bg-zinc-900/95 p-3.5 shadow-2xl backdrop-blur-xl transition-all hover:border-purple-500 active:scale-[0.99]"
       >
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsHidden(true);
+          }}
+          className="absolute top-1.5 right-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800/80 text-zinc-400 hover:bg-zinc-700 hover:text-white"
+        >
+          <X className="h-3 w-3" />
+        </button>
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-600/30 text-purple-400">

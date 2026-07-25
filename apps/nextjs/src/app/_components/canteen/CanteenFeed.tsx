@@ -110,11 +110,11 @@ export function CanteenFeed() {
                 className="group relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 transition-all hover:border-purple-500/50 hover:bg-zinc-900 hover:shadow-xl hover:shadow-purple-950/20 active:scale-[0.99]"
               >
                 {/* YouTube Video-Card Thumbnail */}
-                <div className="relative aspect-video max-h-48 w-full overflow-hidden bg-zinc-950">
+                <div className="relative w-full aspect-video overflow-hidden bg-zinc-950">
                   <img
                     src={fallbackImg}
                     alt={canteen.name}
-                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
 
