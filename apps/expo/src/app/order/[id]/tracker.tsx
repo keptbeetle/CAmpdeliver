@@ -83,7 +83,7 @@ export default function OrderTrackerScreen() {
   const order = orders?.find((o) => o.id === id);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation } = useOrderRealtime(id, {
+  const { delivererLocation } = useOrderRealtime(id, {
     onOrderUpdate: () => {
       void queryClient.invalidateQueries({
         queryKey: trpc.order.myOrders.queryKey(),
@@ -132,7 +132,7 @@ export default function OrderTrackerScreen() {
   );
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isDeliverer) return;
 
     const askPermission = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -144,7 +144,7 @@ export default function OrderTrackerScreen() {
     };
 
     void askPermission();
-  }, [id]);
+  }, [id, isDeliverer]);
 
   const canteenCoords = order ? {
     latitude: order.canteenLatitude,
@@ -162,11 +162,11 @@ export default function OrderTrackerScreen() {
       ? { latitude: order.delivererLatitude, longitude: order.delivererLongitude }
       : (canteenCoords && (canteenCoords.latitude !== 0 || canteenCoords.longitude !== 0) ? canteenCoords : null));
 
-  const endLoc = buyerLocation ??
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    (order?.buyerLatitude && order?.buyerLongitude 
-      ? { latitude: order.buyerLatitude, longitude: order.buyerLongitude }
-      : (deliveryCoords && (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0) ? deliveryCoords : null));
+  const endLoc =
+    deliveryCoords &&
+    (deliveryCoords.latitude !== 0 || deliveryCoords.longitude !== 0)
+      ? deliveryCoords
+      : null;
 
   const sLat = startLoc?.latitude;
   const sLng = startLoc?.longitude;
@@ -242,8 +242,8 @@ export default function OrderTrackerScreen() {
           longitudeDelta: 0.01,
         }}
         mapType="none"
-        showsUserLocation={hasPermission}
-        showsMyLocationButton={true}
+        showsUserLocation={hasPermission && isDeliverer}
+        showsMyLocationButton={isDeliverer}
       >
         <UrlTile
           urlTemplate="https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
@@ -269,9 +269,6 @@ export default function OrderTrackerScreen() {
         
         {startLoc && (
           <Marker coordinate={startLoc} title="Deliverer" description={isDeliverer ? "You" : undefined} pinColor="purple" />
-        )}
-        {endLoc && (
-          <Marker coordinate={endLoc} title="Customer / Buyer" description={!isDeliverer ? "You" : undefined} pinColor="red" />
         )}
 
         {routeCoordinates.length > 0 && (

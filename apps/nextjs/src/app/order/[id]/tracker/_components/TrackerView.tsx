@@ -38,7 +38,6 @@ const createCustomIcon = (color: string) => {
 const canteenIcon = createCustomIcon("#3b82f6"); // Blue
 const dropoffIcon = createCustomIcon("#22c55e"); // Green
 const delivererIcon = createCustomIcon("#a855f7"); // Purple
-const buyerIcon = createCustomIcon("#ec4899"); // Pink
 
 
 // Component to dynamically control map view center
@@ -126,7 +125,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const order = orders?.find((o) => o.id === orderId);
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation, buyerLocation } = useOrderRealtime(orderId, {
+  const { delivererLocation } = useOrderRealtime(orderId, {
     onOrderUpdate: () => {
       void queryClient.invalidateQueries({
         queryKey: trpc.order.myOrders.queryKey(),
@@ -151,12 +150,10 @@ export default function TrackerView({ orderId }: { orderId: string }) {
         ? [order.delivererLatitude, order.delivererLongitude] 
         : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null));
 
-  const endLoc: [number, number] | null = buyerLocation
-    ? [buyerLocation.latitude, buyerLocation.longitude]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    : (order?.buyerLatitude && order?.buyerLongitude 
-        ? [order.buyerLatitude, order.buyerLongitude] 
-        : (deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0) ? deliveryCoords : null));
+  const endLoc: [number, number] | null =
+    deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0)
+      ? deliveryCoords
+      : null;
 
   // Set initial map center to canteen coordinates if they are valid
    
@@ -172,7 +169,13 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   }, [order]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !("geolocation" in navigator)) return;
+    if (
+      !isDeliverer ||
+      typeof window === "undefined" ||
+      !("geolocation" in navigator)
+    ) {
+      return;
+    }
 
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
@@ -199,7 +202,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
     return () => {
       navigator.geolocation.clearWatch(watchId);
     };
-  }, []);
+  }, [isDeliverer]);
 
   const handleLocateMe = () => {
     if (myWebLocation) {
@@ -316,29 +319,23 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             </Marker>
           )}
 
-          {endLoc && (
-            <Marker position={endLoc} icon={buyerIcon}>
-              <Popup>
-                <b>Buyer / Customer</b> {!isDeliverer && "(You)"}
-              </Popup>
-            </Marker>
-          )}
-
           {routeCoordinates.length > 0 && (
             <Polyline positions={routeCoordinates} color="#a855f7" weight={5} opacity={0.7} />
           )}
         </MapContainer>
 
-        <button
-          onClick={handleLocateMe}
-          className="absolute top-4 right-4 z-[1000] rounded-lg bg-zinc-900 border border-zinc-800 p-2.5 text-white hover:bg-zinc-800 shadow-md transition-colors flex items-center gap-2 text-xs font-semibold"
-        >
-          <svg className="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          Locate Me
-        </button>
+        {isDeliverer && (
+          <button
+            onClick={handleLocateMe}
+            className="absolute top-4 right-4 z-[1000] rounded-lg bg-zinc-900 border border-zinc-800 p-2.5 text-white hover:bg-zinc-800 shadow-md transition-colors flex items-center gap-2 text-xs font-semibold"
+          >
+            <svg className="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Locate Me
+          </button>
+        )}
       </div>
 
       <div className="absolute bottom-6 left-6 right-6 z-[1000] flex flex-col gap-4 rounded-xl bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md border border-zinc-800">

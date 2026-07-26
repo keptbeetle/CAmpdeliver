@@ -1,9 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { trpc } from "~/utils/api";
+import { useMutation, useQuery } from "@tanstack/react-query";
+
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
+
+const TRACKED_STATUSES = [
+  "ACCEPTED",
+  "PREPARING",
+  "ON_THE_WAY",
+  "NEAR_YOU",
+] as const;
 
 export function GlobalTracker() {
   const [hasSession, setHasSession] = useState(false);
@@ -31,32 +39,33 @@ export function GlobalTracker() {
     enabled: hasSession,
   });
 
-  // Find any active order that needs tracking (only if session exists)
-  const activeOrder = hasSession ? orders?.find(
-    (o) => o.status === "PREPARING" || o.status === "ACCEPTED"
-  ) : undefined;
-  const id = activeOrder?.id;
-  const isDeliverer = activeOrder?.delivererId === profile?.id;
-  const role = isDeliverer ? "deliverer" : "buyer";
+  const activeOrder = hasSession
+    ? orders?.find(
+        (order) =>
+          order.delivererId === profile?.id &&
+          TRACKED_STATUSES.some((status) => status === order.status),
+      )
+    : undefined;
+  const orderId = activeOrder?.id;
 
-  const { broadcastLocation } = useOrderRealtime(id ?? "");
-  const { mutateAsync: updateLocation } = useMutation(trpc.order.updateLocation.mutationOptions());
-
-  const myLastLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const { broadcastLocation } = useOrderRealtime(orderId ?? "");
+  const { mutateAsync: updateLocation } = useMutation(
+    trpc.order.updateLocation.mutationOptions(),
+  );
+  const latestLocationRef = useRef<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   useEffect(() => {
-    if (!id || !hasSession) return;
+    if (!orderId || !hasSession) return;
 
     let locationSubscription: Location.LocationSubscription | null = null;
-    let intervalId: NodeJS.Timeout;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
 
     const startTracking = async () => {
       const { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== Location.PermissionStatus.GRANTED) {
-        // We do not prompt here to avoid annoying the user on dashboard, 
-        // they should have granted it on the tracker screen.
-        return;
-      }
+      if (status !== Location.PermissionStatus.GRANTED) return;
 
       locationSubscription = await Location.watchPositionAsync(
         {
@@ -64,43 +73,38 @@ export function GlobalTracker() {
           timeInterval: 5000,
           distanceInterval: 10,
         },
-        (loc: Location.LocationObject) => {
-          const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
-          myLastLocationRef.current = coords;
-          void broadcastLocation({
-            ...coords,
-            role,
-          });
-        }
+        (location) => {
+          const coordinates = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+          };
+          latestLocationRef.current = coordinates;
+          void broadcastLocation(coordinates);
+        },
       );
 
-      // Periodically broadcast and save to DB
       intervalId = setInterval(() => {
-        const coords = myLastLocationRef.current;
-        if (coords) {
-          void broadcastLocation({
-            ...coords,
-            role,
-          });
-          void updateLocation({
-            orderId: id,
-            latitude: coords.latitude,
-            longitude: coords.longitude,
-            role,
-          }).catch((err) => console.error("GlobalTracker updateLocation error:", err));
-        }
+        const coordinates = latestLocationRef.current;
+        if (!coordinates) return;
+
+        void broadcastLocation(coordinates);
+        void updateLocation({
+          orderId,
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+        }).catch((error) =>
+          console.error("GlobalTracker updateLocation error:", error),
+        );
       }, 5000);
     };
 
     void startTracking();
 
     return () => {
-      if (locationSubscription) {
-        locationSubscription.remove();
-      }
-      clearInterval(intervalId);
+      locationSubscription?.remove();
+      if (intervalId) clearInterval(intervalId);
     };
-  }, [id, isDeliverer, role, broadcastLocation, updateLocation, hasSession]);
+  }, [broadcastLocation, hasSession, orderId, updateLocation]);
 
   return null;
 }
