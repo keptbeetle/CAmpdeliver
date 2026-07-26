@@ -1,21 +1,26 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { supabase } from "../utils/auth";
 
-interface LocationPayload {
+interface DelivererLocationPayload {
   latitude: number;
   longitude: number;
-  role: "deliverer" | "buyer";
 }
 
 interface UseOrderRealtimeOptions {
-  onLocationUpdate?: (payload: LocationPayload) => void;
+  onLocationUpdate?: (payload: DelivererLocationPayload) => void;
   onChatUpdate?: () => void;
   onOrderUpdate?: () => void;
 }
 
-export function useOrderRealtime(orderId: string, options?: UseOrderRealtimeOptions) {
-  const [delivererLocation, setDelivererLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [buyerLocation, setBuyerLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+export function useOrderRealtime(
+  orderId: string,
+  options?: UseOrderRealtimeOptions,
+) {
+  const [delivererLocation, setDelivererLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const optionsRef = useRef(options);
@@ -26,16 +31,14 @@ export function useOrderRealtime(orderId: string, options?: UseOrderRealtimeOpti
   useEffect(() => {
     if (!orderId) return;
 
-    // Create a realtime channel for this specific order
     const channel = supabase
       .channel(`order:${orderId}`)
       .on("broadcast", { event: "location_update" }, (payload) => {
-        const data = payload.payload as LocationPayload;
-        if (data.role === "deliverer") {
-          setDelivererLocation({ latitude: data.latitude, longitude: data.longitude });
-        } else {
-          setBuyerLocation({ latitude: data.latitude, longitude: data.longitude });
-        }
+        const data = payload.payload as DelivererLocationPayload;
+        setDelivererLocation({
+          latitude: data.latitude,
+          longitude: data.longitude,
+        });
         optionsRef.current?.onLocationUpdate?.(data);
       })
       .on("broadcast", { event: "chat_update" }, () => {
@@ -57,23 +60,21 @@ export function useOrderRealtime(orderId: string, options?: UseOrderRealtimeOpti
     };
   }, [orderId]);
 
-  const broadcastLocation = useCallback(async (location: { latitude: number; longitude: number; role: "deliverer" | "buyer" }) => {
-    // Optimistically update local state immediately
-    if (location.role === "deliverer") {
-      setDelivererLocation({ latitude: location.latitude, longitude: location.longitude });
-    } else {
-      setBuyerLocation({ latitude: location.latitude, longitude: location.longitude });
-    }
+  const broadcastLocation = useCallback(
+    async (location: DelivererLocationPayload) => {
+      setDelivererLocation(location);
 
-    const channel = channelRef.current;
-    if (!channel) return;
+      const channel = channelRef.current;
+      if (!channel) return;
 
-    await channel.send({
-      type: "broadcast",
-      event: "location_update",
-      payload: location,
-    });
-  }, []);
+      await channel.send({
+        type: "broadcast",
+        event: "location_update",
+        payload: location,
+      });
+    },
+    [],
+  );
 
   const broadcastChatEvent = useCallback(async () => {
     const channel = channelRef.current;
@@ -97,12 +98,11 @@ export function useOrderRealtime(orderId: string, options?: UseOrderRealtimeOpti
     });
   }, [orderId]);
 
-  return { 
-    delivererLocation, 
-    buyerLocation, 
-    broadcastLocation, 
-    broadcastChatEvent, 
+  return {
+    delivererLocation,
+    broadcastLocation,
+    broadcastChatEvent,
     broadcastOrderUpdate,
-    supabase 
+    supabase,
   };
 }
