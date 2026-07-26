@@ -39,30 +39,35 @@ CAmpDeliver/
 
 ## ⚡ Branch History & Implementation Status
 
-### ✅ 1. Merged Feature: Delivery Tracking & OTP Verification (`feature/delivery-tracking-otp` $\rightarrow$ `main`)
+### ✅ 1. Merged Feature: Delivery Tracking & OTP Verification (`feature/delivery-tracking-otp` → `main`)
 The core delivery tracking and verification engine was completed and merged directly into `main`:
 - **Phone-First Auth**: E.164 phone sanitization, virtual email mapping (`+91XXXXXXXXXX@campus.edu`), and 6-digit signup OTP verification.
 - **Interactive Dual-Marker Map Tracker**: Real-time live map rendering buyer & deliverer positions, OSRM road routing, and dynamic distance calculations.
-- **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` $\rightarrow$ `NEAR_YOU`).
+- **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` → `NEAR_YOU`).
 - **Real-Time P2P Chat**: WebSocket streaming via Supabase Realtime for instant messaging between buyer and deliverer per active order.
 - **Escrow Wallet Ledger & 4-Digit Handover OTP**: Funds (`foodPrice` + `deliveryFee`) frozen upon acceptance and released to deliverer upon 4-digit OTP verification.
 
 ---
 
-### 🎨 2. Active Branch: Web UI Redesign & Mobile-First Overhaul (`feature/web-ui-overhaul`)
-A new feature branch `feature/web-ui-overhaul` was created to overhaul the Next.js frontend into a modern, mobile-first design system and polish the Expo mobile app:
+### ✅ 2. Merged Feature: Web UI Redesign & Mobile-First Overhaul (`feature/web-ui-overhaul` → `main`)
+Overhauled the Next.js web app into a mobile-first design system and polished the Expo mobile app for full parity:
 - **Persistent Bottom Navigation (`BottomNav.tsx`)**: Fixed bottom navigation bar for **Home** (`/`), **Available Quests** (`/quests`), **My Orders** (`/orders`), and **Wallet** (`/wallet`).
-- **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags. The flex layout was recently stabilized to prevent horizontal overflow on narrow mobile screens.
-- **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub. Repositioned the close button as an external floating badge to prevent text overlap.
+- **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags with responsive flex layout.
+- **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub with external floating close badge.
 - **Interactive Cart & Stepper Controls (`CartContext.tsx`)**: Local cart state with `[-] [ Count ] [+]` quantity steppers, canteen boundary validation, and a sticky bottom cart bar.
 - **Full Checkout Experience (`/checkout`)**: Item breakdown, campus landmark drop-off picker, room/block details input, and bill breakdown.
 - **Order Status Hub (`/orders/[id]/status`)**: 4-step visual progress timeline, quick shortcuts for Live Map & Chat, and delivery OTP verification card.
-- **Mobile Map Stability (Expo)**: Improved Android map reliability by switching `mapType` to standard and configuring `UrlTile` properly, ensuring maps do not appear blank without a Google Maps API Key.
-- **Mobile Wallet Integration (Expo)**: Introduced the digital wallet tab directly into the Android bottom navigation, allowing for seamless mock balance top-ups matching the Web App functionality.
-- **EAS APK Builds**: Configured `eas.json` to generate installable standalone `.apk` files under the `preview` profile for easy Android testing.
+- **Mobile Map Stability (Expo)**: Improved Android map reliability by switching `mapType` to standard and configuring `UrlTile` properly, ensuring maps display reliably without needing Google Maps API keys.
+- **Mobile Wallet Integration (Expo)**: Introduced digital wallet tab into Android bottom navigation with mock balance top-up functionality matching the web app.
+- **EAS APK Builds**: Configured `eas.json` for standalone `.apk` builds under the `preview` profile for Android device testing.
 
-> [!NOTE]
-> All core features for the web UI redesign and mobile parity are fully implemented and typechecked. Minor UI polish, responsive edge-case testing, and styling refinements are currently underway on the `feature/web-ui-overhaul` branch.
+---
+
+### ✅ 3. Merged Feature: Fixed Delivery Destination at Order Creation (`feature/fixed-delivery-destination` → `main`)
+Integrated locked delivery points during checkout to ensure navigation accuracy for deliverers:
+- **Locked Drop-off Destination**: Buyers lock a fixed destination pin (current GPS location or campus landmark) at checkout. The target coordinates and address label are frozen in the database upon order broadcast.
+- **Strict API Validation (`order-input.ts`)**: Added shared Zod validation schemas (`createOrderInputSchema`, `updateDelivererLocationInputSchema`) verifying coordinate boundaries (-90 to 90 lat, -180 to 180 lng) and non-empty location strings, supported by unit tests (`order-input.test.mjs`).
+- **Live Map & Tracking Isolation**: Maps in Expo (`tracker.tsx`) and Next.js (`TrackerView.tsx`) pin the fixed drop-off target (`deliveryCoords`) while continuously streaming real-time location updates for the deliverer.
 
 ---
 
