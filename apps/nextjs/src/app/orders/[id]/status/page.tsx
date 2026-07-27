@@ -120,7 +120,7 @@ export default function OrderStatusPage({
       {/* Visual 4-Step Progress Timeline */}
       <div className="flex flex-col gap-4 rounded-3xl border border-purple-500/30 bg-zinc-900/60 p-5 backdrop-blur-xl">
         <div className="flex items-center justify-between">
-          <span className="rounded-full border border-purple-500/40 bg-purple-950/60 px-3 py-1 text-xs font-bold text-purple-300">
+          <span data-testid="order-status" className="rounded-full border border-purple-500/40 bg-purple-950/60 px-3 py-1 text-xs font-bold text-purple-300">
             Status: {order.status}
           </span>
           <span className="text-xs font-semibold text-zinc-400">
@@ -199,7 +199,7 @@ export default function OrderStatusPage({
             <p className="text-[10px] font-bold text-purple-300 uppercase tracking-widest">
               Share With Your Deliverer
             </p>
-            <p className="mt-1 text-3xl font-black tracking-[0.2em] text-white">
+            <p data-testid="delivery-otp" className="mt-1 text-3xl font-black tracking-[0.2em] text-white">
               {order.otp}
             </p>
             <p className="mt-1 text-xs text-zinc-400">

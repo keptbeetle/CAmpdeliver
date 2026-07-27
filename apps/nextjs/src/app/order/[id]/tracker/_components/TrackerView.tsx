@@ -344,7 +344,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
               {distance !== null && (
-                <span className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
+                <span data-testid="tracking-distance" className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
                   {formatDistance(distance)} away
                 </span>
               )}
@@ -375,7 +375,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
         {!isDeliverer && order.otp && (
           <div className="mt-2 flex flex-col items-center justify-center rounded-xl bg-zinc-800/50 p-4 border border-zinc-700/50">
             <span className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Your Delivery OTP</span>
-            <span className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</span>
+            <span data-testid="delivery-otp" className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</span>
             <span className="mt-2 text-center text-xs text-zinc-500">Share this code with your deliverer to receive your order.</span>
           </div>
         )}

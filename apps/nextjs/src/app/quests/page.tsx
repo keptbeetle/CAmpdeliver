@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,9 +13,28 @@ export default function QuestsPage() {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
 
-  const { data: quests, isLoading } = useQuery(
-    trpc.order.availableQuests.queryOptions({}),
-  );
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  }>();
+
+  useEffect(() => {
+    if (!("geolocation" in navigator)) return;
+
+    const watchId = navigator.geolocation.watchPosition((position) => {
+      setLocation({
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+    });
+
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
+
+  const { data: quests, isLoading } = useQuery({
+    ...trpc.order.availableQuests.queryOptions(location ?? {}),
+    enabled: !!location,
+  });
 
   const acceptOrderMutation = useMutation(
     trpc.order.acceptOrder.mutationOptions({
