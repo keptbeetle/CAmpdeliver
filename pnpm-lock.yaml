@@ -231,6 +231,9 @@ importers:
       '@acme/tsconfig':
         specifier: workspace:*
         version: link:../../tooling/typescript
+      '@tailwindcss/postcss':
+        specifier: 4.1.16
+        version: 4.1.16
       '@types/leaflet':
         specifier: ^1.9.21
         version: 1.9.21

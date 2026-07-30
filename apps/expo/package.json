@@ -63,6 +63,7 @@
     "@acme/prettier-config": "workspace:*",
     "@acme/tailwind-config": "workspace:*",
     "@acme/tsconfig": "workspace:*",
+    "@tailwindcss/postcss": "4.1.16",
     "@types/leaflet": "^1.9.21",
     "@types/node": "catalog:",
     "@types/react": "catalog:react19",
