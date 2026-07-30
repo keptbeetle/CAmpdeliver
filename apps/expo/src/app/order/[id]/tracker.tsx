@@ -53,10 +53,16 @@ async function fetchMobileRoute(
   coordinates: { latitude: number; longitude: number }[];
   distance: number;
 }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+
   try {
     const res = await fetch(
       `https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson`,
+      { signal: controller.signal },
     );
+    if (!res.ok) throw new Error(`OSRM request failed with ${res.status}`);
+
     interface OSRMResponse {
       code: string;
       routes?: {
@@ -84,6 +90,8 @@ async function fetchMobileRoute(
     }
   } catch (error) {
     console.error("OSRM routing error:", error);
+  } finally {
+    clearTimeout(timeout);
   }
   const fallbackDist = getHaversineDistance(
     start.latitude,
