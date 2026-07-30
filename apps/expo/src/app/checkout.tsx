@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,15 +11,18 @@ import {
   TextInput,
   View,
 } from "react-native";
-import * as Location from "expo-location";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { trpc } from "~/utils/api";
+import { colors, formatCurrency } from "~/components/app/theme";
 import { useCart } from "~/components/cart/CartContext";
-import { colors, formatCurrency } from "~/app/_components/theme";
+import { locationService } from "~/platform/location";
+import { trpc } from "~/utils/api";
 
 const deliveryFee = 500;
 const convenienceFee = 0;
@@ -41,9 +44,7 @@ export default function CheckoutScreen() {
   const [instructions, setInstructions] = useState("");
   const [isLocating, setIsLocating] = useState(false);
 
-  const { data: landmarks, isLoading: loadingLandmarks } = useQuery(
-    trpc.landmark.list.queryOptions(),
-  );
+  const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
 
   const finalAmount = totalPrice + deliveryFee + convenienceFee;
 
@@ -51,7 +52,9 @@ export default function CheckoutScreen() {
     trpc.order.createOrder.mutationOptions({
       onSuccess: async (order) => {
         clearCart();
-        await queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
+        await queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
         if (order?.id) {
           router.replace(`/orders/${order.id}/status` as never);
         } else {
@@ -70,18 +73,17 @@ export default function CheckoutScreen() {
 
     setIsLocating(true);
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Location required", "Please enable location access to place an order.");
-        setIsLocating(false);
+      if (!(await locationService.requestForegroundPermission())) {
+        Alert.alert(
+          "Location required",
+          "Please enable location access to place an order.",
+        );
         return;
       }
-      
-      const current = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const deliveryLatitude = current.coords.latitude;
-      const deliveryLongitude = current.coords.longitude;
+
+      const current = await locationService.getCurrentPosition();
+      const deliveryLatitude = current.latitude;
+      const deliveryLongitude = current.longitude;
 
       // Resolve nearest landmark
       let nearest = null;
@@ -91,18 +93,25 @@ export default function CheckoutScreen() {
           const R = 6371e3;
           const dLat = toRad(lm.latitude - deliveryLatitude);
           const dLon = toRad(lm.longitude - deliveryLongitude);
-          const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(deliveryLatitude)) * Math.cos(toRad(lm.latitude)) * Math.sin(dLon / 2) ** 2;
+          const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(deliveryLatitude)) *
+              Math.cos(toRad(lm.latitude)) *
+              Math.sin(dLon / 2) ** 2;
           const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          
+
           if (!nearest || distance < nearest.distance) {
             nearest = { name: lm.name, distance, radius: lm.radius };
           }
         }
       }
-      
+
       let deliveryLocationName = "Current Location";
       if (nearest) {
-        deliveryLocationName = nearest.distance <= nearest.radius ? nearest.name : `Near ${nearest.name}`;
+        deliveryLocationName =
+          nearest.distance <= nearest.radius
+            ? nearest.name
+            : `Near ${nearest.name}`;
       }
 
       const trimmedInstructions = instructions.trim();
@@ -135,7 +144,9 @@ export default function CheckoutScreen() {
         <View style={styles.empty}>
           <Feather name="shopping-cart" size={38} color={colors.faint} />
           <Text style={styles.emptyTitle}>Your cart is empty</Text>
-          <Text style={styles.emptyCopy}>Add a dish from a canteen to continue.</Text>
+          <Text style={styles.emptyCopy}>
+            Add a dish from a canteen to continue.
+          </Text>
           <Pressable onPress={() => router.back()} style={styles.primaryButton}>
             <Text style={styles.primaryText}>Go Back</Text>
           </Pressable>
@@ -156,7 +167,9 @@ export default function CheckoutScreen() {
           </Pressable>
           <View style={styles.headerCopy}>
             <Text style={styles.headerTitle}>Checkout</Text>
-            <Text numberOfLines={1} style={styles.headerSubtitle}>{canteenName}</Text>
+            <Text numberOfLines={1} style={styles.headerSubtitle}>
+              {canteenName}
+            </Text>
           </View>
         </View>
 
@@ -174,13 +187,18 @@ export default function CheckoutScreen() {
               {items.map((item) => (
                 <View key={item.id} style={styles.itemRow}>
                   <View style={styles.itemCopy}>
-                    <Text numberOfLines={1} style={styles.itemName}>{item.name}</Text>
+                    <Text numberOfLines={1} style={styles.itemName}>
+                      {item.name}
+                    </Text>
                     <Text style={styles.itemPrice}>
                       {formatCurrency(item.price * item.quantity)}
                     </Text>
                   </View>
                   <View style={styles.stepper}>
-                    <Pressable onPress={() => removeItem(item.id)} style={styles.stepButton}>
+                    <Pressable
+                      onPress={() => removeItem(item.id)}
+                      style={styles.stepButton}
+                    >
                       <Feather name="minus" size={15} color="#ddd6fe" />
                     </Pressable>
                     <Text style={styles.quantityText}>{item.quantity}</Text>
@@ -198,15 +216,36 @@ export default function CheckoutScreen() {
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Delivery Location</Text>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14 }}>
-              <View style={{ backgroundColor: "rgba(52, 211, 153, 0.15)", padding: 10, borderRadius: 12 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 14,
+              }}
+            >
+              <View
+                style={{
+                  backgroundColor: "rgba(52, 211, 153, 0.15)",
+                  padding: 10,
+                  borderRadius: 12,
+                }}
+              >
                 <Feather name="map-pin" size={18} color="#34d399" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={{ color: colors.text, fontWeight: "800", fontSize: 14 }}>
+                <Text
+                  style={{
+                    color: colors.text,
+                    fontWeight: "800",
+                    fontSize: 14,
+                  }}
+                >
                   Auto GPS Location
                 </Text>
-                <Text style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}>
+                <Text
+                  style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}
+                >
                   We'll detect your location to deliver to you.
                 </Text>
               </View>
@@ -224,31 +263,56 @@ export default function CheckoutScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Bill Breakdown</Text>
             <BillLine label="Items" value={formatCurrency(totalPrice)} />
-            <BillLine label="Delivery fee" value={formatCurrency(deliveryFee)} />
+            <BillLine
+              label="Delivery fee"
+              value={formatCurrency(deliveryFee)}
+            />
             <BillLine label="Convenience fee" value="Waived" />
             <View style={styles.billDivider} />
-            <BillLine label={`${totalItems} item total`} value={formatCurrency(finalAmount)} strong />
+            <BillLine
+              label={`${totalItems} item total`}
+              value={formatCurrency(finalAmount)}
+              strong
+            />
           </View>
         </ScrollView>
 
-        <View style={[styles.footer, { paddingBottom: Math.max(14, insets.bottom + 10) }]}>
+        <View
+          style={[
+            styles.footer,
+            { paddingBottom: Math.max(14, insets.bottom + 10) },
+          ]}
+        >
           <Pressable
             disabled={createOrderMutation.isPending || isLocating}
             onPress={placeOrder}
             style={({ pressed }) => [
               styles.placeButton,
-              (pressed || createOrderMutation.isPending || isLocating) && styles.pressed,
+              (pressed || createOrderMutation.isPending || isLocating) &&
+                styles.pressed,
             ]}
           >
             {createOrderMutation.isPending || isLocating ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "center" }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8,
+                  flex: 1,
+                  justifyContent: "center",
+                }}
+              >
                 <ActivityIndicator color={colors.text} />
-                <Text style={styles.placeText}>{isLocating ? "Getting location..." : "Broadcasting Order..."}</Text>
+                <Text style={styles.placeText}>
+                  {isLocating ? "Getting location..." : "Broadcasting Order..."}
+                </Text>
               </View>
             ) : (
               <>
                 <Text style={styles.placeText}>Place Order</Text>
-                <Text style={styles.placeAmount}>{formatCurrency(finalAmount)}</Text>
+                <Text style={styles.placeAmount}>
+                  {formatCurrency(finalAmount)}
+                </Text>
               </>
             )}
           </Pressable>
@@ -269,8 +333,12 @@ function BillLine({
 }) {
   return (
     <View style={styles.billLine}>
-      <Text style={[styles.billLabel, strong && styles.billStrong]}>{label}</Text>
-      <Text style={[styles.billValue, strong && styles.billStrong]}>{value}</Text>
+      <Text style={[styles.billLabel, strong && styles.billStrong]}>
+        {label}
+      </Text>
+      <Text style={[styles.billValue, strong && styles.billStrong]}>
+        {value}
+      </Text>
     </View>
   );
 }

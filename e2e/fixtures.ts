@@ -3,7 +3,8 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@supabase/supabase-js";
 import postgres from "postgres";
 
-export const TEST_PASSWORD = `CampdeliverE2E-${randomUUID()}-Aa1!`;
+export const TEST_PASSWORD =
+  process.env.CAMPDELIVER_E2E_PASSWORD ?? `CampdeliverE2E-${randomUUID()}-Aa1!`;
 export const TEST_USERS = {
   buyer: {
     phone: "1111111111",

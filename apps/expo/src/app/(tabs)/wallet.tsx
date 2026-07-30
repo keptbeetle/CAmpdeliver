@@ -15,16 +15,18 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ShellHeader } from "~/components/app/ShellHeader";
+import { colors, formatCurrency } from "~/components/app/theme";
 import { trpc } from "~/utils/api";
-import { ShellHeader } from "~/app/_components/ShellHeader";
-import { colors, formatCurrency } from "~/app/_components/theme";
 
 export default function WalletTab() {
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [utr, setUtr] = useState("");
 
-  const { data: profile, isLoading } = useQuery(trpc.auth.getMyProfile.queryOptions());
+  const { data: profile, isLoading } = useQuery(
+    trpc.auth.getMyProfile.queryOptions(),
+  );
 
   const topUpMutation = useMutation(
     trpc.wallet.topUp.mutationOptions({
@@ -39,7 +41,7 @@ export default function WalletTab() {
       onError: (err) => {
         Alert.alert("Top-Up Failed", err.message || "Failed to top up wallet.");
       },
-    })
+    }),
   );
 
   const handleTopUp = () => {
@@ -49,7 +51,10 @@ export default function WalletTab() {
       return;
     }
     if (utr.trim().length < 5) {
-      Alert.alert("Invalid UTR", "Please enter a valid UTR number (min 5 chars).");
+      Alert.alert(
+        "Invalid UTR",
+        "Please enter a valid UTR number (min 5 chars).",
+      );
       return;
     }
 
@@ -61,7 +66,7 @@ export default function WalletTab() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <ShellHeader title="My Wallet" subtitle="Manage your campus funds" />
-      
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
@@ -78,7 +83,11 @@ export default function WalletTab() {
                 <Text style={styles.walletTitle}>Current Balance</Text>
                 <Text style={styles.walletSubtitle}>Campus Digital Wallet</Text>
               </View>
-              <Feather name="credit-card" size={28} color="rgba(255,255,255,0.4)" />
+              <Feather
+                name="credit-card"
+                size={28}
+                color="rgba(255,255,255,0.4)"
+              />
             </View>
             <View style={styles.walletBalanceWrap}>
               {isLoading ? (
@@ -94,7 +103,7 @@ export default function WalletTab() {
           {/* Top-up Form */}
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>Top Up Wallet</Text>
-            
+
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>Amount (INR)</Text>
               <TextInput

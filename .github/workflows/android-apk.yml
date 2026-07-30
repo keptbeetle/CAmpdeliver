@@ -1,0 +1,111 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "apps/expo/**"
+      - "packages/api/**"
+      - "packages/validators/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/android-apk.yml"
+      - "tooling/github/setup/**"
+  push:
+    branches: ["main", "feature/**"]
+    paths:
+      - "apps/expo/**"
+      - "packages/api/**"
+      - "packages/validators/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/android-apk.yml"
+      - "tooling/github/setup/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  preview-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NODE_ENV: production
+      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
+      EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup workspace
+        uses: ./tooling/github/setup
+
+      - name: Prepare build environment
+        id: build-environment
+        shell: bash
+        run: |
+          required=(
+            EXPO_PUBLIC_API_URL
+            EXPO_PUBLIC_SUPABASE_ANON_KEY
+            EXPO_PUBLIC_SUPABASE_URL
+          )
+          missing=()
+          for name in "${required[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} == 0 )); then
+            umask 077
+            {
+              printf 'EXPO_PUBLIC_API_URL=%s\n' "$EXPO_PUBLIC_API_URL"
+              printf 'EXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+              printf 'EXPO_PUBLIC_SUPABASE_URL=%s\n' "$EXPO_PUBLIC_SUPABASE_URL"
+            } > .env
+            echo "functional=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "functional=false" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            printf 'Missing required Android preview variables: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          echo "::warning::Building a compile-only pull-request APK because Android preview variables are not configured. The APK will not be uploaded."
+          cp .env.example .env
+
+      - name: Generate Android project
+        run: pnpm -F @acme/expo with-env expo prebuild --platform android --no-install
+
+      - name: Build bundled arm64 preview APK
+        working-directory: apps/expo/android
+        run: ./gradlew --no-daemon -PreactNativeArchitectures=arm64-v8a assembleRelease
+
+      - name: Verify bundled preview environment
+        if: steps.build-environment.outputs.functional == 'true'
+        run: pnpm -F @acme/expo verify:android-bundle-env
+
+      - name: Upload APK
+        if: steps.build-environment.outputs.functional == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: campdeliver-android-preview-arm64
+          path: apps/expo/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -6,7 +6,8 @@
     "moduleSuffixes": [".ios", ".android", ".native", ""],
     "paths": {
       "~/*": ["./src/*"]
-    }
+    },
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": [
     "src",

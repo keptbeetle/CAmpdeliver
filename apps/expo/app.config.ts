@@ -4,7 +4,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: "CAmpDeliver",
   slug: "campdeliver",
-  scheme: "expo",
+  scheme: "campdeliver",
   version: "0.1.0",
   orientation: "portrait",
   icon: "./assets/icon-light.png",
@@ -15,39 +15,33 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   newArchEnabled: true,
   assetBundlePatterns: ["**/*"],
   ios: {
-    bundleIdentifier: "your.bundle.identifier",
+    bundleIdentifier: "com.campdeliver.app",
     supportsTablet: true,
     icon: {
       light: "./assets/icon-light.png",
       dark: "./assets/icon-dark.png",
     },
   },
+  web: {
+    bundler: "metro",
+    output: "single",
+    favicon: "./assets/icon-light.png",
+  },
   android: {
-    package: "your.bundle.identifier",
+    package: "com.campdeliver.app",
     adaptiveIcon: {
       foregroundImage: "./assets/icon-light.png",
       backgroundColor: "#1F104A",
     },
     edgeToEdgeEnabled: true,
-    intentFilters: [
-      {
-        action: "VIEW",
-        data: [
-          { scheme: "tel" }
-        ]
-      }
-    ],
-    config: {
-      googleMaps: {
-        apiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || "AIzaSy_DummyKeyToPreventCrash_123456",
-      },
-    },
   },
   extra: {
     eas: {
       projectId: "b658b0d5-1c62-4f07-8329-38563db9dfa3",
     },
-    apiUrl: process.env.EXPO_PUBLIC_API_URL || "https://c-ampdeliver-nextjs-git-feature-can-424742-keptbeetles-projects.vercel.app",
+    apiUrl:
+      process.env.EXPO_PUBLIC_API_URL ||
+      "https://c-ampdeliver-nextjs-git-feature-can-424742-keptbeetles-projects.vercel.app",
   },
   experiments: {
     tsconfigPaths: true,
@@ -57,8 +51,17 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   plugins: [
     "expo-router",
+    "expo-font",
     "expo-secure-store",
     "expo-web-browser",
+    [
+      "@maplibre/maplibre-react-native",
+      {
+        android: {
+          locationEngine: "default",
+        },
+      },
+    ],
     [
       "expo-splash-screen",
       {

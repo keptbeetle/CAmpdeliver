@@ -1,3 +1,4 @@
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -7,22 +8,24 @@ import {
   Text,
   View,
 } from "react-native";
-import { useCallback, useState } from "react";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
-import { trpc } from "~/utils/api";
-import { ActiveOrderBar } from "~/app/_components/ActiveOrderBar";
-import { ShellHeader } from "~/app/_components/ShellHeader";
+import { ActiveOrderBar } from "~/components/app/ActiveOrderBar";
+import { ShellHeader } from "~/components/app/ShellHeader";
 import {
   colors,
   formatCurrency,
   shortId,
   statusLabels,
-} from "~/app/_components/theme";
+} from "~/components/app/theme";
+import { trpc } from "~/utils/api";
 
 type Order = RouterOutputs["order"]["myOrders"][number];
 
@@ -39,18 +42,27 @@ export default function OrdersTab() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() });
+    await queryClient.invalidateQueries({
+      queryKey: trpc.order.myOrders.queryKey(),
+    });
     setRefreshing(false);
   }, [queryClient]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
-      <ShellHeader title="My Orders" subtitle="Track current and past deliveries" />
+      <ShellHeader
+        title="My Orders"
+        subtitle="Track current and past deliveries"
+      />
       <FlatList
         data={orders ?? []}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.purple} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.purple}
+          />
         }
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -66,7 +78,10 @@ export default function OrdersTab() {
                 <Text style={styles.emptyCopy}>
                   Orders you place or accept will appear here.
                 </Text>
-                <Pressable onPress={() => router.push("/" as never)} style={styles.homeButton}>
+                <Pressable
+                  onPress={() => router.push("/" as never)}
+                  style={styles.homeButton}
+                >
                   <Text style={styles.homeText}>Order Food</Text>
                 </Pressable>
               </>
@@ -112,9 +127,13 @@ function OrderCard({
         </View>
         <View style={styles.cardCopy}>
           <View style={styles.titleRow}>
-            <Text numberOfLines={1} style={styles.cardTitle}>{order.canteenName}</Text>
+            <Text numberOfLines={1} style={styles.cardTitle}>
+              {order.canteenName}
+            </Text>
             <View style={styles.rolePill}>
-              <Text style={styles.roleText}>{isBuyer ? "Buyer" : "Deliverer"}</Text>
+              <Text style={styles.roleText}>
+                {isBuyer ? "Buyer" : "Deliverer"}
+              </Text>
             </View>
           </View>
           <Text numberOfLines={1} style={styles.locationText}>
@@ -123,13 +142,17 @@ function OrderCard({
         </View>
         <View style={styles.amountBox}>
           <Text style={styles.amountText}>{formatCurrency(total)}</Text>
-          <Text style={styles.statusPill}>{statusLabels[order.status] ?? order.status}</Text>
+          <Text style={styles.statusPill}>
+            {statusLabels[order.status] ?? order.status}
+          </Text>
         </View>
       </View>
       <View style={styles.cardBottom}>
         <View style={styles.dateRow}>
           <Feather name="clock" size={13} color={colors.faint} />
-          <Text style={styles.dateText}>{new Date(order.createdAt).toLocaleDateString()}</Text>
+          <Text style={styles.dateText}>
+            {new Date(order.createdAt).toLocaleDateString()}
+          </Text>
         </View>
         <View style={styles.viewRow}>
           <Text style={styles.viewText}>View Details</Text>

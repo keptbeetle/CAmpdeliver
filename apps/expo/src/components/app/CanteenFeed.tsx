@@ -1,4 +1,4 @@
-import { View, Text, Pressable, Image } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 import { Link } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 
@@ -48,10 +48,15 @@ export function CanteenFeed() {
       ) : canteens && canteens.length > 0 ? (
         <View className="gap-5">
           {canteens.map((c, idx) => {
-            const fallbackImg = FALLBACK_THUMBNAILS[idx % FALLBACK_THUMBNAILS.length];
+            const fallbackImg =
+              FALLBACK_THUMBNAILS[idx % FALLBACK_THUMBNAILS.length];
 
             return (
-              <Link key={c.id} href={(`/canteen/${c.id}`) as any} asChild>
+              <Link
+                key={c.id}
+                href={{ pathname: "/canteen/[id]", params: { id: c.id } }}
+                asChild
+              >
                 <Pressable className="overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 active:scale-[0.99] active:border-purple-500/50 active:bg-zinc-900">
                   {/* YouTube Video-Card Thumbnail */}
                   <View className="relative aspect-video w-full bg-zinc-950">
@@ -80,14 +85,19 @@ export function CanteenFeed() {
                   {/* Video Info Block */}
                   <View className="flex-row items-start gap-3 p-4">
                     <View className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-950/50">
-                      <Text className="text-lg font-bold text-purple-400">🍔</Text>
+                      <Text className="text-lg font-bold text-purple-400">
+                        🍔
+                      </Text>
                     </View>
 
                     <View className="flex-1 overflow-hidden">
-                      <Text className="text-base font-bold text-white" numberOfLines={1}>
+                      <Text
+                        className="text-base font-bold text-white"
+                        numberOfLines={1}
+                      >
                         {c.name}
                       </Text>
-                      <View className="mt-1 flex-row items-center flex-wrap gap-1">
+                      <View className="mt-1 flex-row flex-wrap items-center gap-1">
                         <Text className="text-xs text-zinc-400">
                           📍 Campus Area
                         </Text>

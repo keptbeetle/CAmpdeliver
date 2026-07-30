@@ -1,9 +1,9 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
-import { colors } from "~/app/_components/theme";
+import { colors } from "~/components/app/theme";
 
 export default function ManageCanteensScreen() {
   const router = useRouter();

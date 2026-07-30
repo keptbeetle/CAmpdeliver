@@ -3,10 +3,10 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
 
-import { queryClient } from "~/utils/api";
-import { GlobalTracker } from "~/components/GlobalTracker";
-import { GeofenceManager } from "~/components/GeofenceManager";
 import { CartProvider } from "~/components/cart/CartContext";
+import { GeofenceManager } from "~/components/GeofenceManager";
+import { GlobalTracker } from "~/components/GlobalTracker";
+import { queryClient } from "~/utils/api";
 
 import "../styles.css";
 

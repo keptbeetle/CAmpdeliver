@@ -1,11 +1,11 @@
+import type { Session } from "@supabase/supabase-js";
 import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import type { Session } from "@supabase/supabase-js";
 import { Redirect, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
+import { colors } from "~/components/app/theme";
 import { supabase } from "~/utils/auth";
-import { colors } from "~/app/_components/theme";
 
 export default function TabsLayout() {
   const [session, setSession] = useState<Session | null>(null);
@@ -73,7 +73,11 @@ export default function TabsLayout() {
         options={{
           title: "Your Orders",
           tabBarIcon: ({ color, focused }) => (
-            <Feather name="shopping-bag" size={focused ? 23 : 21} color={color} />
+            <Feather
+              name="shopping-bag"
+              size={focused ? 23 : 21}
+              color={color}
+            />
           ),
         }}
       />
@@ -82,7 +86,11 @@ export default function TabsLayout() {
         options={{
           title: "Wallet",
           tabBarIcon: ({ color, focused }) => (
-            <Feather name="credit-card" size={focused ? 23 : 21} color={color} />
+            <Feather
+              name="credit-card"
+              size={focused ? 23 : 21}
+              color={color}
+            />
           ),
         }}
       />

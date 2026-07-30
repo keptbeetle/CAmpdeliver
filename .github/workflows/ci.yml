@@ -55,3 +55,21 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+  universal-client-builds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup
+        uses: ./tooling/github/setup
+
+      - name: Copy env
+        shell: bash
+        run: cp .env.example .env
+
+      - name: Export universal web client
+        run: pnpm -F @acme/expo with-env expo export --platform web --output-dir dist-web --clear
+
+      - name: Export Android JavaScript bundle
+        run: pnpm -F @acme/expo with-env expo export --platform android --output-dir dist-android --clear

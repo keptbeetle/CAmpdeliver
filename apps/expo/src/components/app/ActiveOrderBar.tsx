@@ -18,7 +18,7 @@ const listeners = new Set<() => void>();
 
 function setGlobalIsHidden(val: boolean) {
   globalIsHidden = val;
-  listeners.forEach(l => l());
+  listeners.forEach((l) => l());
 }
 
 function useGlobalIsHidden() {
@@ -26,7 +26,9 @@ function useGlobalIsHidden() {
   useEffect(() => {
     const listener = () => setHidden(globalIsHidden);
     listeners.add(listener);
-    return () => { listeners.delete(listener); };
+    return () => {
+      listeners.delete(listener);
+    };
   }, []);
   return [hidden, setGlobalIsHidden] as const;
 }
@@ -41,7 +43,7 @@ export function ActiveOrderBar() {
       if (pathname === "/") {
         setGlobalIsHidden(false);
       }
-    }, [pathname])
+    }, [pathname]),
   );
 
   const { data: orders } = useQuery({
@@ -80,7 +82,8 @@ export function ActiveOrderBar() {
               Order #{shortId(activeOrder.id)}
             </Text>
             <Text numberOfLines={1} style={styles.subtitle}>
-              {activeOrder.canteenName} - {statusLabels[activeOrder.status] ?? activeOrder.status}
+              {activeOrder.canteenName} -{" "}
+              {statusLabels[activeOrder.status] ?? activeOrder.status}
             </Text>
           </View>
           <View style={styles.statusPill}>

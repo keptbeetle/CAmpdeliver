@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import * as Location from "expo-location";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
+import type {
+  AppCoordinates,
+  LocationSubscription,
+} from "~/platform/location.types";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
@@ -52,32 +56,22 @@ export function GlobalTracker() {
   const { mutateAsync: updateLocation } = useMutation(
     trpc.order.updateLocation.mutationOptions(),
   );
-  const latestLocationRef = useRef<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const latestLocationRef = useRef<AppCoordinates | null>(null);
 
   useEffect(() => {
     if (!orderId || !hasSession) return;
 
-    let locationSubscription: Location.LocationSubscription | null = null;
+    let locationSubscription: LocationSubscription | null = null;
     let intervalId: ReturnType<typeof setInterval> | undefined;
+    let cancelled = false;
 
     const startTracking = async () => {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== Location.PermissionStatus.GRANTED) return;
+      if (!(await locationService.hasForegroundPermission()) || cancelled)
+        return;
 
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
-        },
-        (location) => {
-          const coordinates = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          };
+      locationSubscription = await locationService.watchPosition(
+        { highAccuracy: true, timeInterval: 5000, distanceInterval: 10 },
+        (coordinates) => {
           latestLocationRef.current = coordinates;
           void broadcastLocation(coordinates);
         },
@@ -88,19 +82,18 @@ export function GlobalTracker() {
         if (!coordinates) return;
 
         void broadcastLocation(coordinates);
-        void updateLocation({
-          orderId,
-          latitude: coordinates.latitude,
-          longitude: coordinates.longitude,
-        }).catch((error) =>
+        void updateLocation({ orderId, ...coordinates }).catch((error) =>
           console.error("GlobalTracker updateLocation error:", error),
         );
       }, 5000);
     };
 
-    void startTracking();
+    void startTracking().catch((error) =>
+      console.warn("GlobalTracker could not start:", error),
+    );
 
     return () => {
+      cancelled = true;
       locationSubscription?.remove();
       if (intervalId) clearInterval(intervalId);
     };

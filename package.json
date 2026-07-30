@@ -27,7 +27,8 @@
     "typecheck": "turbo run typecheck",
     "ui-add": "turbo run ui-add",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "test:e2e:expo": "NODE_OPTIONS=--import=$(pwd)/e2e/node-network.mjs playwright test --config=playwright.expo.config.ts"
   },
   "devDependencies": {
     "@acme/prettier-config": "workspace:*",

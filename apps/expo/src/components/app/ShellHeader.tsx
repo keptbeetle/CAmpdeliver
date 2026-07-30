@@ -1,26 +1,22 @@
 import { useState } from "react";
-import {
-  Alert,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 
-import { supabase } from "~/utils/auth";
 import { trpc } from "~/utils/api";
+import { supabase } from "~/utils/auth";
 import { colors, formatCurrency } from "./theme";
 
-type ShellHeaderProps = {
+interface ShellHeaderProps {
   title?: string;
   subtitle?: string;
-};
+}
 
-export function ShellHeader({ title = "CAmpDeliver", subtitle }: ShellHeaderProps) {
+export function ShellHeader({
+  title = "CAmpDeliver",
+  subtitle,
+}: ShellHeaderProps) {
   const [open, setOpen] = useState(false);
   const router = useRouter();
   const { data: profile } = useQuery({
@@ -28,7 +24,7 @@ export function ShellHeader({ title = "CAmpDeliver", subtitle }: ShellHeaderProp
     retry: false,
   });
 
-  const initial = profile?.name?.[0]?.toUpperCase() ?? "C";
+  const initial = profile?.name[0]?.toUpperCase() ?? "C";
   const isAdmin = profile?.role === "ADMIN";
 
   const closeAndGo = (path: string) => {
@@ -67,20 +63,31 @@ export function ShellHeader({ title = "CAmpDeliver", subtitle }: ShellHeaderProp
           <Pressable
             accessibilityRole="button"
             onPress={() => setOpen(true)}
-            style={({ pressed }) => [styles.avatarButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.avatarButton,
+              pressed && styles.pressed,
+            ]}
           >
             <Text style={styles.avatarText}>{initial}</Text>
           </Pressable>
         </View>
       </View>
 
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
+      <Modal
+        visible={open}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setOpen(false)}
+      >
         <View style={styles.modalRoot}>
           <Pressable style={styles.backdrop} onPress={() => setOpen(false)} />
           <View style={styles.drawer}>
             <View style={styles.drawerHeader}>
               <Text style={styles.drawerKicker}>Navigation</Text>
-              <Pressable onPress={() => setOpen(false)} style={styles.iconButton}>
+              <Pressable
+                onPress={() => setOpen(false)}
+                style={styles.iconButton}
+              >
                 <Feather name="x" size={20} color={colors.text} />
               </Pressable>
             </View>
@@ -100,16 +107,48 @@ export function ShellHeader({ title = "CAmpDeliver", subtitle }: ShellHeaderProp
             </View>
 
             <View style={styles.linkGroup}>
-              <DrawerLink icon="user" label="My Profile" onPress={() => Alert.alert("Profile", "Profile editing is coming to the mobile app.")} />
-              <DrawerLink icon="settings" label="Settings" onPress={() => Alert.alert("Settings", "Settings are coming to the mobile app.")} />
-              <DrawerLink icon="clock" label="Past Order History" onPress={() => closeAndGo("/history_tab")} />
+              <DrawerLink
+                icon="user"
+                label="My Profile"
+                onPress={() =>
+                  Alert.alert(
+                    "Profile",
+                    "Profile editing is coming to the mobile app.",
+                  )
+                }
+              />
+              <DrawerLink
+                icon="settings"
+                label="Settings"
+                onPress={() =>
+                  Alert.alert(
+                    "Settings",
+                    "Settings are coming to the mobile app.",
+                  )
+                }
+              />
+              <DrawerLink
+                icon="clock"
+                label="Past Order History"
+                onPress={() => closeAndGo("/history_tab")}
+              />
             </View>
 
             {isAdmin ? (
               <View style={styles.adminGroup}>
                 <Text style={styles.adminTitle}>Admin Section</Text>
-                <DrawerLink icon="shopping-bag" label="Manage Canteens" accent onPress={() => closeAndGo("/admin/canteens")} />
-                <DrawerLink icon="map-pin" label="Manage Landmarks" accent onPress={() => closeAndGo("/admin/landmarks")} />
+                <DrawerLink
+                  icon="shopping-bag"
+                  label="Manage Canteens"
+                  accent
+                  onPress={() => closeAndGo("/admin/canteens")}
+                />
+                <DrawerLink
+                  icon="map-pin"
+                  label="Manage Landmarks"
+                  accent
+                  onPress={() => closeAndGo("/admin/landmarks")}
+                />
               </View>
             ) : null}
 
@@ -146,8 +185,14 @@ function DrawerLink({
         pressed && styles.pressed,
       ]}
     >
-      <Feather name={icon} size={17} color={accent ? colors.amber : colors.muted} />
-      <Text style={[styles.drawerLinkText, accent && styles.drawerLinkTextAccent]}>
+      <Feather
+        name={icon}
+        size={17}
+        color={accent ? colors.amber : colors.muted}
+      />
+      <Text
+        style={[styles.drawerLinkText, accent && styles.drawerLinkTextAccent]}
+      >
         {label}
       </Text>
       <Feather name="chevron-right" size={16} color={colors.faint} />

@@ -10,16 +10,19 @@ import {
   Text,
   View,
 } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
+import { ActiveOrderBar } from "~/components/app/ActiveOrderBar";
+import { ShellHeader } from "~/components/app/ShellHeader";
+import { colors } from "~/components/app/theme";
 import { trpc } from "~/utils/api";
-import { ActiveOrderBar } from "~/app/_components/ActiveOrderBar";
-import { ShellHeader } from "~/app/_components/ShellHeader";
-import { colors } from "~/app/_components/theme";
 
 type Canteen = RouterOutputs["canteen"]["listActive"][number];
 
@@ -66,9 +69,15 @@ export default function HomeTab() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: trpc.canteen.listActive.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
-      queryClient.invalidateQueries({ queryKey: trpc.auth.getMyProfile.queryKey() }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.canteen.listActive.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.auth.getMyProfile.queryKey(),
+      }),
     ]);
     setRefreshing(false);
   }, [queryClient]);
@@ -100,7 +109,10 @@ export default function HomeTab() {
                   key={banner.id}
                   style={[
                     styles.banner,
-                    { backgroundColor: banner.colors[0], borderColor: banner.colors[1] },
+                    {
+                      backgroundColor: banner.colors[0],
+                      borderColor: banner.colors[1],
+                    },
                   ]}
                 >
                   <View style={styles.bannerTop}>
@@ -180,7 +192,11 @@ function CanteenCard({
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.thumbnailWrap}>
-        <Image source={{ uri: imageUrl }} style={styles.thumbnail} resizeMode="cover" />
+        <Image
+          source={{ uri: imageUrl }}
+          style={styles.thumbnail}
+          resizeMode="cover"
+        />
         <View style={styles.imageShade} />
         <View style={styles.openPill}>
           <View style={styles.openDot} />
@@ -196,10 +212,14 @@ function CanteenCard({
           <Feather name="coffee" size={20} color="#c4b5fd" />
         </View>
         <View style={styles.cardCopy}>
-          <Text numberOfLines={1} style={styles.cardTitle}>{canteen.name}</Text>
+          <Text numberOfLines={1} style={styles.cardTitle}>
+            {canteen.name}
+          </Text>
           <View style={styles.metaRow}>
             <Feather name="map-pin" size={13} color={colors.faint} />
-            <Text numberOfLines={1} style={styles.metaText}>Campus landmark area</Text>
+            <Text numberOfLines={1} style={styles.metaText}>
+              Campus landmark area
+            </Text>
             <Text style={styles.metaDot}>.</Text>
             <Text style={styles.deliveryText}>INR 5 delivery</Text>
           </View>
