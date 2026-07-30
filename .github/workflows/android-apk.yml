@@ -2,6 +2,15 @@ name: Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      architecture:
+        description: Android ABI to package for manual testing
+        required: true
+        default: arm64-v8a
+        type: choice
+        options:
+          - arm64-v8a
+          - x86_64
   pull_request:
     paths:
       - "apps/expo/**"
@@ -21,7 +30,7 @@ on:
       - "tooling/github/setup/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.architecture || 'arm64-v8a' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -32,6 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      BUILD_ARCHITECTURE: ${{ inputs.architecture || 'arm64-v8a' }}
       NODE_ENV: production
       EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
@@ -95,9 +105,9 @@ jobs:
       - name: Generate Android project
         run: pnpm -F @acme/expo with-env expo prebuild --platform android --no-install
 
-      - name: Build bundled arm64 preview APK
+      - name: Build bundled preview APK
         working-directory: apps/expo/android
-        run: ./gradlew --no-daemon -PreactNativeArchitectures=arm64-v8a assembleRelease
+        run: ./gradlew --no-daemon -PreactNativeArchitectures="$BUILD_ARCHITECTURE" assembleRelease
 
       - name: Verify bundled preview environment
         if: steps.build-environment.outputs.functional == 'true'
@@ -107,7 +117,7 @@ jobs:
         if: steps.build-environment.outputs.functional == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: campdeliver-android-preview-arm64
+          name: campdeliver-android-preview-${{ env.BUILD_ARCHITECTURE }}
           path: apps/expo/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
