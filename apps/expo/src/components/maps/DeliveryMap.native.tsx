@@ -102,11 +102,10 @@ export function DeliveryMap({
       boundsFor([
         canteen,
         delivery,
-        ...otherCanteens,
         ...route,
         ...(deliverer ? [deliverer] : []),
       ]),
-    [canteen, delivery, deliverer, otherCanteens, route],
+    [canteen, delivery, deliverer, route],
   );
 
   const routeData = useMemo<GeoJSON.FeatureCollection<GeoJSON.LineString>>(
