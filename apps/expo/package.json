@@ -68,6 +68,7 @@
     "@types/react": "catalog:react19",
     "dotenv-cli": "^10.0.0",
     "eslint": "catalog:",
+    "metro-cache": "0.83.3",
     "prettier": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:"
