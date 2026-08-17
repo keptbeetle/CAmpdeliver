@@ -198,6 +198,8 @@ jobs:
 
       - name: Build bundled preview APK
         working-directory: apps/expo/android
+        env:
+          EXPO_PUBLIC_API_URL: ${{ steps.backend.outputs.api_url }}
         run: ./gradlew --no-daemon -PreactNativeArchitectures="$BUILD_ARCHITECTURE" assembleRelease
 
       - name: Verify bundled preview environment
