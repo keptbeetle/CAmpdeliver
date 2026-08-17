@@ -41,7 +41,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     apiUrl:
       process.env.EXPO_PUBLIC_API_URL ||
-      "https://c-ampdeliver-nextjs-git-feature-can-424742-keptbeetles-projects.vercel.app",
+      "https://c-ampdeliver-nextjs.vercel.app",
   },
   experiments: {
     tsconfigPaths: true,

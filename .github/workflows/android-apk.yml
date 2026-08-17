@@ -20,7 +20,7 @@ on:
       - ".github/workflows/android-apk.yml"
       - "tooling/github/setup/**"
   push:
-    branches: ["main", "feature/**"]
+    branches: ["main"]
     paths:
       - "apps/expo/**"
       - "packages/api/**"
@@ -30,11 +30,12 @@ on:
       - "tooling/github/setup/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.architecture || 'arm64-v8a' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.architecture || 'arm64-v8a' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
+  deployments: read
 
 jobs:
   preview-apk:
@@ -42,12 +43,26 @@ jobs:
     timeout-minutes: 60
     env:
       BUILD_ARCHITECTURE: ${{ inputs.architecture || 'arm64-v8a' }}
+      TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      CHECKOUT_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
       NODE_ENV: production
-      EXPO_PUBLIC_API_URL: ${{ vars.EXPO_PUBLIC_API_URL }}
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          repository: ${{ env.CHECKOUT_REPOSITORY }}
+          ref: ${{ env.TARGET_SHA }}
+
+      - name: Verify checked-out commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [[ "$actual_sha" != "$TARGET_SHA" ]]; then
+            echo "Checked out $actual_sha instead of requested commit $TARGET_SHA" >&2
+            exit 1
+          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -66,10 +81,94 @@ jobs:
       - name: Setup workspace
         uses: ./tooling/github/setup
 
-      - name: Prepare build environment
-        id: build-environment
+      - name: Resolve same-commit Vercel backend
+        id: backend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCTION_API_URL: https://c-ampdeliver-nextjs.vercel.app
         shell: bash
         run: |
+          set -euo pipefail
+
+          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
+            wanted_environment="Production"
+          else
+            wanted_environment="Preview"
+          fi
+
+          echo "Waiting for Vercel $wanted_environment deployment of $TARGET_SHA"
+          deadline=$((SECONDS + 1200))
+          deployment_url=""
+
+          while (( SECONDS < deadline )); do
+            deployments="$(gh api "/repos/$GITHUB_REPOSITORY/deployments?sha=$TARGET_SHA&per_page=100")"
+            deployment_id="$(
+              jq -r --arg environment "$wanted_environment" '
+                [.[] | select(.environment == $environment)]
+                | sort_by(.created_at)
+                | last
+                | .id // empty
+              ' <<<"$deployments"
+            )"
+
+            if [[ -n "$deployment_id" ]]; then
+              statuses="$(gh api "/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=100")"
+              latest_state="$(jq -r 'sort_by(.created_at) | last | .state // empty' <<<"$statuses")"
+              deployment_url="$(
+                jq -r --arg environment "$wanted_environment" '
+                  [.[]
+                    | select(.state == "success")
+                    | select((.environment // $environment) == $environment)
+                    | select((.environment_url // "") != "")]
+                  | sort_by(.created_at)
+                  | last
+                  | .environment_url // empty
+                ' <<<"$statuses"
+              )"
+
+              if [[ -n "$deployment_url" ]]; then
+                break
+              fi
+
+              if [[ "$latest_state" == "failure" || "$latest_state" == "error" ]]; then
+                echo "Vercel $wanted_environment deployment failed for $TARGET_SHA" >&2
+                exit 1
+              fi
+            fi
+
+            sleep 10
+          done
+
+          if [[ -z "$deployment_url" ]]; then
+            echo "Timed out waiting for a successful Vercel $wanted_environment deployment of $TARGET_SHA" >&2
+            exit 1
+          fi
+
+          if [[ "$wanted_environment" == "Production" ]]; then
+            api_url="$PRODUCTION_API_URL"
+          else
+            api_url="${deployment_url%/}"
+          fi
+
+          if [[ ! "$api_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app$ ]]; then
+            echo "Refusing unexpected backend URL: $api_url" >&2
+            exit 1
+          fi
+
+          short_sha="${TARGET_SHA:0:12}"
+          echo "api_url=$api_url" >> "$GITHUB_OUTPUT"
+          echo "deployment_url=${deployment_url%/}" >> "$GITHUB_OUTPUT"
+          echo "environment=$wanted_environment" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
+          echo "Resolved $wanted_environment backend for $short_sha: $api_url"
+
+      - name: Prepare build environment
+        env:
+          EXPO_PUBLIC_API_URL: ${{ steps.backend.outputs.api_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
           required=(
             EXPO_PUBLIC_API_URL
             EXPO_PUBLIC_SUPABASE_ANON_KEY
@@ -82,25 +181,17 @@ jobs:
             fi
           done
 
-          if (( ${#missing[@]} == 0 )); then
-            umask 077
-            {
-              printf 'EXPO_PUBLIC_API_URL=%s\n' "$EXPO_PUBLIC_API_URL"
-              printf 'EXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
-              printf 'EXPO_PUBLIC_SUPABASE_URL=%s\n' "$EXPO_PUBLIC_SUPABASE_URL"
-            } > .env
-            echo "functional=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "functional=false" >> "$GITHUB_OUTPUT"
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            printf 'Missing required Android preview variables: %s\n' "${missing[*]}" >&2
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required Android build variables: %s\n' "${missing[*]}" >&2
             exit 1
           fi
 
-          echo "::warning::Building a compile-only pull-request APK because Android preview variables are not configured. The APK will not be uploaded."
-          cp .env.example .env
+          umask 077
+          {
+            printf 'EXPO_PUBLIC_API_URL=%s\n' "$EXPO_PUBLIC_API_URL"
+            printf 'EXPO_PUBLIC_SUPABASE_ANON_KEY=%s\n' "$EXPO_PUBLIC_SUPABASE_ANON_KEY"
+            printf 'EXPO_PUBLIC_SUPABASE_URL=%s\n' "$EXPO_PUBLIC_SUPABASE_URL"
+          } > .env
 
       - name: Generate Android project
         run: pnpm -F @acme/expo with-env expo prebuild --platform android --no-install
@@ -110,14 +201,14 @@ jobs:
         run: ./gradlew --no-daemon -PreactNativeArchitectures="$BUILD_ARCHITECTURE" assembleRelease
 
       - name: Verify bundled preview environment
-        if: steps.build-environment.outputs.functional == 'true'
+        env:
+          EXPO_PUBLIC_API_URL: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo verify:android-bundle-env
 
       - name: Upload APK
-        if: steps.build-environment.outputs.functional == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: campdeliver-android-preview-${{ env.BUILD_ARCHITECTURE }}
+          name: campdeliver-android-${{ env.BUILD_ARCHITECTURE }}-${{ steps.backend.outputs.short_sha }}
           path: apps/expo/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
