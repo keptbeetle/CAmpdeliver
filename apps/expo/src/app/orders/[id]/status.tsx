@@ -9,19 +9,17 @@ import {
   TextInput,
   View,
 } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
+import { colors, formatCurrency, shortId } from "~/components/app/theme";
 import { trpc } from "~/utils/api";
-import {
-  colors,
-  formatCurrency,
-  shortId,
-  statusLabels,
-} from "~/app/_components/theme";
 
 type Order = RouterOutputs["order"]["myOrders"][number];
 
@@ -74,21 +72,30 @@ export default function OrderStatusScreen() {
 
   const confirmAvailabilityMutation = useMutation(
     trpc.order.confirmAvailability.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        }),
       onError: (error) => Alert.alert("Could not update order", error.message),
     }),
   );
 
   const updateStatusMutation = useMutation(
     trpc.order.updateOrderStatus.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        }),
       onError: (error) => Alert.alert("Could not update order", error.message),
     }),
   );
 
   const verifyDeliveryMutation = useMutation(
     trpc.order.verifyDelivery.mutationOptions({
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
+      onSuccess: () =>
+        queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        }),
       onError: (error) => Alert.alert("OTP verification failed", error.message),
     }),
   );
@@ -128,11 +135,13 @@ export default function OrderStatusScreen() {
         <View style={styles.statusCard}>
           <View style={styles.statusTop}>
             <View style={styles.statusPill}>
-              <Text style={styles.statusPillText}>
-                {statusLabels[order.status] ?? order.status}
+              <Text testID="order-status" style={styles.statusPillText}>
+                {order.status}
               </Text>
             </View>
-            <Text style={styles.viewMode}>{isDeliverer ? "Deliverer View" : "Buyer View"}</Text>
+            <Text style={styles.viewMode}>
+              {isDeliverer ? "Deliverer View" : "Buyer View"}
+            </Text>
           </View>
 
           <View style={styles.timeline}>
@@ -154,7 +163,9 @@ export default function OrderStatusScreen() {
                     />
                   </View>
                   {index < steps.length - 1 ? (
-                    <View style={[styles.stepLine, done && styles.stepLineActive]} />
+                    <View
+                      style={[styles.stepLine, done && styles.stepLineActive]}
+                    />
                   ) : null}
                   <Text
                     numberOfLines={2}
@@ -186,13 +197,17 @@ export default function OrderStatusScreen() {
           />
         </View>
 
-        {!isDeliverer && order.otp && ["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) ? (
+        {!isDeliverer &&
+        order.otp &&
+        ["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) ? (
           <View style={styles.otpCard}>
             <View style={styles.otpIcon}>
               <Feather name="key" size={20} color="#ddd6fe" />
             </View>
             <Text style={styles.otpLabel}>Share this OTP at handover</Text>
-            <Text style={styles.otpValue}>{order.otp}</Text>
+            <Text testID="delivery-otp" style={styles.otpValue}>
+              {order.otp}
+            </Text>
             <Text style={styles.otpCopy}>
               The deliverer needs this 4-digit code to complete the delivery.
             </Text>
@@ -208,13 +223,22 @@ export default function OrderStatusScreen() {
               confirmAvailabilityMutation.mutate({ orderId: order.id })
             }
             markOnTheWay={() =>
-              updateStatusMutation.mutate({ orderId: order.id, status: "ON_THE_WAY" })
+              updateStatusMutation.mutate({
+                orderId: order.id,
+                status: "ON_THE_WAY",
+              })
             }
             markNearYou={() =>
-              updateStatusMutation.mutate({ orderId: order.id, status: "NEAR_YOU" })
+              updateStatusMutation.mutate({
+                orderId: order.id,
+                status: "NEAR_YOU",
+              })
             }
             verifyOtp={() =>
-              verifyDeliveryMutation.mutate({ orderId: order.id, otp: otpInput })
+              verifyDeliveryMutation.mutate({
+                orderId: order.id,
+                otp: otpInput,
+              })
             }
             busy={
               confirmAvailabilityMutation.isPending ||
@@ -228,7 +252,10 @@ export default function OrderStatusScreen() {
           <Text style={styles.summaryTitle}>Order Details</Text>
           <SummaryLine label="Drop-off" value={order.deliveryLocationName} />
           <SummaryLine label="Food" value={formatCurrency(order.foodPrice)} />
-          <SummaryLine label="Delivery" value={formatCurrency(order.deliveryFee)} />
+          <SummaryLine
+            label="Delivery"
+            value={formatCurrency(order.deliveryFee)}
+          />
           <View style={styles.summaryDivider} />
           <SummaryLine
             label="Total"
@@ -290,27 +317,48 @@ function DelivererActions({
     <View style={styles.delivererCard}>
       <Text style={styles.summaryTitle}>Rider Controls</Text>
       {order.status === "ACCEPTED" ? (
-        <Pressable disabled={busy} onPress={confirmAvailability} style={styles.greenButton}>
-          <Text style={styles.buttonText}>{busy ? "Updating" : "Confirm Item Availability"}</Text>
+        <Pressable
+          disabled={busy}
+          onPress={confirmAvailability}
+          style={styles.greenButton}
+        >
+          <Text style={styles.buttonText}>
+            {busy ? "Updating" : "Confirm Item Availability"}
+          </Text>
         </Pressable>
       ) : null}
       {order.status === "PREPARING" ? (
-        <Pressable disabled={busy} onPress={markOnTheWay} style={styles.purpleButton}>
-          <Text style={styles.buttonText}>{busy ? "Updating" : "Mark On The Way"}</Text>
+        <Pressable
+          disabled={busy}
+          onPress={markOnTheWay}
+          style={styles.purpleButton}
+        >
+          <Text style={styles.buttonText}>
+            {busy ? "Updating" : "Mark On The Way"}
+          </Text>
         </Pressable>
       ) : null}
       {order.status === "ON_THE_WAY" ? (
-        <Pressable disabled={busy} onPress={markNearYou} style={styles.purpleButton}>
-          <Text style={styles.buttonText}>{busy ? "Updating" : "Mark Near You"}</Text>
+        <Pressable
+          disabled={busy}
+          onPress={markNearYou}
+          style={styles.purpleButton}
+        >
+          <Text style={styles.buttonText}>
+            {busy ? "Updating" : "Mark Near You"}
+          </Text>
         </Pressable>
       ) : null}
       {order.status === "NEAR_YOU" ? (
         <View style={styles.otpInputRow}>
           <TextInput
             value={otpInput}
-            onChangeText={(value) => setOtpInput(value.replace(/\D/g, "").slice(0, 4))}
+            onChangeText={(value) =>
+              setOtpInput(value.replace(/\D/g, "").slice(0, 4))
+            }
             keyboardType="number-pad"
             maxLength={4}
+            accessibilityLabel="Delivery OTP"
             placeholder="1234"
             placeholderTextColor={colors.faint}
             style={styles.otpInput}
@@ -324,8 +372,12 @@ function DelivererActions({
           </Pressable>
         </View>
       ) : null}
-      {!["ACCEPTED", "PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) ? (
-        <Text style={styles.noActionText}>No rider action is needed right now.</Text>
+      {!["ACCEPTED", "PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(
+        order.status,
+      ) ? (
+        <Text style={styles.noActionText}>
+          No rider action is needed right now.
+        </Text>
       ) : null}
     </View>
   );
@@ -342,8 +394,13 @@ function SummaryLine({
 }) {
   return (
     <View style={styles.summaryLine}>
-      <Text style={[styles.summaryLabel, strong && styles.summaryStrong]}>{label}</Text>
-      <Text numberOfLines={2} style={[styles.summaryValue, strong && styles.summaryStrong]}>
+      <Text style={[styles.summaryLabel, strong && styles.summaryStrong]}>
+        {label}
+      </Text>
+      <Text
+        numberOfLines={2}
+        style={[styles.summaryValue, strong && styles.summaryStrong]}
+      >
         {value}
       </Text>
     </View>

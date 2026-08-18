@@ -7,15 +7,18 @@ import {
   Text,
   View,
 } from "react-native";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
-import { trpc } from "~/utils/api";
+import { colors, formatCurrency } from "~/components/app/theme";
 import { useCart } from "~/components/cart/CartContext";
-import { colors, formatCurrency } from "~/app/_components/theme";
+import { trpc } from "~/utils/api";
 
 type MenuItem = RouterOutputs["menu"]["listByCanteen"][number];
 
@@ -36,17 +39,12 @@ export default function CanteenDetailScreen() {
     enabled: !!id,
   });
 
-  const {
-    items,
-    addItem,
-    removeItem,
-    updateQuantity,
-    totalItems,
-    totalPrice,
-  } = useCart();
+  const { items, addItem, removeItem, updateQuantity, totalItems, totalPrice } =
+    useCart();
 
   const canteen = canteens?.find((item) => item.id === id);
-  const coverImage = coverImages[Math.abs(id?.length ?? 0) % coverImages.length] ?? coverImages[0];
+  const coverImage =
+    coverImages[Math.abs(id.length) % coverImages.length] ?? coverImages[0];
 
   return (
     <View style={styles.root}>
@@ -56,10 +54,17 @@ export default function CanteenDetailScreen() {
         ListHeaderComponent={
           <View>
             <View style={styles.hero}>
-              <Image source={{ uri: coverImage }} style={styles.heroImage} resizeMode="cover" />
+              <Image
+                source={{ uri: coverImage }}
+                style={styles.heroImage}
+                resizeMode="cover"
+              />
               <View style={styles.heroShade} />
               <SafeAreaView style={styles.heroControls} edges={["top"]}>
-                <Pressable onPress={() => router.back()} style={styles.iconButton}>
+                <Pressable
+                  onPress={() => router.back()}
+                  style={styles.iconButton}
+                >
                   <Feather name="arrow-left" size={20} color={colors.text} />
                 </Pressable>
                 <View style={styles.openPill}>
@@ -68,7 +73,9 @@ export default function CanteenDetailScreen() {
                 </View>
               </SafeAreaView>
               <View style={styles.heroCopy}>
-                <Text style={styles.heroTitle}>{canteen?.name ?? "Campus Canteen"}</Text>
+                <Text style={styles.heroTitle}>
+                  {canteen?.name ?? "Campus Canteen"}
+                </Text>
                 <View style={styles.heroMetaRow}>
                   <Feather name="clock" size={14} color="#ddd6fe" />
                   <Text style={styles.heroMeta}>15-20 mins</Text>
@@ -112,7 +119,6 @@ export default function CanteenDetailScreen() {
             <DishRow
               item={item}
               quantity={quantity}
-              canteenId={id}
               canteenName={canteen?.name ?? "Campus Canteen"}
               onAdd={() =>
                 addItem({
@@ -136,7 +142,12 @@ export default function CanteenDetailScreen() {
       />
 
       {totalItems > 0 ? (
-        <View style={[styles.cartBarWrap, { bottom: Math.max(18, insets.bottom + 14) }]}>
+        <View
+          style={[
+            styles.cartBarWrap,
+            { bottom: Math.max(18, insets.bottom + 14) },
+          ]}
+        >
           <View style={styles.cartBar}>
             <View style={styles.cartCount}>
               <Text style={styles.cartCountText}>{totalItems}</Text>
@@ -147,7 +158,10 @@ export default function CanteenDetailScreen() {
             </View>
             <Pressable
               onPress={() => router.push("/checkout")}
-              style={({ pressed }) => [styles.cartButton, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.cartButton,
+                pressed && styles.pressed,
+              ]}
             >
               <Text style={styles.cartButtonText}>View Cart</Text>
               <Feather name="chevron-up" size={16} color={colors.text} />
@@ -162,7 +176,6 @@ export default function CanteenDetailScreen() {
 function DishRow({
   item,
   quantity,
-  canteenId,
   canteenName,
   onAdd,
   onRemove,
@@ -170,7 +183,6 @@ function DishRow({
 }: {
   item: MenuItem;
   quantity: number;
-  canteenId: string;
   canteenName: string;
   onAdd: () => void;
   onRemove: () => void;
@@ -180,8 +192,15 @@ function DishRow({
     <View style={styles.dishCard}>
       <View style={styles.dishCopy}>
         <View style={styles.dishTitleRow}>
-          <View style={[styles.availabilityDot, !item.isAvailable && styles.unavailableDot]} />
-          <Text numberOfLines={2} style={styles.dishName}>{item.name}</Text>
+          <View
+            style={[
+              styles.availabilityDot,
+              !item.isAvailable && styles.unavailableDot,
+            ]}
+          />
+          <Text numberOfLines={2} style={styles.dishName}>
+            {item.name}
+          </Text>
         </View>
         <Text style={styles.dishPrice}>{formatCurrency(item.price)}</Text>
         <Text numberOfLines={2} style={styles.dishDescription}>
@@ -189,8 +208,18 @@ function DishRow({
             ? `A campus favorite from ${canteenName}.`
             : "Temporarily unavailable from this canteen."}
         </Text>
-        <View style={[styles.availabilityPill, !item.isAvailable && styles.unavailablePill]}>
-          <Text style={[styles.availabilityText, !item.isAvailable && styles.unavailableText]}>
+        <View
+          style={[
+            styles.availabilityPill,
+            !item.isAvailable && styles.unavailablePill,
+          ]}
+        >
+          <Text
+            style={[
+              styles.availabilityText,
+              !item.isAvailable && styles.unavailableText,
+            ]}
+          >
             {item.isAvailable ? "Available" : "Unavailable"}
           </Text>
         </View>

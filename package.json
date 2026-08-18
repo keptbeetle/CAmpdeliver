@@ -21,18 +21,27 @@
     "lint:fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
     "lint:ws": "pnpm dlx sherif@latest",
     "postinstall": "pnpm lint:ws",
+    "test:e2e": "NODE_OPTIONS=--import=$(pwd)/e2e/node-network.mjs playwright test",
+    "test:e2e:demo": "E2E_DEMO=1 NODE_OPTIONS=--import=$(pwd)/e2e/node-network.mjs playwright test --project=chromium",
+    "test:e2e:install": "playwright install chromium",
     "typecheck": "turbo run typecheck",
     "ui-add": "turbo run ui-add",
     "android": "expo run:android",
-    "ios": "expo run:ios"
+    "ios": "expo run:ios",
+    "test:e2e:expo": "NODE_OPTIONS=--import=$(pwd)/e2e/node-network.mjs playwright test --config=playwright.expo.config.ts"
   },
   "devDependencies": {
     "@acme/prettier-config": "workspace:*",
+    "@playwright/test": "^1.62.0",
+    "@supabase/supabase-js": "^2.48.0",
     "@turbo/gen": "^2.5.8",
+    "dotenv": "^17.4.2",
     "dotenv-cli": "^10.0.0",
+    "postgres": "^3.4.9",
     "prettier": "catalog:",
     "turbo": "^2.5.8",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "undici": "^7.16.0"
   },
   "prettier": "@acme/prettier-config"
 }

@@ -9,17 +9,20 @@ import {
   Text,
   View,
 } from "react-native";
-import * as Location from "expo-location";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
+import { ActiveOrderBar } from "~/components/app/ActiveOrderBar";
+import { ShellHeader } from "~/components/app/ShellHeader";
+import { colors, formatCurrency } from "~/components/app/theme";
+import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
-import { ActiveOrderBar } from "~/app/_components/ActiveOrderBar";
-import { ShellHeader } from "~/app/_components/ShellHeader";
-import { colors, formatCurrency } from "~/app/_components/theme";
 
 type Quest = RouterOutputs["order"]["availableQuests"][number];
 
@@ -28,27 +31,29 @@ export default function QuestsTab() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
-  const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [location, setLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
 
   const loadLocation = useCallback(async () => {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== "granted") {
-      setLocationError("Enable location to see nearby quests.");
-      return;
+    try {
+      if (!(await locationService.requestForegroundPermission())) {
+        setLocationError("Enable location to see nearby quests.");
+        return;
+      }
+      setLocation(await locationService.getCurrentPosition());
+      setLocationError(null);
+    } catch (error) {
+      console.warn("Could not read quest location:", error);
+      setLocationError("Unable to read your current location.");
     }
-    const current = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-    setLocation({
-      latitude: current.coords.latitude,
-      longitude: current.coords.longitude,
-    });
-    setLocationError(null);
   }, []);
 
   useEffect(() => {
-    void loadLocation();
+    const timeout = setTimeout(() => void loadLocation(), 0);
+    return () => clearTimeout(timeout);
   }, [loadLocation]);
 
   const { data: quests, isLoading } = useQuery({
@@ -64,8 +69,12 @@ export default function QuestsTab() {
     trpc.order.acceptOrder.mutationOptions({
       onSuccess: async (updatedOrder) => {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: trpc.order.availableQuests.queryKey() }),
-          queryClient.invalidateQueries({ queryKey: trpc.order.myOrders.queryKey() }),
+          queryClient.invalidateQueries({
+            queryKey: trpc.order.availableQuests.queryKey(),
+          }),
+          queryClient.invalidateQueries({
+            queryKey: trpc.order.myOrders.queryKey(),
+          }),
         ]);
         if (updatedOrder?.id) {
           router.push(`/orders/${updatedOrder.id}/status` as never);
@@ -91,7 +100,11 @@ export default function QuestsTab() {
         data={quests ?? []}
         keyExtractor={(item) => item.id}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.purple} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.purple}
+          />
         }
         ListHeaderComponent={
           <View style={styles.hero}>
@@ -115,12 +128,17 @@ export default function QuestsTab() {
               </>
             ) : (
               <>
-                <Feather name={locationError ? "map-pin" : "compass"} size={34} color={colors.faint} />
+                <Feather
+                  name={locationError ? "map-pin" : "compass"}
+                  size={34}
+                  color={colors.faint}
+                />
                 <Text style={styles.emptyTitle}>
                   {locationError ?? "No active quests nearby"}
                 </Text>
                 <Text style={styles.emptyCopy}>
-                  New broadcasted orders will appear here when they are inside canteen range.
+                  New broadcasted orders will appear here when they are inside
+                  canteen range.
                 </Text>
               </>
             )}
@@ -160,7 +178,9 @@ function QuestCard({
           <Feather name="shopping-bag" size={18} color="#c7d2fe" />
         </View>
         <View style={styles.cardCopy}>
-          <Text numberOfLines={1} style={styles.cardTitle}>{quest.canteenName}</Text>
+          <Text numberOfLines={1} style={styles.cardTitle}>
+            {quest.canteenName}
+          </Text>
           <Text numberOfLines={1} style={styles.cardSubtitle}>
             Drop-off: {quest.deliveryLocationName}
           </Text>
@@ -172,7 +192,9 @@ function QuestCard({
         </View>
         <View style={styles.earningBox}>
           <Text style={styles.earningLabel}>Earn</Text>
-          <Text style={styles.earningValue}>{formatCurrency(quest.deliveryFee)}</Text>
+          <Text style={styles.earningValue}>
+            {formatCurrency(quest.deliveryFee)}
+          </Text>
         </View>
       </View>
 
@@ -189,7 +211,9 @@ function QuestCard({
           ]}
         >
           <Feather name="zap" size={14} color={colors.text} />
-          <Text style={styles.acceptText}>{accepting ? "Accepting" : "Accept Quest"}</Text>
+          <Text style={styles.acceptText}>
+            {accepting ? "Accepting" : "Accept Quest"}
+          </Text>
         </Pressable>
       </View>
     </View>

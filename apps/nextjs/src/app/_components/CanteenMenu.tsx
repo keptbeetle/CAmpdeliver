@@ -11,7 +11,6 @@ interface DeliveryDestination {
   latitude: number;
   longitude: number;
 }
-}
 
 export function CanteenMenu({
   onOrderCreated,

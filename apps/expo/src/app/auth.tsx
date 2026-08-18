@@ -11,14 +11,14 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useMutation } from "@tanstack/react-query";
 
-import { supabase } from "~/utils/auth";
+import { colors } from "~/components/app/theme";
 import { trpc } from "~/utils/api";
-import { colors } from "./_components/theme";
+import { supabase } from "~/utils/auth";
 
 function sanitizePhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
@@ -47,7 +47,9 @@ export default function AuthScreen() {
   const shakeAnimation = useRef(new Animated.Value(0)).current;
 
   const sendOtpMutation = useMutation(trpc.otp.sendOtp.mutationOptions());
-  const verifyOtpMutation = useMutation(trpc.otp.verifyOtpAndSignup.mutationOptions());
+  const verifyOtpMutation = useMutation(
+    trpc.otp.verifyOtpAndSignup.mutationOptions(),
+  );
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -81,10 +83,26 @@ export default function AuthScreen() {
 
   const triggerShake = () => {
     Animated.sequence([
-      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: -10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: 10, duration: 50, useNativeDriver: true }),
-      Animated.timing(shakeAnimation, { toValue: 0, duration: 50, useNativeDriver: true }),
+      Animated.timing(shakeAnimation, {
+        toValue: 10,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnimation, {
+        toValue: -10,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnimation, {
+        toValue: 10,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnimation, {
+        toValue: 0,
+        duration: 50,
+        useNativeDriver: true,
+      }),
     ]).start();
   };
 
@@ -111,7 +129,12 @@ export default function AuthScreen() {
   };
 
   const handleSendOtp = async () => {
-    if (!name.trim() || !hostelName.trim() || !phone.trim() || !password.trim()) {
+    if (
+      !name.trim() ||
+      !hostelName.trim() ||
+      !phone.trim() ||
+      !password.trim()
+    ) {
       setError("All fields are required.");
       return;
     }
@@ -128,7 +151,11 @@ export default function AuthScreen() {
       setOtpCode("");
       setTimer(300);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send verification code.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send verification code.",
+      );
     } finally {
       setAuthLoading(false);
     }
@@ -154,7 +181,8 @@ export default function AuthScreen() {
         });
         if (error) throw error;
       } else {
-        const virtualEmail = result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
+        const virtualEmail =
+          result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
         const { error } = await supabase.auth.signInWithPassword({
           email: virtualEmail,
           password,
@@ -163,7 +191,11 @@ export default function AuthScreen() {
       }
     } catch (err) {
       setOtpCode("");
-      setError(err instanceof Error ? err.message : "Verification failed. Invalid OTP.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Verification failed. Invalid OTP.",
+      );
     } finally {
       setAuthLoading(false);
     }
@@ -201,13 +233,17 @@ export default function AuthScreen() {
           </Text>
         </View>
 
-        <Animated.View style={[styles.card, { transform: [{ translateX: shakeAnimation }] }]}>
+        <Animated.View
+          style={[styles.card, { transform: [{ translateX: shakeAnimation }] }]}
+        >
           {!isSignUp ? (
             <>
               <Field
                 label="Phone Number"
                 value={phone}
-                onChangeText={(value) => setPhone(value.replace(/[^\d+\-\s()]/g, ""))}
+                onChangeText={(value) =>
+                  setPhone(value.replace(/[^\d+\-\s()]/g, ""))
+                }
                 keyboardType="phone-pad"
                 placeholder="9999999999"
               />
@@ -227,12 +263,24 @@ export default function AuthScreen() {
             </>
           ) : step === 1 ? (
             <>
-              <Field label="Name" value={name} onChangeText={setName} placeholder="Your name" />
-              <Field label="Hostel Name" value={hostelName} onChangeText={setHostelName} placeholder="Hostel Block" />
+              <Field
+                label="Name"
+                value={name}
+                onChangeText={setName}
+                placeholder="Your name"
+              />
+              <Field
+                label="Hostel Name"
+                value={hostelName}
+                onChangeText={setHostelName}
+                placeholder="Hostel Block"
+              />
               <Field
                 label="Phone Number"
                 value={phone}
-                onChangeText={(value) => setPhone(value.replace(/[^\d+\-\s()]/g, ""))}
+                onChangeText={(value) =>
+                  setPhone(value.replace(/[^\d+\-\s()]/g, ""))
+                }
                 keyboardType="phone-pad"
                 placeholder="9999999999"
               />
@@ -279,14 +327,21 @@ export default function AuthScreen() {
               </Pressable>
               <View style={styles.resendRow}>
                 <Text style={styles.timerText}>
-                  {timer > 0 ? `Resend in ${formatTimer(timer)}` : "Code not received?"}
+                  {timer > 0
+                    ? `Resend in ${formatTimer(timer)}`
+                    : "Code not received?"}
                 </Text>
                 <Pressable
                   disabled={timer > 0 || authLoading}
                   onPress={handleSendOtp}
                   style={styles.resendButton}
                 >
-                  <Text style={[styles.resendText, timer > 0 && styles.disabledText]}>
+                  <Text
+                    style={[
+                      styles.resendText,
+                      timer > 0 && styles.disabledText,
+                    ]}
+                  >
                     Resend
                   </Text>
                 </Pressable>
@@ -347,6 +402,7 @@ function Field({
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
