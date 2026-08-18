@@ -26,6 +26,7 @@ export const profiles = pgTable("profiles", {
   role: text("role").$type<UserRole>().default("STUDENT").notNull(),
   walletBalance: integer("wallet_balance").default(0).notNull(), // In paise (e.g. 10000 = ₹100.00)
   frozenBalance: integer("frozen_balance").default(0).notNull(), // In paise
+  pushToken: text("push_token"), // Expo push token for background notifications
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

@@ -83,5 +83,12 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         isAndroidBackgroundLocationEnabled: true,
       },
     ],
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/icon-light.png",
+        color: "#1F104A",
+      },
+    ],
   ],
 });
