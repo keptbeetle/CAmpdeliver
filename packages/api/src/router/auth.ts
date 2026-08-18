@@ -1,4 +1,5 @@
 import type { TRPCRouterRecord } from "@trpc/server";
+import { z } from "zod/v4";
 
 import { eq } from "@acme/db";
 import { profiles } from "@acme/db/schema";
@@ -54,7 +55,17 @@ export const authRouter = {
 
     return profile;
   }),
+  updatePushToken: protectedProcedure
+    .input(z.object({ pushToken: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(profiles)
+        .set({ pushToken: input.pushToken })
+        .where(eq(profiles.id, ctx.user.id));
+      return { success: true };
+    }),
   getSecretMessage: protectedProcedure.query(() => {
     return "you can see this secret message!";
   }),
 } satisfies TRPCRouterRecord;
+
