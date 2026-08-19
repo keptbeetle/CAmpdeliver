@@ -2,9 +2,10 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import { and, desc, eq, ne, or, sql } from "@acme/db";
+import { and, desc, eq, isNotNull, ne, or, sql } from "@acme/db";
 import { canteens, landmarks, orders, profiles, walletTransactions } from "@acme/db/schema";
 
+import { sendExpoPushNotifications } from "../services/push-notification";
 import { protectedProcedure } from "../trpc";
 import {
   createOrderInputSchema,
@@ -176,6 +177,53 @@ export const orderRouter = {
         })
         .returning();
 
+      if (!newOrder) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create order",
+        });
+      }
+
+      // Broadcast remote push notifications to all deliverers with registered tokens
+      void (async () => {
+        try {
+          const potentialDeliverers = await ctx.db
+            .select({ id: profiles.id, pushToken: profiles.pushToken })
+            .from(profiles)
+            .where(
+              and(
+                ne(profiles.id, ctx.user.id),
+                isNotNull(profiles.pushToken),
+              ),
+            );
+
+          const tokens = potentialDeliverers
+            .map((p) => p.pushToken)
+            .filter((t): t is string => Boolean(t));
+
+          if (tokens.length > 0) {
+            await sendExpoPushNotifications([
+              {
+                to: tokens,
+                title: "New Delivery Quest Available! 🍕",
+                body: `New order from ${canteen.name} to ${input.deliveryLocationName}. Earn ₹${(deliveryFee / 100).toFixed(2)}!`,
+                data: {
+                  orderId: newOrder.id,
+                  canteenId: canteen.id,
+                  type: "NEW_QUEST",
+                  url: "/quests",
+                },
+                sound: "default",
+                priority: "high",
+                channelId: "default",
+              },
+            ]);
+          }
+        } catch (err) {
+          console.error("[createOrder] Push dispatch error:", err);
+        }
+      })();
+
       return newOrder;
     }),
 
@@ -317,6 +365,34 @@ export const orderRouter = {
             message: cancelReason,
           });
         }
+
+        // Notify buyer that order is being prepared
+        void (async () => {
+          try {
+            const buyer = await ctx.db.query.profiles.findFirst({
+              where: eq(profiles.id, order.buyerId),
+            });
+            if (buyer?.pushToken) {
+              await sendExpoPushNotifications([
+                {
+                  to: buyer.pushToken,
+                  title: "Order Confirmed! 🍳",
+                  body: `Your order from ${order.canteenName} is being prepared! Deliverer assigned.`,
+                  data: {
+                    orderId: order.id,
+                    type: "ORDER_PREPARING",
+                    url: `/orders/${order.id}/status`,
+                  },
+                  sound: "default",
+                  priority: "high",
+                  channelId: "default",
+                },
+              ]);
+            }
+          } catch (err) {
+            console.error("[confirmAvailability] Push dispatch error:", err);
+          }
+        })();
 
         return { success: true };
       } catch (error) {
@@ -503,6 +579,37 @@ export const orderRouter = {
         .where(eq(orders.id, input.orderId))
         .returning();
 
+      // Notify buyer of delivery progress
+      void (async () => {
+        try {
+          const buyer = await ctx.db.query.profiles.findFirst({
+            where: eq(profiles.id, order.buyerId),
+          });
+          if (buyer?.pushToken) {
+            const isNear = input.status === "NEAR_YOU";
+            await sendExpoPushNotifications([
+              {
+                to: buyer.pushToken,
+                title: isNear ? "Deliverer is Near You! 📍" : "Order On The Way! 🚴",
+                body: isNear
+                  ? "Your deliverer has arrived nearby! Please have your 4-digit OTP ready."
+                  : `Your food from ${order.canteenName} is on the way to ${order.deliveryLocationName}.`,
+                data: {
+                  orderId: order.id,
+                  type: input.status,
+                  url: `/orders/${order.id}/status`,
+                },
+                sound: "default",
+                priority: "high",
+                channelId: "default",
+              },
+            ]);
+          }
+        } catch (err) {
+          console.error("[updateOrderStatus] Push dispatch error:", err);
+        }
+      })();
+
       return updatedOrder;
     }),
 
@@ -597,6 +704,44 @@ export const orderRouter = {
             .set({ status: "DELIVERED" })
             .where(eq(orders.id, order.id));
         });
+
+        // Notify both buyer and deliverer of successful completion
+        void (async () => {
+          try {
+            const [buyer, deliverer] = await Promise.all([
+              ctx.db.query.profiles.findFirst({ where: eq(profiles.id, order.buyerId) }),
+              ctx.db.query.profiles.findFirst({ where: eq(profiles.id, delivererId) }),
+            ]);
+            const messages = [];
+            if (buyer?.pushToken) {
+              messages.push({
+                to: buyer.pushToken,
+                title: "Order Delivered! 🎉",
+                body: `Your order from ${order.canteenName} has been delivered. Enjoy!`,
+                data: { orderId: order.id, type: "ORDER_DELIVERED", url: `/orders/${order.id}/status` },
+                sound: "default" as const,
+                priority: "high" as const,
+                channelId: "default",
+              });
+            }
+            if (deliverer?.pushToken) {
+              messages.push({
+                to: deliverer.pushToken,
+                title: "Payout Received! 💰",
+                body: `₹${(delivererTotal / 100).toFixed(2)} has been credited to your wallet.`,
+                data: { orderId: order.id, type: "PAYOUT_RECEIVED", url: "/wallet" },
+                sound: "default" as const,
+                priority: "high" as const,
+                channelId: "default",
+              });
+            }
+            if (messages.length > 0) {
+              await sendExpoPushNotifications(messages);
+            }
+          } catch (err) {
+            console.error("[verifyDelivery] Push dispatch error:", err);
+          }
+        })();
       } catch (err) {
          console.error("Wallet transfer failed", err);
          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Failed to transfer wallet funds" });
