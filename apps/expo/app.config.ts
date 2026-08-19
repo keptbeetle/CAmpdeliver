@@ -29,6 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: "com.campdeliver.app",
+    googleServicesFile: "./google-services.json",
     adaptiveIcon: {
       foregroundImage: "./assets/icon-light.png",
       backgroundColor: "#1F104A",
@@ -81,6 +82,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         locationWhenInUsePermission:
           "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
         isAndroidBackgroundLocationEnabled: true,
+      },
+    ],
+    [
+      "expo-notifications",
+      {
+        icon: "./assets/icon-light.png",
+        color: "#FF231F7C",
+        defaultChannel: "default",
+        enableBackgroundRemoteNotifications: true,
       },
     ],
   ],

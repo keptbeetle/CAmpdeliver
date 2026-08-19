@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "145929100649",
+    "project_id": "campdeliver-768cd",
+    "storage_bucket": "campdeliver-768cd.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:145929100649:android:1ffc67d30e0aef4db7b1f8",
+        "android_client_info": {
+          "package_name": "com.campdeliver.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDdwt1wXY6nN-yAP_nUsaFyy3XUNnZXqaY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
