@@ -5,6 +5,7 @@ import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
+import type { Href } from "expo-router";
 import * as TaskManager from "expo-task-manager";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
@@ -13,14 +14,14 @@ import { queryClient, trpc } from "~/utils/api";
 const GEOFENCE_TASK_NAME = "LOCATION_GEOFENCE_TASK";
 
 Notifications.setNotificationHandler({
-  // eslint-disable-next-line @typescript-eslint/require-await
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
+  handleNotification: () =>
+    Promise.resolve({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
 });
 
 if (Platform.OS === "android") {
@@ -125,11 +126,9 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
           | { url?: string; orderId?: string }
           | undefined;
         if (data?.url) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          router.push(data.url as any);
+          router.push(data.url as Href);
         } else if (data?.orderId) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          router.push(`/orders/${data.orderId}/status` as any);
+          router.push(`/orders/${data.orderId}/status` as Href);
         }
       });
 
@@ -143,29 +142,23 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
       if (!canteens || canteens.length === 0) return;
 
       try {
-        const { status: fgStatus } =
-          await Location.requestForegroundPermissionsAsync();
-        if (fgStatus !== Location.PermissionStatus.GRANTED) {
-          console.log(
-            "[GeofenceManager] Foreground location permission denied",
-          );
-          return;
+        // Request notifications permission first
+        const existingNotifPerm = await Notifications.getPermissionsAsync();
+        let finalNotifStatus = existingNotifPerm.status;
+        if (finalNotifStatus !== Notifications.PermissionStatus.GRANTED) {
+          const requestedNotifPerm =
+            await Notifications.requestPermissionsAsync({
+              ios: {
+                allowAlert: true,
+                allowBadge: true,
+                allowSound: true,
+              },
+            });
+          finalNotifStatus = requestedNotifPerm.status;
         }
 
-        const { status: bgStatus } =
-          await Location.requestBackgroundPermissionsAsync();
-        if (bgStatus !== Location.PermissionStatus.GRANTED) {
-          console.log(
-            "[GeofenceManager] Background location permission denied",
-          );
-          return;
-        }
-
-        const { status: notifStatus } =
-          await Notifications.requestPermissionsAsync();
-        if (notifStatus !== Notifications.PermissionStatus.GRANTED) {
+        if (finalNotifStatus !== Notifications.PermissionStatus.GRANTED) {
           console.log("[GeofenceManager] Notifications permission denied");
-          return;
         }
 
         // Register push token in background without blocking
@@ -176,6 +169,7 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
               | undefined;
             const projectId =
               extra?.eas?.projectId ??
+              Constants.easConfig?.projectId ??
               "b658b0d5-1c62-4f07-8329-38563db9dfa3";
             const tokenData = await Notifications.getExpoPushTokenAsync({
               projectId,
@@ -196,6 +190,24 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
             );
           }
         })();
+
+        const { status: fgStatus } =
+          await Location.requestForegroundPermissionsAsync();
+        if (fgStatus !== Location.PermissionStatus.GRANTED) {
+          console.log(
+            "[GeofenceManager] Foreground location permission denied",
+          );
+          return;
+        }
+
+        const { status: bgStatus } =
+          await Location.requestBackgroundPermissionsAsync();
+        if (bgStatus !== Location.PermissionStatus.GRANTED) {
+          console.log(
+            "[GeofenceManager] Background location permission denied",
+          );
+          return;
+        }
 
         const isRegistered =
           await TaskManager.isTaskRegisteredAsync(GEOFENCE_TASK_NAME);
@@ -255,6 +267,7 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
     };
 
     void setupGeofencing();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canteens]);
 
   return <>{children}</>;

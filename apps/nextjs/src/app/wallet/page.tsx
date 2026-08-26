@@ -78,7 +78,7 @@ export default function WalletPage() {
               Hostel
             </span>
             <span className="font-semibold text-purple-300">
-              {profile.hostelName || "Campus"}
+              {profile.hostelName ?? "Campus"}
             </span>
           </div>
         </div>

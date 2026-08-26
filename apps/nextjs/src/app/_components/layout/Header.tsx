@@ -104,10 +104,10 @@ export function Header() {
               </div>
               <div className="overflow-hidden">
                 <p className="truncate text-sm font-bold text-white">
-                  {profile?.name || "Guest Student"}
+                  {profile?.name ?? "Guest Student"}
                 </p>
                 <p className="truncate text-xs text-zinc-400">
-                  {profile?.hostelName || "Campus Hostel"}
+                  {profile?.hostelName ?? "Campus Hostel"}
                 </p>
               </div>
             </div>

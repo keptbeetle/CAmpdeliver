@@ -55,30 +55,34 @@ export default function CheckoutPage() {
   // Auto-fetch GPS on mount
   useEffect(() => {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
-      setLocationStatus("error");
-      setLocationError("Geolocation is not supported by your browser.");
+      setTimeout(() => {
+        setLocationStatus("error");
+        setLocationError("Geolocation is not supported by your browser.");
+      }, 0);
       return;
     }
 
-    setLocationStatus("loading");
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setUserCoords({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-        });
-        setLocationStatus("success");
-      },
-      (err) => {
-        setLocationStatus("error");
-        setLocationError(
-          err.code === err.PERMISSION_DENIED
-            ? "Location permission denied. Please enable location access."
-            : "Could not detect your location. Please try again.",
-        );
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
-    );
+    setTimeout(() => {
+      setLocationStatus("loading");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserCoords({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+          setLocationStatus("success");
+        },
+        (err) => {
+          setLocationStatus("error");
+          setLocationError(
+            err.code === err.PERMISSION_DENIED
+              ? "Location permission denied. Please enable location access."
+              : "Could not detect your location. Please try again.",
+          );
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
+      );
+    }, 0);
   }, []);
 
   // Resolve nearest landmark when GPS + landmarks are ready
@@ -93,22 +97,24 @@ export default function CheckoutPage() {
       }
     }
 
-    if (nearest) {
-      if (nearest.distance <= 100) {
-        setResolvedLocationName(nearest.name);
+    setTimeout(() => {
+      if (nearest) {
+        if (nearest.distance <= 100) {
+          setResolvedLocationName(nearest.name);
+        } else {
+          setResolvedLocationName(`Near ${nearest.name}`);
+        }
       } else {
-        setResolvedLocationName(`Near ${nearest.name}`);
+        setResolvedLocationName("Current Location");
       }
-    } else {
-      setResolvedLocationName("Current Location");
-    }
+    }, 0);
   }, [userCoords, landmarks]);
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
       onSuccess: (newOrder) => {
         clearCart();
-        if (newOrder?.id) {
+        if (newOrder.id) {
           router.push(`/orders/${newOrder.id}/status`);
         }
       },
