@@ -55,7 +55,7 @@ export default function CheckoutScreen() {
         await queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
         });
-        if (order?.id) {
+        if (order.id) {
           router.replace(`/orders/${order.id}/status` as never);
         } else {
           router.replace("/orders" as never);
@@ -108,10 +108,11 @@ export default function CheckoutScreen() {
 
       let deliveryLocationName = "Current Location";
       if (nearest) {
+        const nearObj = nearest as { distance: number; radius: number; name: string };
         deliveryLocationName =
-          nearest.distance <= nearest.radius
-            ? nearest.name
-            : `Near ${nearest.name}`;
+          nearObj.distance <= nearObj.radius
+            ? nearObj.name
+            : `Near ${nearObj.name}`;
       }
 
       const trimmedInstructions = instructions.trim();

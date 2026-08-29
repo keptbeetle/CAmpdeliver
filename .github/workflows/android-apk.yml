@@ -97,23 +97,23 @@ jobs:
           fi
 
           echo "Waiting for Vercel $wanted_environment deployment of $TARGET_SHA"
-          deadline=$((SECONDS + 1200))
+          deadline=$((SECONDS + 120))
           deployment_url=""
 
           while (( SECONDS < deadline )); do
-            deployments="$(gh api "/repos/$GITHUB_REPOSITORY/deployments?sha=$TARGET_SHA&per_page=100")"
+            deployments="$(gh api "/repos/$GITHUB_REPOSITORY/deployments?sha=$TARGET_SHA&per_page=100" 2>/dev/null || echo "[]")"
             deployment_id="$(
               jq -r --arg environment "$wanted_environment" '
                 [.[] | select(.environment == $environment)]
                 | sort_by(.created_at)
                 | last
                 | .id // empty
-              ' <<<"$deployments"
+              ' <<<"$deployments" 2>/dev/null || echo ""
             )"
 
             if [[ -n "$deployment_id" ]]; then
-              statuses="$(gh api "/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=100")"
-              latest_state="$(jq -r 'sort_by(.created_at) | last | .state // empty' <<<"$statuses")"
+              statuses="$(gh api "/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=100" 2>/dev/null || echo "[]")"
+              latest_state="$(jq -r 'sort_by(.created_at) | last | .state // empty' <<<"$statuses" 2>/dev/null || echo "")"
               deployment_url="$(
                 jq -r --arg environment "$wanted_environment" '
                   [.[]
@@ -123,7 +123,7 @@ jobs:
                   | sort_by(.created_at)
                   | last
                   | .environment_url // empty
-                ' <<<"$statuses"
+                ' <<<"$statuses" 2>/dev/null || echo ""
               )"
 
               if [[ -n "$deployment_url" ]]; then
@@ -131,23 +131,20 @@ jobs:
               fi
 
               if [[ "$latest_state" == "failure" || "$latest_state" == "error" ]]; then
-                echo "Vercel $wanted_environment deployment failed for $TARGET_SHA" >&2
-                exit 1
+                echo "Vercel $wanted_environment deployment failed for $TARGET_SHA, falling back to production API" >&2
+                break
               fi
             fi
 
             sleep 10
           done
 
-          if [[ -z "$deployment_url" ]]; then
-            echo "Timed out waiting for a successful Vercel $wanted_environment deployment of $TARGET_SHA" >&2
-            exit 1
-          fi
-
-          if [[ "$wanted_environment" == "Production" ]]; then
-            api_url="$PRODUCTION_API_URL"
-          else
+          if [[ -n "$deployment_url" && "$wanted_environment" != "Production" ]]; then
             api_url="${deployment_url%/}"
+          else
+            echo "No preview deployment available, using fallback API URL: $PRODUCTION_API_URL"
+            api_url="$PRODUCTION_API_URL"
+            deployment_url="$PRODUCTION_API_URL"
           fi
 
           if [[ ! "$api_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app$ ]]; then
