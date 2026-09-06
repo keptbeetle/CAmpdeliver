@@ -97,6 +97,38 @@ Integrated locked delivery points during checkout to ensure navigation accuracy 
 
 ---
 
+### ✅ 4. Merged Feature: Universal Expo Web & Android Client (`feature/universal-expo-web-android` → `main`)
+
+The customer and deliverer flows now share one Expo codebase across Android and the web, while Next.js remains the API gateway and administration surface:
+
+- **Shared Product Experience**: Canteen browsing, cart and checkout, quests, order history, wallet, chat, status, and live tracking use the same Expo routes and business logic on both platforms.
+- **Platform-Specific Adapters**: Android uses SecureStore, native location/geofencing, notifications, and MapLibre; web uses browser storage/geolocation and Leaflet.
+- **Automated Journey Coverage**: Playwright exercises the two-user buyer/deliverer flow against the Expo web build.
+- **Build Verification**: CI exports both web and Android bundles. The APK workflow supports `arm64-v8a` and `x86_64`, resolves the matching Vercel deployment, and verifies that the backend URL is embedded in the Android bundle.
+- **Tracking Reliability**: Route requests are geographically bounded and the map follows the active delivery instead of unrelated location updates.
+
+---
+
+### 🚧 5. Current Branch: Android Background Push Notifications (`fix/android-background-push-notifications`)
+
+The active branch implements Firebase-backed Expo push notifications so order updates can reach Android users while the app is backgrounded:
+
+- **Native Notification Setup**: Added Firebase configuration and the `expo-notifications` plugin with background remote notifications enabled.
+- **Device Registration**: The Expo client requests notification permission, obtains an Expo push token, and stores it on the authenticated user's profile through tRPC.
+- **Order Lifecycle Alerts**: New quests are broadcast to registered deliverers; buyers are notified when an order is accepted, on the way, nearby, and delivered; deliverers receive a payout confirmation after OTP handover.
+- **Deep Linking**: Tapping a notification opens the relevant quests, order status, or wallet screen.
+- **Resilient Dispatch**: The API validates tokens, batches requests to the Expo Push API, and keeps push-delivery failures from blocking the underlying order action.
+
+After pulling this branch, apply the new `profiles.push_token` column and regenerate the native Android project before rebuilding:
+
+```bash
+pnpm db:push
+pnpm --filter @acme/expo exec expo prebuild --platform android --clean
+pnpm --filter @acme/expo exec expo run:android
+```
+
+---
+
 ## ⚠️ Known Issue & Technical Note: Phone OTP Verification
 
 > [!WARNING]
