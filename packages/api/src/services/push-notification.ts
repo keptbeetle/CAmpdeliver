@@ -26,8 +26,7 @@ export function isExpoPushToken(token: unknown): token is string {
   return (
     typeof token === "string" &&
     (token.startsWith("ExponentPushToken[") ||
-      token.startsWith("ExpoPushToken[") ||
-      /^[a-zA-Z0-9_-]{32,}$/.test(token))
+      token.startsWith("ExpoPushToken["))
   );
 }
 

@@ -1,4 +1,3 @@
-import type { Session } from "@supabase/supabase-js";
 import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -17,6 +16,7 @@ import { Feather } from "@expo/vector-icons";
 import { useMutation } from "@tanstack/react-query";
 
 import { colors } from "~/components/app/theme";
+import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
@@ -30,8 +30,7 @@ function sanitizePhone(phone: string): string {
 
 export default function AuthScreen() {
   const router = useRouter();
-  const [session, setSession] = useState<Session | null>(null);
-  const [checkingSession, setCheckingSession] = useState(true);
+  const { isLoading: checkingSession, session } = useAuthSession();
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -52,22 +51,8 @@ export default function AuthScreen() {
   );
 
   useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setCheckingSession(false);
-      if (data.session) router.replace("/" as never);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setCheckingSession(false);
-      if (nextSession) router.replace("/" as never);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [router]);
+    if (session) router.replace("/" as never);
+  }, [router, session]);
 
   useEffect(() => {
     if (timer <= 0 || session) return;
@@ -207,7 +192,7 @@ export default function AuthScreen() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  if (checkingSession) {
+  if (checkingSession || session) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color={colors.purple} />

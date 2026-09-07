@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
@@ -23,6 +23,9 @@ export function ShellHeader({
     ...trpc.auth.getMyProfile.queryOptions(),
     retry: false,
   });
+  const { mutateAsync: clearPushToken } = useMutation(
+    trpc.auth.clearPushToken.mutationOptions(),
+  );
 
   const initial = profile?.name[0]?.toUpperCase() ?? "C";
   const isAdmin = profile?.role === "ADMIN";
@@ -33,6 +36,11 @@ export function ShellHeader({
   };
 
   const signOut = async () => {
+    // Do this while the current access token is still valid, otherwise the
+    // next account on this device could receive the previous user's updates.
+    await clearPushToken().catch((error: unknown) =>
+      console.warn("Unable to unregister push notifications:", error),
+    );
     await supabase.auth.signOut();
     setOpen(false);
     router.replace("/auth" as never);

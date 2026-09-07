@@ -30,6 +30,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: "com.campdeliver.app",
     googleServicesFile: "./google-services.json",
+    // Android 13+ requires this runtime permission before remote order updates
+    // can be shown. No background location permission is requested.
+    permissions: ["android.permission.POST_NOTIFICATIONS"],
     adaptiveIcon: {
       foregroundImage: "./assets/icon-light.png",
       backgroundColor: "#1F104A",
@@ -77,11 +80,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-location",
       {
-        locationAlwaysAndWhenInUsePermission:
-          "Allow CAmpDeliver to use your location to check if you are near a canteen.",
         locationWhenInUsePermission:
           "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
-        isAndroidBackgroundLocationEnabled: true,
       },
     ],
     [

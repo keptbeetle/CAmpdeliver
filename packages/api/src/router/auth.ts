@@ -23,7 +23,7 @@ export const authRouter = {
       if (userEmail.endsWith("@campus.edu")) {
         extractedPhone = userEmail.replace("@campus.edu", "");
       }
-      
+
       const [newProfile] = await ctx.db
         .insert(profiles)
         .values({
@@ -56,7 +56,11 @@ export const authRouter = {
     return profile;
   }),
   updatePushToken: protectedProcedure
-    .input(z.object({ pushToken: z.string() }))
+    .input(
+      z.object({
+        pushToken: z.string().regex(/^(?:Expo|Exponent)PushToken\[[^\]]+\]$/),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       await ctx.db
         .update(profiles)
@@ -64,6 +68,13 @@ export const authRouter = {
         .where(eq(profiles.id, ctx.user.id));
       return { success: true };
     }),
+  clearPushToken: protectedProcedure.mutation(async ({ ctx }) => {
+    await ctx.db
+      .update(profiles)
+      .set({ pushToken: null })
+      .where(eq(profiles.id, ctx.user.id));
+    return { success: true };
+  }),
   getSecretMessage: protectedProcedure.query(() => {
     return "you can see this secret message!";
   }),

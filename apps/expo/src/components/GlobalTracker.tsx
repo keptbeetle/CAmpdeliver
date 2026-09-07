@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import type {
@@ -7,8 +7,8 @@ import type {
 } from "~/platform/location.types";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 import { locationService } from "~/platform/location";
+import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
-import { supabase } from "~/utils/auth";
 
 const TRACKED_STATUSES = [
   "ACCEPTED",
@@ -18,21 +18,8 @@ const TRACKED_STATUSES = [
 ] as const;
 
 export function GlobalTracker() {
-  const [hasSession, setHasSession] = useState(false);
-
-  useEffect(() => {
-    void supabase.auth.getSession().then(({ data: { session } }) => {
-      setHasSession(!!session);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSession(!!session);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+  const { session } = useAuthSession();
+  const hasSession = Boolean(session);
 
   const { data: profile } = useQuery({
     ...trpc.auth.getMyProfile.queryOptions(),

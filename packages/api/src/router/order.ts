@@ -3,7 +3,13 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import { and, desc, eq, isNotNull, ne, or, sql } from "@acme/db";
-import { canteens, landmarks, orders, profiles, walletTransactions } from "@acme/db/schema";
+import {
+  canteens,
+  landmarks,
+  orders,
+  profiles,
+  walletTransactions,
+} from "@acme/db/schema";
 
 import { sendExpoPushNotifications } from "../services/push-notification";
 import { protectedProcedure } from "../trpc";
@@ -28,10 +34,12 @@ export const orderRouter = {
   }),
 
   availableQuests: protectedProcedure
-    .input(z.object({
-      latitude: z.number().optional(),
-      longitude: z.number().optional(),
-    }))
+    .input(
+      z.object({
+        latitude: z.number().optional(),
+        longitude: z.number().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const ordersList = await ctx.db
         .select()
@@ -44,10 +52,10 @@ export const orderRouter = {
         )
         .orderBy(desc(orders.createdAt))
         .limit(50);
-        
+
       if (input.latitude === undefined || input.longitude === undefined) {
         // If location is not provided, return nothing or all? The user wants geofencing to hide them if not in area.
-        return []; 
+        return [];
       }
 
       // Fetch all canteens to get their defined radius
@@ -57,7 +65,9 @@ export const orderRouter = {
           radius: true,
         },
       });
-      const canteenRadiusMap = new Map(allCanteens.map(c => [c.id, c.radius]));
+      const canteenRadiusMap = new Map(
+        allCanteens.map((c) => [c.id, c.radius]),
+      );
 
       // Fetch all active landmarks for delivery context
       const allLandmarks = await ctx.db.query.landmarks.findMany({
@@ -80,22 +90,28 @@ export const orderRouter = {
         const deltaPhi = toRad(lat2 - lat1);
         const deltaLambda = toRad(lon2 - lon1);
 
-        const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-                  Math.cos(phi1) * Math.cos(phi2) *
-                  Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+        const a =
+          Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+          Math.cos(phi1) *
+            Math.cos(phi2) *
+            Math.sin(deltaLambda / 2) *
+            Math.sin(deltaLambda / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         const distance = R * c; // in metres
 
         // Get the specific canteen's radius from the DB, fallback to 150m if somehow missing
-        const maxRadius = (order.canteenId ? canteenRadiusMap.get(order.canteenId) : undefined) ?? 150;
+        const maxRadius =
+          (order.canteenId
+            ? canteenRadiusMap.get(order.canteenId)
+            : undefined) ?? 150;
 
         // Return only orders within the specific canteen's radius
         return distance <= maxRadius;
       });
 
       // Add nearestLandmarkName to each order
-      const ordersWithLandmarks = filtered.map(order => {
+      const ordersWithLandmarks = filtered.map((order) => {
         let nearestLandmark = null;
         let minDistance = Infinity;
 
@@ -110,9 +126,12 @@ export const orderRouter = {
           const deltaPhi = toRad(lat2 - lat1);
           const deltaLambda = toRad(lon2 - lon1);
 
-          const a = Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-                    Math.cos(phi1) * Math.cos(phi2) *
-                    Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+          const a =
+            Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
+            Math.cos(phi1) *
+              Math.cos(phi2) *
+              Math.sin(deltaLambda / 2) *
+              Math.sin(deltaLambda / 2);
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
           const distance = R * c; // in metres
@@ -134,7 +153,7 @@ export const orderRouter = {
 
         return {
           ...order,
-          nearestLandmarkName
+          nearestLandmarkName,
         };
       });
 
@@ -149,7 +168,10 @@ export const orderRouter = {
       });
 
       if (!canteen) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Canteen not found" });
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Canteen not found",
+        });
       }
 
       // Calculate total food price
@@ -185,16 +207,13 @@ export const orderRouter = {
       }
 
       // Broadcast remote push notifications to all deliverers with registered tokens
-      void (async () => {
+      await (async () => {
         try {
           const potentialDeliverers = await ctx.db
             .select({ id: profiles.id, pushToken: profiles.pushToken })
             .from(profiles)
             .where(
-              and(
-                ne(profiles.id, ctx.user.id),
-                isNotNull(profiles.pushToken),
-              ),
+              and(ne(profiles.id, ctx.user.id), isNotNull(profiles.pushToken)),
             );
 
           const tokens = potentialDeliverers
@@ -367,7 +386,7 @@ export const orderRouter = {
         }
 
         // Notify buyer that order is being prepared
-        void (async () => {
+        await (async () => {
           try {
             const buyer = await ctx.db.query.profiles.findFirst({
               where: eq(profiles.id, order.buyerId),
@@ -568,9 +587,13 @@ export const orderRouter = {
         where: eq(orders.id, input.orderId),
       });
 
-      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (!order)
+        throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       if (order.delivererId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can update this order" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the assigned deliverer can update this order",
+        });
       }
 
       const [updatedOrder] = await ctx.db
@@ -580,7 +603,7 @@ export const orderRouter = {
         .returning();
 
       // Notify buyer of delivery progress
-      void (async () => {
+      await (async () => {
         try {
           const buyer = await ctx.db.query.profiles.findFirst({
             where: eq(profiles.id, order.buyerId),
@@ -590,7 +613,9 @@ export const orderRouter = {
             await sendExpoPushNotifications([
               {
                 to: buyer.pushToken,
-                title: isNear ? "Deliverer is Near You! 📍" : "Order On The Way! 🚴",
+                title: isNear
+                  ? "Deliverer is Near You! 📍"
+                  : "Order On The Way! 🚴",
                 body: isNear
                   ? "Your deliverer has arrived nearby! Please have your 4-digit OTP ready."
                   : `Your food from ${order.canteenName} is on the way to ${order.deliveryLocationName}.`,
@@ -632,13 +657,20 @@ export const orderRouter = {
         where: eq(orders.id, input.orderId),
       });
 
-      if (!order) throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
+      if (!order)
+        throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       const delivererId = order.delivererId;
       if (delivererId !== ctx.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Only the assigned deliverer can complete this order" });
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only the assigned deliverer can complete this order",
+        });
       }
       if (order.status === "DELIVERED" || order.status === "COMPLETED") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Order is already completed" });
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Order is already completed",
+        });
       }
       if (order.otp !== input.otp) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid OTP" });
@@ -659,35 +691,41 @@ export const orderRouter = {
 
           await tx
             .update(profiles)
-            .set({ frozenBalance: sql`${profiles.frozenBalance} - ${totalCost}` })
+            .set({
+              frozenBalance: sql`${profiles.frozenBalance} - ${totalCost}`,
+            })
             .where(eq(profiles.id, order.buyerId));
 
           // 2. Add admin cut
           const admin = await tx.query.profiles.findFirst({
             where: eq(profiles.role, "ADMIN"),
           });
-          
+
           if (admin) {
-             await tx
+            await tx
               .update(profiles)
-              .set({ walletBalance: sql`${profiles.walletBalance} + ${adminCut}` })
+              .set({
+                walletBalance: sql`${profiles.walletBalance} + ${adminCut}`,
+              })
               .where(eq(profiles.id, admin.id));
-              
-             await tx.insert(walletTransactions).values({
-               userId: admin.id,
-               amount: adminCut,
-               type: "ADMIN_COMMISSION",
-               referenceId: order.id,
-               status: "SUCCESS"
-             });
+
+            await tx.insert(walletTransactions).values({
+              userId: admin.id,
+              amount: adminCut,
+              type: "ADMIN_COMMISSION",
+              referenceId: order.id,
+              status: "SUCCESS",
+            });
           } else {
-             throw new Error("No admin account found to receive commission");
+            throw new Error("No admin account found to receive commission");
           }
 
           // 3. Add deliverer cut
           await tx
             .update(profiles)
-            .set({ walletBalance: sql`${profiles.walletBalance} + ${delivererTotal}` })
+            .set({
+              walletBalance: sql`${profiles.walletBalance} + ${delivererTotal}`,
+            })
             .where(eq(profiles.id, delivererId));
 
           await tx.insert(walletTransactions).values({
@@ -695,7 +733,7 @@ export const orderRouter = {
             amount: delivererTotal,
             type: "DELIVERY_PAYOUT",
             referenceId: order.id,
-            status: "SUCCESS"
+            status: "SUCCESS",
           });
 
           // 4. Update order status
@@ -706,11 +744,15 @@ export const orderRouter = {
         });
 
         // Notify both buyer and deliverer of successful completion
-        void (async () => {
+        await (async () => {
           try {
             const [buyer, deliverer] = await Promise.all([
-              ctx.db.query.profiles.findFirst({ where: eq(profiles.id, order.buyerId) }),
-              ctx.db.query.profiles.findFirst({ where: eq(profiles.id, delivererId) }),
+              ctx.db.query.profiles.findFirst({
+                where: eq(profiles.id, order.buyerId),
+              }),
+              ctx.db.query.profiles.findFirst({
+                where: eq(profiles.id, delivererId),
+              }),
             ]);
             const messages = [];
             if (buyer?.pushToken) {
@@ -718,7 +760,11 @@ export const orderRouter = {
                 to: buyer.pushToken,
                 title: "Order Delivered! 🎉",
                 body: `Your order from ${order.canteenName} has been delivered. Enjoy!`,
-                data: { orderId: order.id, type: "ORDER_DELIVERED", url: `/orders/${order.id}/status` },
+                data: {
+                  orderId: order.id,
+                  type: "ORDER_DELIVERED",
+                  url: `/orders/${order.id}/status`,
+                },
                 sound: "default" as const,
                 priority: "high" as const,
                 channelId: "default",
@@ -729,7 +775,11 @@ export const orderRouter = {
                 to: deliverer.pushToken,
                 title: "Payout Received! 💰",
                 body: `₹${(delivererTotal / 100).toFixed(2)} has been credited to your wallet.`,
-                data: { orderId: order.id, type: "PAYOUT_RECEIVED", url: "/wallet" },
+                data: {
+                  orderId: order.id,
+                  type: "PAYOUT_RECEIVED",
+                  url: "/wallet",
+                },
                 sound: "default" as const,
                 priority: "high" as const,
                 channelId: "default",
@@ -743,8 +793,14 @@ export const orderRouter = {
           }
         })();
       } catch (err) {
-         console.error("Wallet transfer failed", err);
-         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err instanceof Error ? err.message : "Failed to transfer wallet funds" });
+        console.error("Wallet transfer failed", err);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Failed to transfer wallet funds",
+        });
       }
 
       return { success: true };

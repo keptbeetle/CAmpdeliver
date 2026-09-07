@@ -1,36 +1,13 @@
 import type React from "react";
 import { useEffect } from "react";
-import { Platform } from "react-native";
-import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
-import { useRouter } from "expo-router";
 import * as TaskManager from "expo-task-manager";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { queryClient, trpc } from "~/utils/api";
 
 const GEOFENCE_TASK_NAME = "LOCATION_GEOFENCE_TASK";
-
-Notifications.setNotificationHandler({
-  // eslint-disable-next-line @typescript-eslint/require-await
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
-
-if (Platform.OS === "android") {
-  void Notifications.setNotificationChannelAsync("default", {
-    name: "default",
-    importance: Notifications.AndroidImportance.MAX,
-    vibrationPattern: [0, 250, 250, 250],
-    lightColor: "#FF231F7C",
-  });
-}
 
 const getDistance = (
   lat1: number,
@@ -111,32 +88,7 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
 });
 
 export function GeofenceManager({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
   const { data: canteens } = useQuery(trpc.canteen.listActive.queryOptions());
-  const updatePushTokenMutation = useMutation(
-    trpc.auth.updatePushToken.mutationOptions(),
-  );
-
-  // Handle notification tap interactions
-  useEffect(() => {
-    const subscription =
-      Notifications.addNotificationResponseReceivedListener((response) => {
-        const data = response.notification.request.content.data as
-          | { url?: string; orderId?: string }
-          | undefined;
-        if (data?.url) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          router.push(data.url as any);
-        } else if (data?.orderId) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          router.push(`/orders/${data.orderId}/status` as any);
-        }
-      });
-
-    return () => {
-      subscription.remove();
-    };
-  }, [router]);
 
   useEffect(() => {
     const setupGeofencing = async () => {
@@ -160,42 +112,6 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
           );
           return;
         }
-
-        const { status: notifStatus } =
-          await Notifications.requestPermissionsAsync();
-        if (notifStatus !== Notifications.PermissionStatus.GRANTED) {
-          console.log("[GeofenceManager] Notifications permission denied");
-          return;
-        }
-
-        // Register push token in background without blocking
-        void (async () => {
-          try {
-            const extra = Constants.expoConfig?.extra as
-              | { eas?: { projectId?: string } }
-              | undefined;
-            const projectId =
-              extra?.eas?.projectId ??
-              "b658b0d5-1c62-4f07-8329-38563db9dfa3";
-            const tokenData = await Notifications.getExpoPushTokenAsync({
-              projectId,
-            });
-            if (tokenData.data) {
-              await updatePushTokenMutation.mutateAsync({
-                pushToken: tokenData.data,
-              });
-              console.log(
-                "[GeofenceManager] Push token synced:",
-                tokenData.data,
-              );
-            }
-          } catch (err) {
-            console.log(
-              "[GeofenceManager] Push token registration skipped:",
-              err,
-            );
-          }
-        })();
 
         const isRegistered =
           await TaskManager.isTaskRegisteredAsync(GEOFENCE_TASK_NAME);
@@ -259,4 +175,3 @@ export function GeofenceManager({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
-

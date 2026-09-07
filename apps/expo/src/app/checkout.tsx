@@ -55,7 +55,7 @@ export default function CheckoutScreen() {
         await queryClient.invalidateQueries({
           queryKey: trpc.order.myOrders.queryKey(),
         });
-        if (order?.id) {
+        if (order.id) {
           router.replace(`/orders/${order.id}/status` as never);
         } else {
           router.replace("/orders" as never);

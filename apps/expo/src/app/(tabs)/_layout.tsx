@@ -1,31 +1,12 @@
-import type { Session } from "@supabase/supabase-js";
-import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Redirect, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 
 import { colors } from "~/components/app/theme";
-import { supabase } from "~/utils/auth";
+import { useAuthSession } from "~/providers/AuthSessionProvider";
 
 export default function TabsLayout() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
+  const { isLoading: loading, session } = useAuthSession();
 
   if (loading) {
     return (
