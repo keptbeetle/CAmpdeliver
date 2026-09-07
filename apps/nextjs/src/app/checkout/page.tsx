@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -39,28 +39,49 @@ function haversineDistance(
 export default function CheckoutPage() {
   const router = useRouter();
   const trpc = useTRPC();
-  const { items, canteenId, canteenName, removeItem, updateQuantity, clearCart, totalPrice } =
-    useCart();
+  const {
+    items,
+    canteenId,
+    canteenName,
+    removeItem,
+    updateQuantity,
+    clearCart,
+    totalPrice,
+  } = useCart();
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
 
   // Auto-detected location state
-  const [userCoords, setUserCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<"loading" | "success" | "error">("loading");
+  const [userCoords, setUserCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+  const [locationStatus, setLocationStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
   const [locationError, setLocationError] = useState<string | null>(null);
-  const [resolvedLocationName, setResolvedLocationName] = useState<string>("Detecting location…");
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Auto-fetch GPS on mount
-  useEffect(() => {
+  const captureLocation = useCallback(() => {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
       setLocationStatus("error");
       setLocationError("Geolocation is not supported by your browser.");
       return;
     }
 
+    // Browsers only expose geolocation on HTTPS (localhost is also allowed).
+    // Reporting this up front avoids a misleading generic GPS failure.
+    if (!window.isSecureContext) {
+      setLocationStatus("error");
+      setLocationError(
+        "Location is available only on a secure (HTTPS) connection.",
+      );
+      return;
+    }
+
     setLocationStatus("loading");
+    setLocationError(null);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         setUserCoords({
@@ -73,42 +94,51 @@ export default function CheckoutPage() {
         setLocationStatus("error");
         setLocationError(
           err.code === err.PERMISSION_DENIED
-            ? "Location permission denied. Please enable location access."
-            : "Could not detect your location. Please try again.",
+            ? "Location permission was denied. Allow it in your browser, then try again."
+            : err.code === err.TIMEOUT
+              ? "Location took too long. Check that location services are on, then try again."
+              : "Could not detect your location. Check location services, then try again.",
         );
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 },
     );
   }, []);
 
-  // Resolve nearest landmark when GPS + landmarks are ready
-  useEffect(() => {
-    if (!userCoords || !landmarks || landmarks.length === 0) return;
+  const resolvedLocationName = useMemo(() => {
+    if (!userCoords || !landmarks || landmarks.length === 0) {
+      return "Current Location";
+    }
 
     let nearest: { name: string; distance: number } | null = null;
-    for (const lm of landmarks as { id: string; name: string; latitude: number; longitude: number; radius: number }[]) {
-      const dist = haversineDistance(userCoords.lat, userCoords.lng, lm.latitude, lm.longitude);
+    for (const lm of landmarks as {
+      id: string;
+      name: string;
+      latitude: number;
+      longitude: number;
+      radius: number;
+    }[]) {
+      const dist = haversineDistance(
+        userCoords.lat,
+        userCoords.lng,
+        lm.latitude,
+        lm.longitude,
+      );
       if (!nearest || dist < nearest.distance) {
         nearest = { name: lm.name, distance: dist };
       }
     }
 
     if (nearest) {
-      if (nearest.distance <= 100) {
-        setResolvedLocationName(nearest.name);
-      } else {
-        setResolvedLocationName(`Near ${nearest.name}`);
-      }
-    } else {
-      setResolvedLocationName("Current Location");
+      return nearest.distance <= 100 ? nearest.name : `Near ${nearest.name}`;
     }
+    return "Current Location";
   }, [userCoords, landmarks]);
 
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions({
       onSuccess: (newOrder) => {
         clearCart();
-        if (newOrder?.id) {
+        if (newOrder.id) {
           router.push(`/orders/${newOrder.id}/status`);
         }
       },
@@ -121,7 +151,7 @@ export default function CheckoutPage() {
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center px-4 py-16 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-zinc-900 border border-zinc-800 text-zinc-500 mb-4">
+        <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-3xl border border-zinc-800 bg-zinc-900 text-zinc-500">
           <ShoppingBag className="h-8 w-8" />
         </div>
         <h2 className="text-xl font-black text-white">Your Cart is Empty</h2>
@@ -150,7 +180,9 @@ export default function CheckoutPage() {
     }
 
     if (!userCoords) {
-      setErrorMsg("Could not detect your location. Please enable location services and reload.");
+      setErrorMsg(
+        "Could not detect your location. Please enable location services and reload.",
+      );
       return;
     }
 
@@ -198,10 +230,13 @@ export default function CheckoutPage() {
 
         <div className="flex flex-col gap-3 divide-y divide-zinc-800/40">
           {items.map((item) => (
-            <div key={item.id} className="flex items-center justify-between pt-2">
+            <div
+              key={item.id}
+              className="flex items-center justify-between pt-2"
+            >
               <div className="flex-1">
                 <p className="text-sm font-bold text-white">{item.name}</p>
-                <p className="text-xs text-purple-400 font-semibold">
+                <p className="text-xs font-semibold text-purple-400">
                   ₹{(item.price / 100).toFixed(0)} × {item.quantity} = ₹
                   {((item.price * item.quantity) / 100).toFixed(0)}
                 </p>
@@ -242,8 +277,12 @@ export default function CheckoutPage() {
             <>
               <Loader2 className="h-5 w-5 animate-spin text-purple-400" />
               <div>
-                <p className="text-sm font-semibold text-zinc-300">Detecting your location…</p>
-                <p className="text-xs text-zinc-500">Please allow location access if prompted</p>
+                <p className="text-sm font-semibold text-zinc-300">
+                  Detecting your location…
+                </p>
+                <p className="text-xs text-zinc-500">
+                  Please allow location access if prompted
+                </p>
               </div>
             </>
           )}
@@ -253,9 +292,12 @@ export default function CheckoutPage() {
                 <MapPin className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-bold text-white">{resolvedLocationName}</p>
+                <p className="text-sm font-bold text-white">
+                  {resolvedLocationName}
+                </p>
                 <p className="text-xs text-zinc-500">
-                  GPS: {userCoords?.lat.toFixed(5)}, {userCoords?.lng.toFixed(5)}
+                  GPS: {userCoords?.lat.toFixed(5)},{" "}
+                  {userCoords?.lng.toFixed(5)}
                 </p>
               </div>
             </>
@@ -266,12 +308,40 @@ export default function CheckoutPage() {
                 <MapPin className="h-5 w-5" />
               </div>
               <div>
-                <p className="text-sm font-bold text-red-300">Location unavailable</p>
+                <p className="text-sm font-bold text-red-300">
+                  Location unavailable
+                </p>
                 <p className="text-xs text-zinc-500">{locationError}</p>
               </div>
             </>
           )}
+          {locationStatus === "idle" && (
+            <>
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-purple-950/80 text-purple-300">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-zinc-200">
+                  Use your current location
+                </p>
+                <p className="text-xs text-zinc-500">
+                  Only used to create this delivery order
+                </p>
+              </div>
+            </>
+          )}
         </div>
+        {locationStatus !== "success" && locationStatus !== "loading" && (
+          <button
+            type="button"
+            onClick={captureLocation}
+            className="self-start rounded-xl border border-purple-500/50 px-3 py-2 text-xs font-bold text-purple-300 transition-colors hover:bg-purple-500/10"
+          >
+            {locationStatus === "error"
+              ? "Try location again"
+              : "Use my location"}
+          </button>
+        )}
       </div>
 
       {/* Bill Summary Card */}
@@ -324,4 +394,3 @@ export default function CheckoutPage() {
     </div>
   );
 }
-

@@ -85,6 +85,7 @@ test("buyer and deliverer complete a tracked delivery", async ({
       .click();
     await buyer.page.getByRole("button", { name: "ADD" }).click();
     await buyer.page.getByRole("link", { name: "Checkout" }).click();
+    await buyer.page.getByRole("button", { name: "Use my location" }).click();
     await expect(buyer.page.getByText(/GPS:/)).toBeVisible();
     await setDemoStep(
       buyer.page,
