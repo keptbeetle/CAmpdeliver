@@ -1,10 +1,7 @@
 import { useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,57 +13,87 @@ import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { ShellHeader } from "~/components/app/ShellHeader";
-import { colors, formatCurrency } from "~/components/app/theme";
+import { colors, formatCurrency, radius, shadow } from "~/components/app/theme";
+import {
+  AppButton,
+  InlineNotice,
+  MotionView,
+  SkeletonBlock,
+} from "~/components/app/ui";
 import { trpc } from "~/utils/api";
 
 export default function WalletTab() {
   const queryClient = useQueryClient();
   const [amount, setAmount] = useState("");
   const [utr, setUtr] = useState("");
+  const [feedback, setFeedback] = useState<{
+    tone: "success" | "warning";
+    title: string;
+    copy: string;
+  } | null>(null);
 
-  const { data: profile, isLoading } = useQuery(
-    trpc.auth.getMyProfile.queryOptions(),
-  );
+  const {
+    data: profile,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery(trpc.auth.getMyProfile.queryOptions());
 
-  const topUpMutation = useMutation(
-    trpc.wallet.topUp.mutationOptions({
-      onSuccess: () => {
-        setAmount("");
-        setUtr("");
-        void queryClient.invalidateQueries({
-          queryKey: trpc.auth.getMyProfile.queryKey(),
-        });
-        Alert.alert("Success", "Wallet topped up successfully!");
-      },
-      onError: (err) => {
-        Alert.alert("Top-Up Failed", err.message || "Failed to top up wallet.");
-      },
-    }),
-  );
+  const topUpMutation = useMutation(trpc.wallet.topUp.mutationOptions());
 
-  const handleTopUp = () => {
-    const amountNum = parseFloat(amount);
-    if (isNaN(amountNum) || amountNum <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount.");
+  const handleTopUp = async () => {
+    setFeedback(null);
+    const amountNumber = Number.parseFloat(amount);
+    if (Number.isNaN(amountNumber) || amountNumber <= 0) {
+      setFeedback({
+        tone: "warning",
+        title: "Enter a valid amount",
+        copy: "Use a positive amount in rupees.",
+      });
       return;
     }
     if (utr.trim().length < 5) {
-      Alert.alert(
-        "Invalid UTR",
-        "Please enter a valid UTR number (min 5 chars).",
-      );
+      setFeedback({
+        tone: "warning",
+        title: "Reference is too short",
+        copy: "Enter at least 5 characters for the test UTR reference.",
+      });
       return;
     }
 
-    // Convert to paise
-    const amountInPaise = Math.round(amountNum * 100);
-    topUpMutation.mutate({ amount: amountInPaise, utrNumber: utr.trim() });
+    try {
+      await topUpMutation.mutateAsync({
+        amount: Math.round(amountNumber * 100),
+        utrNumber: utr.trim(),
+      });
+      setAmount("");
+      setUtr("");
+      await queryClient.invalidateQueries({
+        queryKey: trpc.auth.getMyProfile.queryKey(),
+      });
+      setFeedback({
+        tone: "success",
+        title: "Test balance updated",
+        copy: "The demo top-up was accepted by the current backend.",
+      });
+    } catch (error) {
+      setFeedback({
+        tone: "warning",
+        title: "Top-up was not applied",
+        copy:
+          error instanceof Error
+            ? error.message
+            : "Check the reference and try again.",
+      });
+    }
   };
+
+  const walletBalance = profile?.walletBalance ?? 0;
+  const frozenBalance = profile?.frozenBalance ?? 0;
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
-      <ShellHeader title="My Wallet" subtitle="Manage your campus funds" />
-
+      <ShellHeader title="Wallet" subtitle="Campus balance and order holds" />
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
@@ -76,70 +103,142 @@ export default function WalletTab() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Digital Wallet Card */}
-          <View style={styles.walletCard}>
-            <View style={styles.walletHeader}>
-              <View>
-                <Text style={styles.walletTitle}>Current Balance</Text>
-                <Text style={styles.walletSubtitle}>Campus Digital Wallet</Text>
+          {isLoading ? (
+            <View style={styles.walletSkeleton}>
+              <SkeletonBlock height={18} width="38%" />
+              <SkeletonBlock height={38} width="58%" />
+              <SkeletonBlock height={54} />
+            </View>
+          ) : isError ? (
+            <View style={styles.errorCard}>
+              <InlineNotice
+                tone="warning"
+                icon="wifi-off"
+                title="Wallet could not be loaded"
+                copy="Your balance has not been changed. Retry when your connection is available."
+              />
+              <AppButton
+                label="Retry"
+                tone="secondary"
+                onPress={() => void refetch()}
+              />
+            </View>
+          ) : (
+            <MotionView style={styles.walletCard}>
+              <View style={styles.walletHeader}>
+                <View>
+                  <Text style={styles.walletEyebrow}>Current Balance</Text>
+                  <Text style={styles.walletBalanceText}>
+                    {formatCurrency(walletBalance)}
+                  </Text>
+                </View>
+                <View style={styles.walletIcon}>
+                  <Feather
+                    name="credit-card"
+                    size={21}
+                    color={colors.primary}
+                  />
+                </View>
               </View>
-              <Feather
-                name="credit-card"
-                size={28}
-                color="rgba(255,255,255,0.4)"
-              />
-            </View>
-            <View style={styles.walletBalanceWrap}>
-              {isLoading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.walletBalanceText}>
-                  {formatCurrency(profile?.walletBalance ?? 0)}
+
+              <View style={styles.balanceGrid}>
+                <BalanceItem
+                  icon="check-circle"
+                  label="Spendable"
+                  value={formatCurrency(walletBalance)}
+                />
+                <BalanceItem
+                  icon="lock"
+                  label="Held for orders"
+                  value={formatCurrency(frozenBalance)}
+                />
+              </View>
+            </MotionView>
+          )}
+
+          <InlineNotice
+            tone="warning"
+            icon="tool"
+            title="Test wallet only"
+            copy="This build does not verify UPI/UTR payments with a payment provider. A submitted unique reference can credit this demo wallet immediately, so do not use it for real money."
+          />
+
+          <MotionView style={styles.formCard}>
+            <View style={styles.formHeader}>
+              <View style={styles.formIcon}>
+                <Feather name="plus" size={17} color={colors.primary} />
+              </View>
+              <View style={styles.formCopy}>
+                <Text style={styles.formTitle}>Add test balance</Text>
+                <Text style={styles.formSubtitle}>
+                  Use this only to exercise the order flow in
+                  development/testing.
                 </Text>
-              )}
-            </View>
-          </View>
-
-          {/* Top-up Form */}
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Top Up Wallet</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Amount (INR)</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="e.g. 100"
-                placeholderTextColor={colors.muted}
-                keyboardType="numeric"
-                value={amount}
-                onChangeText={setAmount}
-              />
+              </View>
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>UTR Number</Text>
+              <Text style={styles.inputLabel}>Amount in rupees</Text>
+              <View style={styles.moneyInputWrap}>
+                <Text style={styles.currencyPrefix}>₹</Text>
+                <TextInput
+                  style={styles.moneyInput}
+                  placeholder="e.g. 100"
+                  placeholderTextColor={colors.faint}
+                  keyboardType="decimal-pad"
+                  value={amount}
+                  onChangeText={(value) =>
+                    setAmount(value.replace(/[^0-9.]/g, ""))
+                  }
+                  editable={!topUpMutation.isPending}
+                />
+              </View>
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>Test UTR / reference</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Enter mock UTR"
-                placeholderTextColor={colors.muted}
+                placeholderTextColor={colors.faint}
                 value={utr}
+                autoCapitalize="characters"
                 onChangeText={setUtr}
+                editable={!topUpMutation.isPending}
               />
             </View>
 
-            <Pressable
-              onPress={handleTopUp}
-              disabled={topUpMutation.isPending}
-              style={({ pressed }) => [
-                styles.submitButton,
-                pressed && styles.pressed,
-                topUpMutation.isPending && styles.disabled,
-              ]}
-            >
-              <Text style={styles.submitText}>
-                {topUpMutation.isPending ? "Processing..." : "Submit Top Up"}
-              </Text>
-            </Pressable>
+            {feedback ? (
+              <InlineNotice
+                tone={feedback.tone}
+                icon={
+                  feedback.tone === "success" ? "check-circle" : "alert-circle"
+                }
+                title={feedback.title}
+                copy={feedback.copy}
+              />
+            ) : null}
+
+            <AppButton
+              label="Submit Top Up"
+              icon="plus"
+              loading={topUpMutation.isPending}
+              onPress={() => void handleTopUp()}
+            />
+          </MotionView>
+
+          <View style={styles.infoCard}>
+            <View style={styles.infoRow}>
+              <Feather name="shield" size={17} color={colors.primary} />
+              <View style={styles.infoCopy}>
+                <Text style={styles.infoTitle}>Order holds</Text>
+                <Text style={styles.infoText}>
+                  When a rider confirms item availability, the current order
+                  total moves from available balance into the held balance until
+                  delivery settles.
+                </Text>
+              </View>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -147,104 +246,215 @@ export default function WalletTab() {
   );
 }
 
+function BalanceItem({
+  icon,
+  label,
+  value,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.balanceItem}>
+      <Feather name={icon} size={15} color={colors.primary} />
+      <View style={styles.balanceCopy}>
+        <Text style={styles.balanceLabel}>{label}</Text>
+        <Text style={styles.balanceValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  disabled: {
-    opacity: 0.6,
+  balanceCopy: {
+    flex: 1,
+  },
+  balanceGrid: {
+    flexDirection: "row",
+    gap: 9,
+    marginTop: 22,
+  },
+  balanceItem: {
+    alignItems: "center",
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: "row",
+    gap: 8,
+    padding: 11,
+  },
+  balanceLabel: {
+    color: colors.faint,
+    fontSize: 9,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  balanceValue: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  currencyPrefix: {
+    color: colors.primaryStrong,
+    fontSize: 18,
+    fontWeight: "900",
+    paddingLeft: 13,
+  },
+  errorCard: {
+    gap: 12,
   },
   formCard: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 20,
+    borderRadius: radius.xl,
     borderWidth: 1,
     gap: 16,
-    padding: 20,
+    padding: 18,
+    ...shadow,
+  },
+  formCopy: {
+    flex: 1,
+  },
+  formHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 11,
+  },
+  formIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    height: 40,
+    justifyContent: "center",
+    width: 40,
+  },
+  formSubtitle: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
   },
   formTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 16,
+    fontWeight: "900",
+  },
+  infoCard: {
+    backgroundColor: colors.primarySoft,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: 14,
+  },
+  infoCopy: {
+    flex: 1,
+  },
+  infoRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+  },
+  infoText: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  infoTitle: {
+    color: colors.primaryStrong,
+    fontSize: 12,
     fontWeight: "900",
   },
   input: {
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderColor: "rgba(255,255,255,0.1)",
-    borderRadius: 12,
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
     color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    fontSize: 14,
+    minHeight: 50,
+    paddingHorizontal: 14,
   },
   inputGroup: {
-    gap: 6,
+    gap: 7,
   },
   inputLabel: {
     color: colors.muted,
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "800",
   },
   keyboardView: {
     flex: 1,
   },
-  pressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
+  moneyInput: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 16,
+    minHeight: 50,
+    paddingHorizontal: 8,
+  },
+  moneyInputWrap: {
+    alignItems: "center",
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: "row",
   },
   root: {
     backgroundColor: colors.bg,
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 150,
+    gap: 14,
+    paddingBottom: 108,
     paddingHorizontal: 18,
-    paddingTop: 24,
-  },
-  submitButton: {
-    alignItems: "center",
-    backgroundColor: colors.purple,
-    borderRadius: 14,
-    justifyContent: "center",
-    marginTop: 8,
-    paddingVertical: 16,
-  },
-  submitText: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: "800",
+    paddingTop: 18,
   },
   walletBalanceText: {
     color: colors.text,
     fontSize: 34,
     fontWeight: "900",
     letterSpacing: -1,
-  },
-  walletBalanceWrap: {
-    alignItems: "flex-start",
-    marginTop: 24,
-    minHeight: 40,
+    marginTop: 4,
   },
   walletCard: {
-    backgroundColor: "#1e1b4b", // deep purple background
-    borderColor: "#4c1d95",
-    borderRadius: 24,
+    backgroundColor: colors.panel,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.xl,
     borderWidth: 1,
-    marginBottom: 24,
-    padding: 24,
+    padding: 18,
+    ...shadow,
+  },
+  walletEyebrow: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.9,
   },
   walletHeader: {
     alignItems: "flex-start",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  walletSubtitle: {
-    color: "#a78bfa",
-    fontSize: 13,
-    marginTop: 4,
+  walletIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
   },
-  walletTitle: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
+  walletSkeleton: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    gap: 12,
+    padding: 18,
   },
 });

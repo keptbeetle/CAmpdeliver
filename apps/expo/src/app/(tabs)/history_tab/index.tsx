@@ -1,6 +1,5 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -8,10 +7,7 @@ import {
   Text,
   View,
 } from "react-native";
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,89 +16,233 @@ import type { RouterOutputs } from "~/utils/api";
 import { ActiveOrderBar } from "~/components/app/ActiveOrderBar";
 import { ShellHeader } from "~/components/app/ShellHeader";
 import {
+  ACTIVE_ORDER_STATUSES,
   colors,
   formatCurrency,
+  radius,
+  shadow,
   shortId,
-  statusLabels,
 } from "~/components/app/theme";
+import {
+  EmptyState,
+  MotionView,
+  SkeletonBlock,
+  StatusBadge,
+} from "~/components/app/ui";
 import { trpc } from "~/utils/api";
 
 type Order = RouterOutputs["order"]["myOrders"][number];
+type Filter = "active" | "past" | "all";
 
 export default function OrdersTab() {
   const router = useRouter();
-  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
-  const { data: orders, isLoading } = useQuery({
+  const {
+    data: orders,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     ...trpc.order.myOrders.queryOptions(),
     refetchInterval: 5000,
   });
 
+  const filteredOrders = useMemo(() => {
+    const source = orders ?? [];
+    if (filter === "all") return source;
+    const active = (order: Order) =>
+      ACTIVE_ORDER_STATUSES.includes(order.status);
+    return source.filter((order) =>
+      filter === "active" ? active(order) : !active(order),
+    );
+  }, [filter, orders]);
+
+  const activeCount = useMemo(
+    () =>
+      (orders ?? []).filter((order) =>
+        ACTIVE_ORDER_STATUSES.includes(order.status),
+      ).length,
+    [orders],
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await queryClient.invalidateQueries({
-      queryKey: trpc.order.myOrders.queryKey(),
-    });
-    setRefreshing(false);
+    try {
+      await queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      });
+    } finally {
+      setRefreshing(false);
+    }
   }, [queryClient]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
-      <ShellHeader
-        title="My Orders"
-        subtitle="Track current and past deliveries"
-      />
+      <ShellHeader title="Orders" subtitle="Current and past deliveries" />
       <FlatList
-        data={orders ?? []}
+        data={filteredOrders}
         keyExtractor={(item) => item.id}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={colors.purple}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
+        }
+        ListHeaderComponent={
+          <>
+            <MotionView style={styles.summaryCard}>
+              <View style={styles.summaryIcon}>
+                <Feather name="package" size={21} color={colors.primary} />
+              </View>
+              <View style={styles.summaryCopy}>
+                <Text style={styles.summaryEyebrow}>DELIVERY ACTIVITY</Text>
+                <Text style={styles.summaryTitle}>
+                  {activeCount > 0
+                    ? `${activeCount} active ${activeCount === 1 ? "order" : "orders"}`
+                    : "No active deliveries"}
+                </Text>
+                <Text style={styles.summarySubtitle}>
+                  Orders you place and quests you accept are kept together here.
+                </Text>
+              </View>
+            </MotionView>
+
+            <View style={styles.filterRow}>
+              <FilterChip
+                label="Active"
+                count={activeCount}
+                selected={filter === "active"}
+                onPress={() => setFilter("active")}
+              />
+              <FilterChip
+                label="Past"
+                selected={filter === "past"}
+                onPress={() => setFilter("past")}
+              />
+              <FilterChip
+                label="All"
+                selected={filter === "all"}
+                onPress={() => setFilter("all")}
+              />
+            </View>
+          </>
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            {isLoading ? (
-              <>
-                <ActivityIndicator color={colors.purple} />
-                <Text style={styles.emptyTitle}>Loading orders</Text>
-              </>
-            ) : (
-              <>
-                <Feather name="shopping-bag" size={34} color={colors.faint} />
-                <Text style={styles.emptyTitle}>No orders yet</Text>
-                <Text style={styles.emptyCopy}>
-                  Orders you place or accept will appear here.
-                </Text>
-                <Pressable
-                  onPress={() => router.push("/" as never)}
-                  style={styles.homeButton}
-                >
-                  <Text style={styles.homeText}>Order Food</Text>
-                </Pressable>
-              </>
-            )}
-          </View>
+          isLoading ? (
+            <OrdersSkeleton />
+          ) : isError ? (
+            <EmptyState
+              icon="wifi-off"
+              title="Orders could not be loaded"
+              copy="Check your connection and retry."
+              actionLabel="Retry"
+              onAction={() => void refetch()}
+            />
+          ) : filter === "active" ? (
+            <EmptyState
+              icon="check-circle"
+              title="Nothing active right now"
+              copy="Place an order or accept a nearby quest when you are ready."
+              actionLabel="Browse canteens"
+              onAction={() => router.push("/" as never)}
+            />
+          ) : filter === "past" ? (
+            <EmptyState
+              icon="clock"
+              title="No past orders yet"
+              copy="Completed and cancelled deliveries will appear here."
+            />
+          ) : (
+            <EmptyState
+              icon="package"
+              title="No orders yet"
+              copy="Your first order or accepted quest will appear here."
+              actionLabel="Browse canteens"
+              onAction={() => router.push("/" as never)}
+            />
+          )
         }
-        renderItem={({ item }) => (
-          <OrderCard
-            order={item}
-            isBuyer={item.buyerId === profile?.id}
-            onPress={() => router.push(`/orders/${item.id}/status` as never)}
-          />
+        renderItem={({ item, index }) => (
+          <MotionView delay={Math.min(index * 40, 200)}>
+            <OrderCard
+              order={item}
+              isBuyer={item.buyerId === profile?.id}
+              onPress={() => router.push(`/orders/${item.id}/status` as never)}
+            />
+          </MotionView>
         )}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: Math.max(170, insets.bottom + 152) },
-        ]}
+        contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
       <ActiveOrderBar />
     </SafeAreaView>
+  );
+}
+
+function FilterChip({
+  label,
+  count,
+  selected,
+  onPress,
+}: {
+  label: string;
+  count?: number;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.filterChip,
+        selected && styles.filterChipSelected,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.filterText, selected && styles.filterTextSelected]}>
+        {label}
+      </Text>
+      {count !== undefined ? (
+        <View
+          style={[styles.filterCount, selected && styles.filterCountSelected]}
+        >
+          <Text
+            style={[
+              styles.filterCountText,
+              selected && styles.filterCountTextSelected,
+            ]}
+          >
+            {count}
+          </Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function OrdersSkeleton() {
+  return (
+    <View style={styles.skeletonList}>
+      {[0, 1, 2].map((value) => (
+        <View key={value} style={styles.skeletonCard}>
+          <View style={styles.skeletonTop}>
+            <SkeletonBlock height={42} width={42} />
+            <View style={styles.skeletonCopy}>
+              <SkeletonBlock height={15} width="58%" />
+              <SkeletonBlock height={11} width="76%" />
+            </View>
+          </View>
+          <SkeletonBlock height={11} width="44%" />
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -118,12 +258,18 @@ function OrderCard({
   const total = order.foodPrice + order.deliveryFee;
   return (
     <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open order ${shortId(order.id)}`}
       onPress={onPress}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.cardTop}>
         <View style={styles.orderIcon}>
-          <Feather name="package" size={18} color="#c4b5fd" />
+          <Feather
+            name={isBuyer ? "shopping-bag" : "navigation"}
+            size={18}
+            color={colors.primary}
+          />
         </View>
         <View style={styles.cardCopy}>
           <View style={styles.titleRow}>
@@ -136,30 +282,26 @@ function OrderCard({
               </Text>
             </View>
           </View>
-          <Text numberOfLines={1} style={styles.locationText}>
-            To: {order.deliveryLocationName}
+          <Text numberOfLines={2} style={styles.locationText}>
+            {order.deliveryLocationName}
           </Text>
         </View>
-        <View style={styles.amountBox}>
-          <Text style={styles.amountText}>{formatCurrency(total)}</Text>
-          <Text style={styles.statusPill}>
-            {statusLabels[order.status] ?? order.status}
-          </Text>
-        </View>
+        <Feather name="chevron-right" size={19} color={colors.faint} />
       </View>
+
       <View style={styles.cardBottom}>
-        <View style={styles.dateRow}>
-          <Feather name="clock" size={13} color={colors.faint} />
-          <Text style={styles.dateText}>
-            {new Date(order.createdAt).toLocaleDateString()}
-          </Text>
-        </View>
-        <View style={styles.viewRow}>
-          <Text style={styles.viewText}>View Details</Text>
-          <Feather name="chevron-right" size={15} color="#c4b5fd" />
+        <StatusBadge status={order.status} />
+        <View style={styles.amountBox}>
+          <Text style={styles.amountLabel}>Order value</Text>
+          <Text style={styles.amountText}>{formatCurrency(total)}</Text>
         </View>
       </View>
-      <Text style={styles.orderId}>#{shortId(order.id)}</Text>
+      <View style={styles.metaFooter}>
+        <Text style={styles.orderId}>#{shortId(order.id)}</Text>
+        <Text style={styles.dateText}>
+          {new Date(order.createdAt).toLocaleDateString()}
+        </Text>
+      </View>
     </Pressable>
   );
 }
@@ -167,26 +309,33 @@ function OrderCard({
 const styles = StyleSheet.create({
   amountBox: {
     alignItems: "flex-end",
-    maxWidth: 112,
+  },
+  amountLabel: {
+    color: colors.faint,
+    fontSize: 9,
+    fontWeight: "800",
+    textTransform: "uppercase",
   },
   amountText: {
     color: colors.text,
     fontSize: 13,
     fontWeight: "900",
+    marginTop: 2,
   },
   card: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 20,
+    borderRadius: radius.lg,
     borderWidth: 1,
     gap: 12,
-    marginBottom: 14,
+    marginBottom: 12,
     padding: 14,
+    ...shadow,
   },
   cardBottom: {
     alignItems: "center",
     borderTopColor: colors.border,
-    borderTopWidth: 1,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     justifyContent: "space-between",
     paddingTop: 11,
@@ -201,127 +350,173 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   cardTop: {
-    alignItems: "flex-start",
+    alignItems: "center",
     flexDirection: "row",
     gap: 11,
   },
-  dateRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 5,
-  },
   dateText: {
     color: colors.faint,
-    fontSize: 12,
+    fontSize: 10,
   },
-  empty: {
+  filterChip: {
     alignItems: "center",
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    minHeight: 220,
-    justifyContent: "center",
-    padding: 24,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
   },
-  emptyCopy: {
-    color: colors.faint,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-    textAlign: "center",
+  filterChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  emptyTitle: {
+  filterCount: {
+    alignItems: "center",
+    backgroundColor: colors.panelStrong,
+    borderRadius: radius.pill,
+    minWidth: 20,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  filterCountSelected: {
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  filterCountText: {
     color: colors.muted,
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: 10,
-    textAlign: "center",
-  },
-  homeButton: {
-    backgroundColor: colors.purple,
-    borderRadius: 14,
-    marginTop: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-  },
-  homeText: {
-    color: colors.text,
-    fontSize: 13,
+    fontSize: 9,
     fontWeight: "900",
   },
+  filterCountTextSelected: {
+    color: colors.white,
+  },
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    paddingBottom: 14,
+    paddingTop: 16,
+  },
+  filterText: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  filterTextSelected: {
+    color: colors.white,
+  },
   listContent: {
+    paddingBottom: 108,
     paddingHorizontal: 18,
     paddingTop: 16,
   },
   locationText: {
     color: colors.muted,
-    fontSize: 12,
-    marginTop: 5,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+  metaFooter: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   orderIcon: {
     alignItems: "center",
-    backgroundColor: colors.purpleDark,
-    borderColor: "#6d28d9",
-    borderRadius: 15,
-    borderWidth: 1,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
     height: 42,
     justifyContent: "center",
     width: 42,
   },
   orderId: {
     color: colors.faint,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
   },
   pressed: {
-    opacity: 0.74,
+    opacity: 0.78,
     transform: [{ scale: 0.99 }],
   },
   rolePill: {
-    backgroundColor: "#22163b",
-    borderColor: "#4a2a78",
-    borderRadius: 999,
-    borderWidth: 1,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.pill,
     paddingHorizontal: 7,
     paddingVertical: 3,
   },
   roleText: {
-    color: "#ddd6fe",
-    fontSize: 10,
+    color: colors.accent,
+    fontSize: 9,
     fontWeight: "900",
   },
   root: {
     backgroundColor: colors.bg,
     flex: 1,
   },
-  statusPill: {
-    backgroundColor: colors.bg,
+  skeletonCard: {
+    backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    color: "#c4b5fd",
-    fontSize: 10,
-    fontWeight: "800",
-    marginTop: 5,
-    overflow: "hidden",
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    textAlign: "center",
+    gap: 12,
+    padding: 14,
+  },
+  skeletonCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonList: {
+    gap: 12,
+  },
+  skeletonTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 11,
+  },
+  summaryCard: {
+    alignItems: "center",
+    backgroundColor: colors.panel,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 13,
+    padding: 16,
+    ...shadow,
+  },
+  summaryCopy: {
+    flex: 1,
+  },
+  summaryEyebrow: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  summaryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
+  },
+  summarySubtitle: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  summaryTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 2,
   },
   titleRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: 7,
-  },
-  viewRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 3,
-  },
-  viewText: {
-    color: "#c4b5fd",
-    fontSize: 12,
-    fontWeight: "900",
   },
 });

@@ -19,13 +19,22 @@ import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { colors, formatCurrency } from "~/components/app/theme";
+import { colors, formatCurrency, radius, shadow } from "~/components/app/theme";
+import { EmptyState, InlineNotice, MotionView } from "~/components/app/ui";
 import { useCart } from "~/components/cart/CartContext";
 import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
 
 const deliveryFee = 500;
 const convenienceFee = 0;
+
+type CheckoutStage = "idle" | "locating" | "broadcasting";
+
+interface NearestLandmark {
+  name: string;
+  distance: number;
+  radius: number;
+}
 
 export default function CheckoutScreen() {
   const router = useRouter();
@@ -42,41 +51,31 @@ export default function CheckoutScreen() {
     clearCart,
   } = useCart();
   const [instructions, setInstructions] = useState("");
-  const [isLocating, setIsLocating] = useState(false);
+  const [stage, setStage] = useState<CheckoutStage>("idle");
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
-
-  const finalAmount = totalPrice + deliveryFee + convenienceFee;
-
   const createOrderMutation = useMutation(
-    trpc.order.createOrder.mutationOptions({
-      onSuccess: async (order) => {
-        clearCart();
-        await queryClient.invalidateQueries({
-          queryKey: trpc.order.myOrders.queryKey(),
-        });
-        if (order.id) {
-          router.replace(`/orders/${order.id}/status` as never);
-        } else {
-          router.replace("/orders" as never);
-        }
-      },
-      onError: (error) => Alert.alert("Failed to place order", error.message),
-    }),
+    trpc.order.createOrder.mutationOptions(),
   );
 
+  const finalAmount = totalPrice + deliveryFee + convenienceFee;
+  const busy = stage !== "idle" || createOrderMutation.isPending;
+
   const placeOrder = async () => {
+    if (busy) return;
     if (!canteenId || items.length === 0) {
       Alert.alert("Cart is empty", "Add dishes before placing an order.");
       return;
     }
 
-    setIsLocating(true);
+    setStage("locating");
     try {
-      if (!(await locationService.requestForegroundPermission())) {
+      const permissionGranted =
+        await locationService.requestForegroundPermission();
+      if (!permissionGranted) {
         Alert.alert(
-          "Location required",
-          "Please enable location access to place an order.",
+          "Location is required",
+          "CAmpDeliver needs your current location to lock the delivery point for this order.",
         );
         return;
       }
@@ -85,28 +84,30 @@ export default function CheckoutScreen() {
       const deliveryLatitude = current.latitude;
       const deliveryLongitude = current.longitude;
 
-      // Resolve nearest landmark
-      let nearest = null;
-      if (landmarks && landmarks.length > 0) {
-        for (const lm of landmarks) {
-          const toRad = (v: number) => (v * Math.PI) / 180;
-          const R = 6371e3;
-          const dLat = toRad(lm.latitude - deliveryLatitude);
-          const dLon = toRad(lm.longitude - deliveryLongitude);
-          const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(toRad(deliveryLatitude)) *
-              Math.cos(toRad(lm.latitude)) *
-              Math.sin(dLon / 2) ** 2;
-          const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      let nearest: NearestLandmark | null = null;
+      for (const landmark of landmarks ?? []) {
+        const toRad = (value: number) => (value * Math.PI) / 180;
+        const radius = 6371e3;
+        const deltaLatitude = toRad(landmark.latitude - deliveryLatitude);
+        const deltaLongitude = toRad(landmark.longitude - deliveryLongitude);
+        const a =
+          Math.sin(deltaLatitude / 2) ** 2 +
+          Math.cos(toRad(deliveryLatitude)) *
+            Math.cos(toRad(landmark.latitude)) *
+            Math.sin(deltaLongitude / 2) ** 2;
+        const distance =
+          radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-          if (!nearest || distance < nearest.distance) {
-            nearest = { name: lm.name, distance, radius: lm.radius };
-          }
+        if (!nearest || distance < nearest.distance) {
+          nearest = {
+            name: landmark.name,
+            distance,
+            radius: landmark.radius,
+          };
         }
       }
 
-      let deliveryLocationName = "Current Location";
+      let deliveryLocationName = "Current location";
       if (nearest) {
         deliveryLocationName =
           nearest.distance <= nearest.radius
@@ -119,7 +120,8 @@ export default function CheckoutScreen() {
         deliveryLocationName = `${deliveryLocationName} - ${trimmedInstructions}`;
       }
 
-      createOrderMutation.mutate({
+      setStage("broadcasting");
+      const order = await createOrderMutation.mutateAsync({
         canteenId,
         items: items.map((item) => ({
           name: item.name,
@@ -130,26 +132,35 @@ export default function CheckoutScreen() {
         deliveryLatitude,
         deliveryLongitude,
       });
+
+      clearCart();
+      await queryClient.invalidateQueries({
+        queryKey: trpc.order.myOrders.queryKey(),
+      });
+      router.replace(`/orders/${order.id}/status` as never);
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Failed to get location. Please try again.");
+      Alert.alert(
+        "Order was not placed",
+        error instanceof Error
+          ? error.message
+          : "Check your connection and try again. Your cart is still here.",
+      );
     } finally {
-      setIsLocating(false);
+      setStage("idle");
     }
   };
 
   if (items.length === 0) {
     return (
       <SafeAreaView style={styles.root}>
-        <View style={styles.empty}>
-          <Feather name="shopping-cart" size={38} color={colors.faint} />
-          <Text style={styles.emptyTitle}>Your cart is empty</Text>
-          <Text style={styles.emptyCopy}>
-            Add a dish from a canteen to continue.
-          </Text>
-          <Pressable onPress={() => router.back()} style={styles.primaryButton}>
-            <Text style={styles.primaryText}>Go Back</Text>
-          </Pressable>
+        <View style={styles.emptyWrap}>
+          <EmptyState
+            icon="shopping-cart"
+            title="Your cart is empty"
+            copy="Add items from a canteen before opening checkout."
+            actionLabel="Browse canteens"
+            onAction={() => router.replace("/" as never)}
+          />
         </View>
       </SafeAreaView>
     );
@@ -158,11 +169,20 @@ export default function CheckoutScreen() {
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardRoot}
       >
         <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.iconButton}>
+          <Pressable
+            accessibilityLabel="Go back"
+            disabled={busy}
+            onPress={() => router.back()}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.pressed,
+              busy && styles.disabled,
+            ]}
+          >
             <Feather name="arrow-left" size={20} color={colors.text} />
           </Pressable>
           <View style={styles.headerCopy}>
@@ -171,18 +191,37 @@ export default function CheckoutScreen() {
               {canteenName}
             </Text>
           </View>
+          <View style={styles.itemPill}>
+            <Text style={styles.itemPillText}>{totalItems} items</Text>
+          </View>
         </View>
 
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(128, insets.bottom + 112) },
+            { paddingBottom: Math.max(132, insets.bottom + 118) },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Order Summary</Text>
+          <MotionView style={styles.flowCard}>
+            <FlowStep icon="shopping-bag" label="Cart" done />
+            <View style={styles.flowLine} />
+            <FlowStep
+              icon="map-pin"
+              label="Location"
+              active={stage === "locating"}
+              done={stage === "broadcasting"}
+            />
+            <View style={styles.flowLine} />
+            <FlowStep
+              icon="radio"
+              label="Broadcast"
+              active={stage === "broadcasting"}
+            />
+          </MotionView>
+
+          <Section title="Order summary" icon="shopping-bag">
             <View style={styles.itemsList}>
               {items.map((item) => (
                 <View key={item.id} style={styles.itemRow}>
@@ -196,72 +235,59 @@ export default function CheckoutScreen() {
                   </View>
                   <View style={styles.stepper}>
                     <Pressable
+                      accessibilityLabel={`Remove one ${item.name}`}
+                      disabled={busy}
                       onPress={() => removeItem(item.id)}
                       style={styles.stepButton}
                     >
-                      <Feather name="minus" size={15} color="#ddd6fe" />
+                      <Feather
+                        name="minus"
+                        size={15}
+                        color={colors.primaryStrong}
+                      />
                     </Pressable>
                     <Text style={styles.quantityText}>{item.quantity}</Text>
                     <Pressable
+                      accessibilityLabel={`Add one ${item.name}`}
+                      disabled={busy}
                       onPress={() => updateQuantity(item.id, item.quantity + 1)}
                       style={[styles.stepButton, styles.stepButtonAccent]}
                     >
-                      <Feather name="plus" size={15} color={colors.text} />
+                      <Feather name="plus" size={15} color={colors.white} />
                     </Pressable>
                   </View>
                 </View>
               ))}
             </View>
-          </View>
+          </Section>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Delivery Location</Text>
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 10,
-                marginTop: 14,
-              }}
-            >
-              <View
-                style={{
-                  backgroundColor: "rgba(52, 211, 153, 0.15)",
-                  padding: 10,
-                  borderRadius: 12,
-                }}
-              >
-                <Feather name="map-pin" size={18} color="#34d399" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    color: colors.text,
-                    fontWeight: "800",
-                    fontSize: 14,
-                  }}
-                >
-                  Auto GPS Location
-                </Text>
-                <Text
-                  style={{ color: colors.muted, fontSize: 12, marginTop: 3 }}
-                >
-                  We'll detect your location to deliver to you.
-                </Text>
-              </View>
-            </View>
-
-            <TextInput
-              value={instructions}
-              onChangeText={setInstructions}
-              placeholder="Room number or delivery instructions"
-              placeholderTextColor={colors.faint}
-              style={styles.instructionsInput}
+          <Section title="Delivery point" icon="map-pin">
+            <InlineNotice
+              icon="crosshair"
+              title="Auto GPS Location"
+              copy="The drop-off coordinate is then fixed for this delivery so the rider gets one consistent destination."
             />
-          </View>
+            <View style={styles.inputGroup}>
+              <Text style={styles.inputLabel}>
+                Delivery instructions (optional)
+              </Text>
+              <TextInput
+                value={instructions}
+                onChangeText={setInstructions}
+                editable={!busy}
+                placeholder="Room number, gate, or meeting point"
+                placeholderTextColor={colors.faint}
+                style={styles.instructionsInput}
+                multiline
+                maxLength={160}
+              />
+              <Text style={styles.characterCount}>
+                {instructions.length}/160
+              </Text>
+            </View>
+          </Section>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Bill Breakdown</Text>
+          <Section title="Payment summary" icon="credit-card">
             <BillLine label="Items" value={formatCurrency(totalPrice)} />
             <BillLine
               label="Delivery fee"
@@ -270,55 +296,127 @@ export default function CheckoutScreen() {
             <BillLine label="Convenience fee" value="Waived" />
             <View style={styles.billDivider} />
             <BillLine
-              label={`${totalItems} item total`}
+              label="Order total"
               value={formatCurrency(finalAmount)}
               strong
             />
-          </View>
+            <Text style={styles.paymentNote}>
+              Payment is handled through your CAmpDeliver wallet when a rider
+              confirms availability.
+            </Text>
+          </Section>
         </ScrollView>
 
         <View
           style={[
             styles.footer,
-            { paddingBottom: Math.max(14, insets.bottom + 10) },
+            { paddingBottom: Math.max(12, insets.bottom + 8) },
           ]}
         >
-          <Pressable
-            disabled={createOrderMutation.isPending || isLocating}
-            onPress={placeOrder}
-            style={({ pressed }) => [
-              styles.placeButton,
-              (pressed || createOrderMutation.isPending || isLocating) &&
-                styles.pressed,
-            ]}
-          >
-            {createOrderMutation.isPending || isLocating ? (
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  flex: 1,
-                  justifyContent: "center",
-                }}
-              >
-                <ActivityIndicator color={colors.text} />
-                <Text style={styles.placeText}>
-                  {isLocating ? "Getting location..." : "Broadcasting Order..."}
+          {busy ? (
+            <View style={styles.operationRow}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <View style={styles.operationCopy}>
+                <Text style={styles.operationTitle}>
+                  {stage === "locating"
+                    ? "Locking your delivery point"
+                    : "Broadcasting your order"}
+                </Text>
+                <Text style={styles.operationText}>
+                  {stage === "locating"
+                    ? "Checking permission and current GPS location…"
+                    : "Creating the order and finding a nearby deliverer…"}
                 </Text>
               </View>
-            ) : (
-              <>
-                <Text style={styles.placeText}>Place Order</Text>
-                <Text style={styles.placeAmount}>
-                  {formatCurrency(finalAmount)}
-                </Text>
-              </>
-            )}
+            </View>
+          ) : null}
+          <Pressable
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => void placeOrder()}
+            style={({ pressed }) => [
+              styles.placeButton,
+              pressed && !busy && styles.pressed,
+              busy && styles.disabled,
+            ]}
+          >
+            <View>
+              <Text style={styles.placeText}>
+                {busy ? "Working…" : "Place Order"}
+              </Text>
+              <Text style={styles.placeSubtext}>
+                {busy
+                  ? "Please keep this screen open"
+                  : "Location is checked next"}
+              </Text>
+            </View>
+            <View style={styles.placeAmountWrap}>
+              <Text style={styles.placeAmount}>
+                {formatCurrency(finalAmount)}
+              </Text>
+              <Feather name="arrow-right" size={16} color={colors.white} />
+            </View>
           </Pressable>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
+  );
+}
+
+function FlowStep({
+  icon,
+  label,
+  active = false,
+  done = false,
+}: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  active?: boolean;
+  done?: boolean;
+}) {
+  return (
+    <View style={styles.flowStep}>
+      <View
+        style={[styles.flowIcon, (active || done) && styles.flowIconActive]}
+      >
+        {done ? (
+          <Feather name="check" size={14} color={colors.white} />
+        ) : (
+          <Feather
+            name={icon}
+            size={14}
+            color={active ? colors.white : colors.faint}
+          />
+        )}
+      </View>
+      <Text
+        style={[styles.flowLabel, (active || done) && styles.flowLabelActive]}
+      >
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: keyof typeof Feather.glyphMap;
+  children: React.ReactNode;
+}) {
+  return (
+    <MotionView style={styles.section}>
+      <View style={styles.sectionHeading}>
+        <View style={styles.sectionIcon}>
+          <Feather name={icon} size={16} color={colors.primary} />
+        </View>
+        <Text style={styles.sectionTitle}>{title}</Text>
+      </View>
+      {children}
+    </MotionView>
   );
 }
 
@@ -352,7 +450,7 @@ const styles = StyleSheet.create({
   billLabel: {
     color: colors.muted,
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "600",
   },
   billLine: {
     alignItems: "center",
@@ -370,36 +468,73 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "800",
   },
+  characterCount: {
+    color: colors.faint,
+    fontSize: 10,
+    marginTop: 5,
+    textAlign: "right",
+  },
   content: {
-    gap: 16,
+    gap: 14,
     padding: 18,
   },
-  empty: {
-    alignItems: "center",
+  disabled: {
+    opacity: 0.55,
+  },
+  emptyWrap: {
     flex: 1,
     justifyContent: "center",
-    padding: 28,
+    padding: 22,
   },
-  emptyCopy: {
+  flowCard: {
+    alignItems: "center",
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    padding: 14,
+    ...shadow,
+  },
+  flowIcon: {
+    alignItems: "center",
+    backgroundColor: colors.panelStrong,
+    borderRadius: radius.pill,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
+  flowIconActive: {
+    backgroundColor: colors.primary,
+  },
+  flowLabel: {
     color: colors.faint,
-    fontSize: 13,
-    marginTop: 6,
-    textAlign: "center",
+    fontSize: 9,
+    fontWeight: "800",
+    marginTop: 5,
   },
-  emptyTitle: {
-    color: colors.text,
-    fontSize: 21,
-    fontWeight: "900",
-    marginTop: 14,
+  flowLabelActive: {
+    color: colors.primaryStrong,
+  },
+  flowLine: {
+    backgroundColor: colors.border,
+    flex: 1,
+    height: 2,
+    marginBottom: 15,
+    marginHorizontal: 5,
+  },
+  flowStep: {
+    alignItems: "center",
+    width: 64,
   },
   footer: {
-    backgroundColor: "rgba(9,9,11,0.98)",
+    backgroundColor: "rgba(244,248,248,0.98)",
     borderTopColor: colors.border,
     borderTopWidth: 1,
     bottom: 0,
     left: 0,
     paddingHorizontal: 18,
-    paddingTop: 12,
+    paddingTop: 10,
     position: "absolute",
     right: 0,
   },
@@ -409,142 +544,161 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     flexDirection: "row",
     gap: 12,
+    minHeight: 64,
     paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingVertical: 10,
   },
   headerCopy: {
     flex: 1,
   },
   headerSubtitle: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     marginTop: 2,
   },
   headerTitle: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: "900",
   },
   iconButton: {
     alignItems: "center",
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: radius.md,
     borderWidth: 1,
     height: 42,
     justifyContent: "center",
     width: 42,
   },
+  inputGroup: {
+    marginTop: 14,
+  },
+  inputLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    marginBottom: 7,
+  },
   instructionsInput: {
-    backgroundColor: colors.bg,
+    backgroundColor: colors.bgElevated,
     borderColor: colors.border,
-    borderRadius: 15,
+    borderRadius: radius.md,
     borderWidth: 1,
     color: colors.text,
     fontSize: 14,
-    marginTop: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
+    minHeight: 84,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    textAlignVertical: "top",
   },
   itemCopy: {
     flex: 1,
   },
   itemName: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: "900",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  itemPill: {
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  itemPillText: {
+    color: colors.primaryStrong,
+    fontSize: 10,
+    fontWeight: "800",
   },
   itemPrice: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "700",
-    marginTop: 4,
+    marginTop: 3,
   },
   itemRow: {
     alignItems: "center",
+    borderBottomColor: colors.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between",
     paddingVertical: 11,
   },
   itemsList: {
-    gap: 2,
     marginTop: 8,
   },
   keyboardRoot: {
     flex: 1,
   },
-  landmarkChip: {
+  operationCopy: {
+    flex: 1,
+  },
+  operationRow: {
     alignItems: "center",
-    backgroundColor: colors.bg,
-    borderColor: colors.border,
-    borderRadius: 999,
+    backgroundColor: colors.primarySoft,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 6,
-    maxWidth: 190,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
+    gap: 10,
+    marginBottom: 8,
+    padding: 10,
   },
-  landmarkChipSelected: {
-    backgroundColor: colors.purple,
-    borderColor: "#c4b5fd",
-  },
-  landmarkLoader: {
-    alignSelf: "flex-start",
-    marginTop: 14,
-  },
-  landmarkRow: {
-    gap: 9,
-    paddingTop: 12,
-  },
-  landmarkText: {
+  operationText: {
     color: colors.muted,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 10,
+    marginTop: 2,
   },
-  landmarkTextSelected: {
-    color: colors.text,
+  operationTitle: {
+    color: colors.primaryStrong,
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  paymentNote: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 8,
   },
   placeAmount: {
-    color: "#ede9fe",
-    fontSize: 13,
+    color: colors.white,
+    fontSize: 14,
     fontWeight: "900",
+  },
+  placeAmountWrap: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 6,
   },
   placeButton: {
     alignItems: "center",
-    backgroundColor: colors.purple,
-    borderRadius: 17,
+    backgroundColor: colors.primary,
+    borderRadius: radius.lg,
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 56,
-    paddingHorizontal: 18,
+    minHeight: 58,
+    paddingHorizontal: 16,
+  },
+  placeSubtext: {
+    color: "#D5EBE9",
+    fontSize: 9,
+    marginTop: 2,
   },
   placeText: {
-    color: colors.text,
-    fontSize: 16,
+    color: colors.white,
+    fontSize: 15,
     fontWeight: "900",
   },
   pressed: {
-    opacity: 0.72,
-  },
-  primaryButton: {
-    backgroundColor: colors.purple,
-    borderRadius: 15,
-    marginTop: 18,
-    paddingHorizontal: 22,
-    paddingVertical: 13,
-  },
-  primaryText: {
-    color: colors.text,
-    fontSize: 14,
-    fontWeight: "900",
+    opacity: 0.8,
+    transform: [{ scale: 0.99 }],
   },
   quantityText: {
     color: colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "900",
-    minWidth: 22,
+    minWidth: 20,
     textAlign: "center",
   },
   root: {
@@ -554,34 +708,49 @@ const styles = StyleSheet.create({
   section: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 20,
+    borderRadius: radius.lg,
     borderWidth: 1,
     padding: 16,
+    ...shadow,
   },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-  },
-  stepButton: {
+  sectionHeading: {
     alignItems: "center",
-    backgroundColor: colors.panelStrong,
+    flexDirection: "row",
+    gap: 9,
+    marginBottom: 10,
+  },
+  sectionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
     borderRadius: 10,
     height: 32,
     justifyContent: "center",
     width: 32,
   },
+  sectionTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+  },
+  stepButton: {
+    alignItems: "center",
+    backgroundColor: colors.bgElevated,
+    borderRadius: 9,
+    height: 30,
+    justifyContent: "center",
+    width: 30,
+  },
   stepButtonAccent: {
-    backgroundColor: colors.purple,
+    backgroundColor: colors.primary,
   },
   stepper: {
     alignItems: "center",
-    backgroundColor: "#211238",
-    borderColor: "#6d28d9",
-    borderRadius: 14,
+    backgroundColor: colors.primarySoft,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     padding: 4,
   },
 });

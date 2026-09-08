@@ -16,7 +16,7 @@ export default function ManageCanteensScreen() {
         <Text style={styles.title}>Manage Canteens</Text>
       </View>
       <View style={styles.card}>
-        <Feather name="coffee" size={36} color="#c4b5fd" />
+        <Feather name="coffee" size={36} color={colors.primary} />
         <Text style={styles.cardTitle}>Admin tools are web-first</Text>
         <Text style={styles.cardCopy}>
           Canteen and menu administration is available in the web dashboard. The

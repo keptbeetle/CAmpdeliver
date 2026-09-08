@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import { useFocusEffect, usePathname, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -8,6 +9,8 @@ import { trpc } from "~/utils/api";
 import {
   ACTIVE_ORDER_STATUSES,
   colors,
+  radius,
+  shadow,
   shortId,
   statusLabels,
   statusProgress,
@@ -16,9 +19,9 @@ import {
 let globalIsHidden = false;
 const listeners = new Set<() => void>();
 
-function setGlobalIsHidden(val: boolean) {
-  globalIsHidden = val;
-  listeners.forEach((l) => l());
+function setGlobalIsHidden(value: boolean) {
+  globalIsHidden = value;
+  listeners.forEach((listener) => listener());
 }
 
 function useGlobalIsHidden() {
@@ -40,9 +43,7 @@ export function ActiveOrderBar() {
 
   useFocusEffect(
     useCallback(() => {
-      if (pathname === "/") {
-        setGlobalIsHidden(false);
-      }
+      if (pathname === "/") setGlobalIsHidden(false);
     }, [pathname]),
   );
 
@@ -57,100 +58,113 @@ export function ActiveOrderBar() {
 
   if (!activeOrder || isHidden) return null;
 
-  const progress = statusProgress[activeOrder.status] ?? 25;
+  const progress = statusProgress[activeOrder.status] ?? 20;
 
   return (
-    <View style={styles.wrap} pointerEvents="box-none">
+    <Animated.View
+      entering={FadeInDown.duration(260)}
+      exiting={FadeOutDown.duration(180)}
+      style={styles.wrap}
+      pointerEvents="box-none"
+    >
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Open active order ${shortId(activeOrder.id)}`}
         onPress={() => router.push(`/orders/${activeOrder.id}/status` as never)}
         style={({ pressed }) => [styles.card, pressed && styles.pressed]}
       >
-        <Pressable
-          onPress={() => setIsHidden(true)}
-          style={styles.closeBtn}
-          hitSlop={10}
-        >
-          <Feather name="x" size={14} color="#ddd6fe" />
-        </Pressable>
-
         <View style={styles.row}>
           <View style={styles.iconBox}>
-            <Feather name="navigation" size={18} color="#ddd6fe" />
+            <Feather name="navigation" size={18} color={colors.primary} />
           </View>
           <View style={styles.copy}>
-            <Text numberOfLines={1} style={styles.title}>
-              Order #{shortId(activeOrder.id)}
+            <Text numberOfLines={1} style={styles.eyebrow}>
+              ACTIVE ORDER · #{shortId(activeOrder.id)}
             </Text>
-            <Text numberOfLines={1} style={styles.subtitle}>
-              {activeOrder.canteenName} -{" "}
+            <Text numberOfLines={1} style={styles.title}>
               {statusLabels[activeOrder.status] ?? activeOrder.status}
             </Text>
+            <Text numberOfLines={1} style={styles.subtitle}>
+              {activeOrder.canteenName}
+            </Text>
           </View>
-          <View style={styles.statusPill}>
-            <Text style={styles.statusText}>Track</Text>
-            <Feather name="chevron-right" size={14} color="#ddd6fe" />
+          <View style={styles.trackAction}>
+            <Text style={styles.trackText}>Open</Text>
+            <Feather name="chevron-right" size={15} color={colors.primary} />
           </View>
         </View>
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progress}%` }]} />
         </View>
+        <Pressable
+          accessibilityLabel="Hide active order shortcut"
+          onPress={(event) => {
+            event.stopPropagation();
+            setIsHidden(true);
+          }}
+          style={styles.closeBtn}
+          hitSlop={10}
+        >
+          <Feather name="x" size={14} color={colors.muted} />
+        </Pressable>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: "rgba(24,24,27,0.98)",
-    borderColor: "#6d28d9",
-    borderRadius: 18,
+    backgroundColor: colors.panel,
+    borderColor: "#B7D7D5",
+    borderRadius: radius.xl,
     borderWidth: 1,
-    elevation: 12,
-    padding: 12,
-    shadowColor: "#000",
-    shadowOffset: { height: 8, width: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
+    padding: 13,
+    ...shadow,
   },
   closeBtn: {
-    position: "absolute",
-    right: -8,
-    top: -8,
-    zIndex: 10,
-    backgroundColor: "#3f3f46",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#52525b",
-    height: 24,
-    width: 24,
     alignItems: "center",
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    height: 26,
     justifyContent: "center",
+    position: "absolute",
+    right: 8,
+    top: -10,
+    width: 26,
   },
   copy: {
     flex: 1,
   },
+  eyebrow: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.7,
+  },
   iconBox: {
     alignItems: "center",
-    backgroundColor: colors.purpleDark,
-    borderRadius: 13,
-    height: 40,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
+    height: 42,
     justifyContent: "center",
-    width: 40,
+    width: 42,
   },
   pressed: {
-    opacity: 0.78,
+    opacity: 0.84,
     transform: [{ scale: 0.99 }],
   },
   progressFill: {
-    backgroundColor: colors.purple,
-    borderRadius: 999,
+    backgroundColor: colors.primary,
+    borderRadius: radius.pill,
     height: "100%",
   },
   progressTrack: {
-    backgroundColor: colors.border,
-    borderRadius: 999,
-    height: 5,
-    marginTop: 10,
+    backgroundColor: colors.panelStrong,
+    borderRadius: radius.pill,
+    height: 4,
+    marginTop: 11,
     overflow: "hidden",
   },
   row: {
@@ -158,32 +172,34 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  statusPill: {
-    alignItems: "center",
-    backgroundColor: "#31204f",
-    borderRadius: 999,
-    flexDirection: "row",
-    gap: 2,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-  },
-  statusText: {
-    color: "#ddd6fe",
-    fontSize: 11,
-    fontWeight: "900",
-  },
   subtitle: {
     color: colors.muted,
-    fontSize: 12,
-    marginTop: 2,
+    fontSize: 11,
+    marginTop: 1,
   },
   title: {
     color: colors.text,
-    fontSize: 13,
+    fontSize: 14,
+    fontWeight: "900",
+    marginTop: 2,
+  },
+  trackAction: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.pill,
+    flexDirection: "row",
+    gap: 2,
+    marginRight: 12,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+  },
+  trackText: {
+    color: colors.primaryStrong,
+    fontSize: 11,
     fontWeight: "900",
   },
   wrap: {
-    bottom: 82,
+    bottom: 12,
     left: 14,
     position: "absolute",
     right: 14,

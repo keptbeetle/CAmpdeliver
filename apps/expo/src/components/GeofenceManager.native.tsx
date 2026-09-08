@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Platform } from "react-native";
 import * as Location from "expo-location";
 import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
@@ -14,11 +15,6 @@ interface GeofenceEvent {
   region: Location.LocationRegion;
 }
 
-/**
- * Android starts this task after an opted-in deliverer enters a registered
- * canteen zone. It never uploads a location trail: the only network request
- * asks whether a quest is currently open for the entered canteen.
- */
 TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
   if (error || !data) {
     console.warn("[GeofenceManager] Background task failed", error?.message);
@@ -32,7 +28,15 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
     const profile = await queryClient.fetchQuery(
       trpc.auth.getMyProfile.queryOptions(),
     );
-    if (!profile?.nearbyQuestAlertsEnabled) return;
+    const selectedIds = profile?.deliveryCanteenIds ?? [];
+    if (
+      !region.identifier ||
+      !profile?.deliveryNotificationsEnabled ||
+      !profile.nearbyQuestAlertsEnabled ||
+      !selectedIds.includes(region.identifier)
+    ) {
+      return;
+    }
 
     const quests = await queryClient.fetchQuery(
       trpc.order.availableQuests.queryOptions({
@@ -40,29 +44,26 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
         longitude: region.longitude,
       }),
     );
-    if (quests.length === 0) return;
+    const matchingQuests = quests.filter(
+      (quest) => quest.canteenId === region.identifier,
+    );
+    if (matchingQuests.length === 0) return;
 
-    const canteenName = quests[0]?.canteenName ?? "this canteen";
+    const canteenName = matchingQuests[0]?.canteenName ?? "this canteen";
     await Notifications.scheduleNotificationAsync({
       content: {
         title: "Delivery quest nearby",
-        body: `${quests.length} quest${quests.length === 1 ? "" : "s"} available at ${canteenName}.`,
+        body: `${matchingQuests.length} quest${matchingQuests.length === 1 ? "" : "s"} available at ${canteenName}.`,
         data: { type: "NEARBY_QUEST", url: "/quests" },
         sound: "default",
       },
       trigger: null,
     });
   } catch (taskError) {
-    // A transient offline/auth failure must not crash the Android task.
     console.warn("[GeofenceManager] Could not check nearby quests", taskError);
   }
 });
 
-/**
- * Registers Android geofences only after the member opted in from Quests and
- * has explicitly granted both foreground and background location access.
- * It never presents a permission prompt by itself.
- */
 export function GeofenceManager() {
   const { isLoading, session } = useAuthSession();
   const { data: profile } = useQuery({
@@ -84,14 +85,26 @@ export function GeofenceManager() {
     };
 
     const syncGeofences = async () => {
+      const selectedIds = profile?.deliveryCanteenIds ?? [];
       const enabled =
-        Boolean(session) && Boolean(profile?.nearbyQuestAlertsEnabled);
+        Platform.OS === "android" &&
+        Boolean(session) &&
+        Boolean(profile?.deliveryNotificationsEnabled) &&
+        Boolean(profile?.nearbyQuestAlertsEnabled) &&
+        selectedIds.length > 0;
+
       if (!enabled) {
         await stop();
         return;
       }
 
-      if (!canteens || canteens.length === 0) return;
+      const watchedCanteens = (canteens ?? []).filter((canteen) =>
+        selectedIds.includes(canteen.id),
+      );
+      if (watchedCanteens.length === 0) {
+        await stop();
+        return;
+      }
 
       const [foreground, background] = await Promise.all([
         Location.getForegroundPermissionsAsync(),
@@ -106,10 +119,13 @@ export function GeofenceManager() {
       }
 
       await stop();
+      // Cleanup can run while stopGeofencingAsync is awaiting.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (cancelled) return;
 
       await Location.startGeofencingAsync(
         GEOFENCE_TASK_NAME,
-        canteens.map((canteen) => ({
+        watchedCanteens.map((canteen) => ({
           identifier: canteen.id,
           latitude: canteen.latitude,
           longitude: canteen.longitude,
@@ -127,7 +143,13 @@ export function GeofenceManager() {
     return () => {
       cancelled = true;
     };
-  }, [canteens, profile?.nearbyQuestAlertsEnabled, session]);
+  }, [
+    canteens,
+    profile?.deliveryCanteenIds,
+    profile?.deliveryNotificationsEnabled,
+    profile?.nearbyQuestAlertsEnabled,
+    session,
+  ]);
 
   return null;
 }

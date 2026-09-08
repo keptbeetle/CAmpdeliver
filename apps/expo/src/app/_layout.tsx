@@ -1,8 +1,10 @@
+import { Platform } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
 
+import { colors } from "~/components/app/theme";
 import { CartProvider } from "~/components/cart/CartContext";
 import { GeofenceManager } from "~/components/GeofenceManager";
 import { GlobalTracker } from "~/components/GlobalTracker";
@@ -21,11 +23,15 @@ export default function RootLayout() {
             <Stack
               screenOptions={{
                 headerShown: false,
-                contentStyle: { backgroundColor: "#09090b" },
+                contentStyle: { backgroundColor: colors.bg },
+                animation:
+                  Platform.OS === "android" ? "slide_from_right" : "default",
+                animationDuration: 220,
+                gestureEnabled: true,
               }}
             >
-              <Stack.Screen name="auth" />
-              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="auth" options={{ animation: "fade" }} />
+              <Stack.Screen name="(tabs)" options={{ animation: "fade" }} />
               <Stack.Screen name="canteen/[id]" />
               <Stack.Screen name="checkout" />
               <Stack.Screen name="orders/[id]/status" />
@@ -37,7 +43,7 @@ export default function RootLayout() {
             <GlobalTracker />
             <GeofenceManager />
             <PushNotificationManager />
-            <StatusBar />
+            <StatusBar style="dark" backgroundColor={colors.bg} />
           </SafeAreaProvider>
         </CartProvider>
       </AuthSessionProvider>

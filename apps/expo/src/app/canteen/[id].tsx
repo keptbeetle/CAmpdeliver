@@ -1,12 +1,5 @@
-import {
-  ActivityIndicator,
-  FlatList,
-  Image,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import Animated, { FadeInDown, FadeOutDown } from "react-native-reanimated";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -16,17 +9,12 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 
 import type { RouterOutputs } from "~/utils/api";
-import { colors, formatCurrency } from "~/components/app/theme";
+import { colors, formatCurrency, radius, shadow } from "~/components/app/theme";
+import { EmptyState, MotionView, SkeletonBlock } from "~/components/app/ui";
 import { useCart } from "~/components/cart/CartContext";
 import { trpc } from "~/utils/api";
 
 type MenuItem = RouterOutputs["menu"]["listByCanteen"][number];
-
-const coverImages = [
-  "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=1000&q=80",
-  "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?auto=format&fit=crop&w=1000&q=80",
-  "https://images.unsplash.com/photo-1504674900247-0877df9cc836?auto=format&fit=crop&w=1000&q=80",
-];
 
 export default function CanteenDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -34,162 +22,198 @@ export default function CanteenDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: canteens } = useQuery(trpc.canteen.listActive.queryOptions());
-  const { data: menuItems, isLoading } = useQuery({
+  const {
+    data: menuItems,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     ...trpc.menu.listByCanteen.queryOptions({ canteenId: id }),
-    enabled: !!id,
+    enabled: Boolean(id),
   });
 
   const { items, addItem, removeItem, updateQuantity, totalItems, totalPrice } =
     useCart();
-
   const canteen = canteens?.find((item) => item.id === id);
-  const coverImage =
-    coverImages[Math.abs(id.length) % coverImages.length] ?? coverImages[0];
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={["top"]}>
+      <View style={styles.header}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => router.back()}
+          style={({ pressed }) => [
+            styles.iconButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Feather name="arrow-left" size={20} color={colors.text} />
+        </Pressable>
+        <View style={styles.headerCopy}>
+          <Text numberOfLines={1} style={styles.headerTitle}>
+            {canteen?.name ?? "Canteen"}
+          </Text>
+          <Text style={styles.headerSubtitle}>Menu and ordering</Text>
+        </View>
+      </View>
+
       <FlatList
         data={menuItems ?? []}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
-          <View>
-            <View style={styles.hero}>
-              <Image
-                source={{ uri: coverImage }}
-                style={styles.heroImage}
-                resizeMode="cover"
-              />
-              <View style={styles.heroShade} />
-              <SafeAreaView style={styles.heroControls} edges={["top"]}>
-                <Pressable
-                  onPress={() => router.back()}
-                  style={styles.iconButton}
-                >
-                  <Feather name="arrow-left" size={20} color={colors.text} />
-                </Pressable>
-                <View style={styles.openPill}>
-                  <View style={styles.openDot} />
-                  <Text style={styles.openText}>Open Now</Text>
+          <>
+            <MotionView style={styles.canteenSummary}>
+              <View style={styles.summaryTop}>
+                <View style={styles.summaryIcon}>
+                  <Feather name="coffee" size={22} color={colors.primary} />
                 </View>
-              </SafeAreaView>
-              <View style={styles.heroCopy}>
-                <Text style={styles.heroTitle}>
-                  {canteen?.name ?? "Campus Canteen"}
-                </Text>
-                <View style={styles.heroMetaRow}>
-                  <Feather name="clock" size={14} color="#ddd6fe" />
-                  <Text style={styles.heroMeta}>15-20 mins</Text>
-                  <Text style={styles.heroMetaDot}>.</Text>
-                  <Feather name="map-pin" size={14} color="#ddd6fe" />
-                  <Text style={styles.heroMeta}>Campus landmark area</Text>
+                <View style={styles.activePill}>
+                  <View style={styles.activeDot} />
+                  <Text style={styles.activeText}>Active</Text>
                 </View>
               </View>
-            </View>
+              <Text style={styles.summaryTitle}>
+                {canteen?.name ?? "Campus canteen"}
+              </Text>
+              <Text style={styles.summaryCopy}>
+                Choose available items below. Your cart stays with this canteen
+                until checkout.
+              </Text>
+              <View style={styles.feeRow}>
+                <Feather name="truck" size={15} color={colors.primary} />
+                <Text style={styles.feeText}>
+                  {formatCurrency(500)} delivery fee added at checkout
+                </Text>
+              </View>
+            </MotionView>
 
             <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle}>Recommended Menu</Text>
-              <Text style={styles.menuSubtitle}>
-                Fresh items ready for campus delivery
-              </Text>
+              <View>
+                <Text style={styles.menuEyebrow}>MENU</Text>
+                <Text style={styles.menuTitle}>Available items</Text>
+              </View>
+              {!isLoading && !isError ? (
+                <Text style={styles.itemCount}>
+                  {menuItems?.length ?? 0} items
+                </Text>
+              ) : null}
             </View>
-          </View>
+          </>
         }
         ListEmptyComponent={
-          <View style={styles.empty}>
-            {isLoading ? (
-              <>
-                <ActivityIndicator color={colors.purple} />
-                <Text style={styles.emptyTitle}>Loading menu</Text>
-              </>
-            ) : (
-              <>
-                <Feather name="coffee" size={34} color={colors.faint} />
-                <Text style={styles.emptyTitle}>No menu items yet</Text>
-                <Text style={styles.emptyCopy}>
-                  This canteen has not published items for mobile ordering.
-                </Text>
-              </>
-            )}
-          </View>
+          isLoading ? (
+            <View style={styles.skeletonList}>
+              {[0, 1, 2].map((value) => (
+                <View key={value} style={styles.skeletonCard}>
+                  <View style={styles.skeletonCopy}>
+                    <SkeletonBlock height={16} width="62%" />
+                    <SkeletonBlock height={12} width="38%" />
+                    <SkeletonBlock height={11} width="88%" />
+                  </View>
+                  <SkeletonBlock height={40} width={74} />
+                </View>
+              ))}
+            </View>
+          ) : isError ? (
+            <EmptyState
+              icon="wifi-off"
+              title="Menu could not be loaded"
+              copy="Your existing cart is safe. Retry when your connection is available."
+              actionLabel="Retry"
+              onAction={() => void refetch()}
+            />
+          ) : (
+            <EmptyState
+              icon="coffee"
+              title="No menu items available"
+              copy="This canteen is active, but it has no menu items available for ordering right now."
+            />
+          )
         }
-        renderItem={({ item }) => {
-          const cartItem = items.find((cartItem) => cartItem.id === item.id);
+        renderItem={({ item, index }) => {
+          const cartItem = items.find((candidate) => candidate.id === item.id);
           const quantity = cartItem?.quantity ?? 0;
           return (
-            <DishRow
-              item={item}
-              quantity={quantity}
-              canteenName={canteen?.name ?? "Campus Canteen"}
-              onAdd={() =>
-                addItem({
-                  id: item.id,
-                  name: item.name,
-                  price: item.price,
-                  canteenId: id,
-                  canteenName: canteen?.name ?? "Campus Canteen",
-                })
-              }
-              onRemove={() => removeItem(item.id)}
-              onIncrease={() => updateQuantity(item.id, quantity + 1)}
-            />
+            <MotionView delay={Math.min(index * 40, 200)}>
+              <DishRow
+                item={item}
+                quantity={quantity}
+                onAdd={() =>
+                  addItem({
+                    id: item.id,
+                    name: item.name,
+                    price: item.price,
+                    canteenId: id,
+                    canteenName: canteen?.name ?? "Campus Canteen",
+                  })
+                }
+                onRemove={() => removeItem(item.id)}
+                onIncrease={() => updateQuantity(item.id, quantity + 1)}
+              />
+            </MotionView>
           );
         }}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(120, insets.bottom + 112) },
+          {
+            paddingBottom:
+              totalItems > 0 ? 118 + insets.bottom : 30 + insets.bottom,
+          },
         ]}
         showsVerticalScrollIndicator={false}
       />
 
       {totalItems > 0 ? (
-        <View
+        <Animated.View
+          entering={FadeInDown.duration(220)}
+          exiting={FadeOutDown.duration(160)}
           style={[
             styles.cartBarWrap,
-            { bottom: Math.max(18, insets.bottom + 14) },
+            { bottom: Math.max(12, insets.bottom + 8) },
           ]}
         >
-          <View style={styles.cartBar}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="View cart and checkout"
+            onPress={() => router.push("/checkout" as never)}
+            style={({ pressed }) => [styles.cartBar, pressed && styles.pressed]}
+          >
             <View style={styles.cartCount}>
               <Text style={styles.cartCountText}>{totalItems}</Text>
             </View>
             <View style={styles.cartCopy}>
-              <Text style={styles.cartLabel}>Cart Total</Text>
+              <Text style={styles.cartLabel}>Cart total</Text>
               <Text style={styles.cartTotal}>{formatCurrency(totalPrice)}</Text>
             </View>
-            <Pressable
-              onPress={() => router.push("/checkout")}
-              style={({ pressed }) => [
-                styles.cartButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.cartButtonText}>View Cart</Text>
-              <Feather name="chevron-up" size={16} color={colors.text} />
-            </Pressable>
-          </View>
-        </View>
+            <View style={styles.cartAction}>
+              <Text style={styles.cartActionText}>View Cart</Text>
+              <Feather name="arrow-right" size={16} color={colors.white} />
+            </View>
+          </Pressable>
+        </Animated.View>
       ) : null}
-    </View>
+    </SafeAreaView>
   );
 }
 
 function DishRow({
   item,
   quantity,
-  canteenName,
   onAdd,
   onRemove,
   onIncrease,
 }: {
   item: MenuItem;
   quantity: number;
-  canteenName: string;
   onAdd: () => void;
   onRemove: () => void;
   onIncrease: () => void;
 }) {
   return (
-    <View style={styles.dishCard}>
+    <View
+      style={[styles.dishCard, !item.isAvailable && styles.dishUnavailable]}
+    >
       <View style={styles.dishCopy}>
         <View style={styles.dishTitleRow}>
           <View
@@ -203,157 +227,167 @@ function DishRow({
           </Text>
         </View>
         <Text style={styles.dishPrice}>{formatCurrency(item.price)}</Text>
-        <Text numberOfLines={2} style={styles.dishDescription}>
+        <Text style={styles.dishDescription}>
           {item.isAvailable
-            ? `A campus favorite from ${canteenName}.`
-            : "Temporarily unavailable from this canteen."}
+            ? "Available for this order"
+            : "Temporarily unavailable"}
         </Text>
-        <View
-          style={[
-            styles.availabilityPill,
-            !item.isAvailable && styles.unavailablePill,
-          ]}
-        >
-          <Text
-            style={[
-              styles.availabilityText,
-              !item.isAvailable && styles.unavailableText,
-            ]}
-          >
-            {item.isAvailable ? "Available" : "Unavailable"}
-          </Text>
-        </View>
       </View>
 
-      <View style={styles.stepperWrap}>
-        {quantity === 0 ? (
+      {quantity === 0 ? (
+        <Pressable
+          accessibilityRole="button"
+          disabled={!item.isAvailable}
+          onPress={onAdd}
+          style={({ pressed }) => [
+            styles.addButton,
+            !item.isAvailable && styles.disabledButton,
+            pressed && item.isAvailable && styles.pressed,
+          ]}
+        >
+          <Feather name="plus" size={15} color={colors.primaryStrong} />
+          <Text style={styles.addText}>ADD</Text>
+        </Pressable>
+      ) : (
+        <View style={styles.stepper}>
           <Pressable
-            disabled={!item.isAvailable}
-            onPress={onAdd}
-            style={({ pressed }) => [
-              styles.addButton,
-              !item.isAvailable && styles.disabledButton,
-              pressed && styles.pressed,
-            ]}
+            accessibilityLabel={`Remove one ${item.name}`}
+            onPress={onRemove}
+            style={styles.stepButton}
           >
-            <Text style={styles.addText}>ADD</Text>
+            <Feather name="minus" size={16} color={colors.primaryStrong} />
           </Pressable>
-        ) : (
-          <View style={styles.stepper}>
-            <Pressable onPress={onRemove} style={styles.stepButton}>
-              <Feather name="minus" size={16} color="#ddd6fe" />
-            </Pressable>
-            <Text style={styles.quantityText}>{quantity}</Text>
-            <Pressable
-              onPress={onIncrease}
-              disabled={!item.isAvailable}
-              style={[styles.stepButton, styles.stepButtonAccent]}
-            >
-              <Feather name="plus" size={16} color={colors.text} />
-            </Pressable>
-          </View>
-        )}
-      </View>
+          <Text style={styles.quantityText}>{quantity}</Text>
+          <Pressable
+            accessibilityLabel={`Add one ${item.name}`}
+            onPress={onIncrease}
+            disabled={!item.isAvailable}
+            style={[styles.stepButton, styles.stepButtonAccent]}
+          >
+            <Feather name="plus" size={16} color={colors.white} />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  activeDot: {
+    backgroundColor: colors.success,
+    borderRadius: radius.pill,
+    height: 7,
+    width: 7,
+  },
+  activePill: {
+    alignItems: "center",
+    backgroundColor: colors.successSoft,
+    borderColor: "#B7DEC8",
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  activeText: {
+    color: colors.success,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   addButton: {
     alignItems: "center",
-    backgroundColor: "#22163b",
-    borderColor: "#6d28d9",
-    borderRadius: 13,
+    backgroundColor: colors.primarySoft,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.md,
     borderWidth: 1,
-    minWidth: 74,
-    paddingHorizontal: 14,
+    flexDirection: "row",
+    gap: 5,
+    minWidth: 76,
+    paddingHorizontal: 13,
     paddingVertical: 10,
   },
   addText: {
-    color: "#ddd6fe",
+    color: colors.primaryStrong,
     fontSize: 13,
     fontWeight: "900",
   },
   availabilityDot: {
-    backgroundColor: colors.emerald,
-    borderRadius: 99,
+    backgroundColor: colors.success,
+    borderRadius: radius.pill,
     height: 7,
     marginTop: 7,
     width: 7,
   },
-  availabilityPill: {
-    alignSelf: "flex-start",
-    backgroundColor: "#062d22",
-    borderColor: "#14532d",
-    borderRadius: 999,
-    borderWidth: 1,
-    marginTop: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+  cartAction: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
-  availabilityText: {
-    color: "#86efac",
-    fontSize: 10,
+  cartActionText: {
+    color: colors.white,
+    fontSize: 13,
     fontWeight: "900",
   },
   cartBar: {
     alignItems: "center",
-    backgroundColor: "#211238",
-    borderColor: "#6d28d9",
-    borderRadius: 20,
+    backgroundColor: colors.panel,
+    borderColor: "#B7D7D5",
+    borderRadius: radius.xl,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 12,
-    padding: 12,
+    gap: 11,
+    padding: 11,
+    ...shadow,
   },
   cartBarWrap: {
     left: 16,
     position: "absolute",
     right: 16,
   },
-  cartButton: {
-    alignItems: "center",
-    backgroundColor: colors.purple,
-    borderRadius: 14,
-    flexDirection: "row",
-    gap: 5,
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-  },
-  cartButtonText: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "900",
-  },
   cartCopy: {
     flex: 1,
   },
   cartCount: {
     alignItems: "center",
-    backgroundColor: colors.purple,
-    borderRadius: 14,
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
     height: 42,
     justifyContent: "center",
     width: 42,
   },
   cartCountText: {
-    color: colors.text,
+    color: colors.primaryStrong,
     fontSize: 15,
     fontWeight: "900",
   },
   cartLabel: {
-    color: "#c4b5fd",
-    fontSize: 11,
+    color: colors.muted,
+    fontSize: 10,
     fontWeight: "800",
+    textTransform: "uppercase",
   },
   cartTotal: {
     color: colors.text,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "900",
     marginTop: 2,
   },
+  canteenSummary: {
+    backgroundColor: colors.panel,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    marginTop: 16,
+    padding: 18,
+    ...shadow,
+  },
   content: {
-    backgroundColor: colors.bg,
+    paddingHorizontal: 18,
   },
   disabledButton: {
     opacity: 0.45,
@@ -362,32 +396,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: radius.lg,
     borderWidth: 1,
     flexDirection: "row",
     gap: 14,
-    marginBottom: 13,
-    marginHorizontal: 18,
+    marginBottom: 11,
     padding: 14,
   },
   dishCopy: {
     flex: 1,
   },
   dishDescription: {
-    color: colors.faint,
-    fontSize: 12,
-    lineHeight: 17,
+    color: colors.muted,
+    fontSize: 11,
     marginTop: 5,
   },
   dishName: {
     color: colors.text,
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "900",
   },
   dishPrice: {
-    color: "#c4b5fd",
-    fontSize: 16,
+    color: colors.primaryStrong,
+    fontSize: 15,
     fontWeight: "900",
     marginTop: 5,
   },
@@ -396,128 +428,85 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
   },
-  empty: {
+  dishUnavailable: {
+    backgroundColor: colors.bgElevated,
+  },
+  feeRow: {
     alignItems: "center",
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: 22,
-    borderWidth: 1,
-    marginHorizontal: 18,
-    minHeight: 180,
-    justifyContent: "center",
-    padding: 24,
-  },
-  emptyCopy: {
-    color: colors.faint,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-    textAlign: "center",
-  },
-  emptyTitle: {
-    color: colors.muted,
-    fontSize: 14,
-    fontWeight: "800",
-    marginTop: 10,
-  },
-  hero: {
-    backgroundColor: colors.panelStrong,
-    height: 270,
-    marginBottom: 22,
-    position: "relative",
-  },
-  heroControls: {
-    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.md,
     flexDirection: "row",
-    justifyContent: "space-between",
-    left: 16,
-    position: "absolute",
-    right: 16,
-    top: 0,
+    gap: 8,
+    marginTop: 15,
+    padding: 11,
   },
-  heroCopy: {
-    bottom: 22,
-    left: 18,
-    position: "absolute",
-    right: 18,
-  },
-  heroImage: {
-    height: "100%",
-    width: "100%",
-  },
-  heroMeta: {
-    color: "#e4e4e7",
+  feeText: {
+    color: colors.primaryStrong,
+    flex: 1,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "700",
   },
-  heroMetaDot: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  heroMetaRow: {
+  header: {
     alignItems: "center",
+    backgroundColor: colors.bg,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 7,
-    marginTop: 8,
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
   },
-  heroShade: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.42)",
+  headerCopy: {
+    flex: 1,
   },
-  heroTitle: {
+  headerSubtitle: {
+    color: colors.muted,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  headerTitle: {
     color: colors.text,
-    fontSize: 30,
+    fontSize: 18,
     fontWeight: "900",
   },
   iconButton: {
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.6)",
-    borderColor: "rgba(255,255,255,0.16)",
-    borderRadius: 14,
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: radius.md,
     borderWidth: 1,
     height: 42,
     justifyContent: "center",
     width: 42,
   },
-  menuHeader: {
-    marginBottom: 14,
-    paddingHorizontal: 18,
-  },
-  menuSubtitle: {
+  itemCount: {
     color: colors.muted,
-    fontSize: 12,
-    marginTop: 3,
+    fontSize: 11,
+    fontWeight: "800",
+  },
+  menuEyebrow: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  menuHeader: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingBottom: 12,
+    paddingTop: 24,
   },
   menuTitle: {
     color: colors.text,
     fontSize: 21,
     fontWeight: "900",
-  },
-  openDot: {
-    backgroundColor: colors.emerald,
-    borderRadius: 99,
-    height: 7,
-    width: 7,
-  },
-  openPill: {
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.62)",
-    borderColor: "rgba(16,185,129,0.5)",
-    borderRadius: 999,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  openText: {
-    color: "#86efac",
-    fontSize: 11,
-    fontWeight: "900",
+    marginTop: 2,
   },
   pressed: {
-    opacity: 0.74,
+    opacity: 0.78,
+    transform: [{ scale: 0.99 }],
   },
   quantityText: {
     color: colors.text,
@@ -530,38 +519,71 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     flex: 1,
   },
+  skeletonCard: {
+    alignItems: "center",
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14,
+  },
+  skeletonCopy: {
+    flex: 1,
+    gap: 8,
+  },
+  skeletonList: {
+    gap: 11,
+  },
   stepButton: {
     alignItems: "center",
-    backgroundColor: colors.panelStrong,
-    borderRadius: 11,
+    backgroundColor: colors.bgElevated,
+    borderRadius: 10,
     height: 34,
     justifyContent: "center",
     width: 34,
   },
   stepButtonAccent: {
-    backgroundColor: colors.purple,
+    backgroundColor: colors.primary,
   },
   stepper: {
     alignItems: "center",
-    backgroundColor: "#211238",
-    borderColor: "#6d28d9",
-    borderRadius: 15,
+    backgroundColor: colors.primarySoft,
+    borderColor: "#BAD9D7",
+    borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: "row",
-    gap: 8,
+    gap: 7,
     padding: 4,
   },
-  stepperWrap: {
-    alignItems: "flex-end",
+  summaryCopy: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6,
+  },
+  summaryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderRadius: radius.lg,
+    height: 50,
+    justifyContent: "center",
+    width: 50,
+  },
+  summaryTitle: {
+    color: colors.text,
+    fontSize: 25,
+    fontWeight: "900",
+    letterSpacing: -0.4,
+    marginTop: 18,
+  },
+  summaryTop: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
   unavailableDot: {
     backgroundColor: colors.faint,
-  },
-  unavailablePill: {
-    backgroundColor: colors.panelStrong,
-    borderColor: colors.border,
-  },
-  unavailableText: {
-    color: colors.faint,
   },
 });
