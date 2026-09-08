@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -22,11 +22,12 @@ export function DeliveryAvailabilityCard() {
   const { data: canteens, isLoading: canteensLoading } = useQuery(
     trpc.canteen.listActive.queryOptions(),
   );
-  const [selectedCanteenIds, setSelectedCanteenIds] = useState<string[]>([]);
+  const [userSelectedCanteenIds, setUserSelectedCanteenIds] = useState<
+    string[] | null
+  >(null);
 
-  useEffect(() => {
-    setSelectedCanteenIds(profile?.deliveryCanteenIds ?? []);
-  }, [profile?.deliveryCanteenIds]);
+  const selectedCanteenIds =
+    userSelectedCanteenIds ?? profile?.deliveryCanteenIds ?? [];
 
   const availabilityMutation = useMutation(
     trpc.auth.updateDeliveryAvailability.mutationOptions({
@@ -56,7 +57,7 @@ export function DeliveryAvailabilityCard() {
       enabled && selectedCanteenIds.length === 0
         ? (canteens ?? []).map((canteen) => canteen.id)
         : selectedCanteenIds;
-    setSelectedCanteenIds(canteenIds);
+    setUserSelectedCanteenIds(canteenIds);
     save(enabled, canteenIds, profile?.nearbyQuestAlertsEnabled ?? false);
   };
 
@@ -64,7 +65,7 @@ export function DeliveryAvailabilityCard() {
     const next = selectedCanteenIds.includes(canteenId)
       ? selectedCanteenIds.filter((id) => id !== canteenId)
       : [...selectedCanteenIds, canteenId];
-    setSelectedCanteenIds(next);
+    setUserSelectedCanteenIds(next);
     save(
       profile?.deliveryNotificationsEnabled ?? false,
       next,
