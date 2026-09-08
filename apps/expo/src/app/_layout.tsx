@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { CartProvider } from "~/components/cart/CartContext";
+import { GeofenceManager } from "~/components/GeofenceManager";
 import { GlobalTracker } from "~/components/GlobalTracker";
 import { PushNotificationManager } from "~/components/PushNotificationManager";
 import { AuthSessionProvider } from "~/providers/AuthSessionProvider";
@@ -34,6 +35,7 @@ export default function RootLayout() {
               <Stack.Screen name="admin/landmarks" />
             </Stack>
             <GlobalTracker />
+            <GeofenceManager />
             <PushNotificationManager />
             <StatusBar />
           </SafeAreaProvider>

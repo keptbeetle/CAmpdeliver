@@ -75,6 +75,26 @@ export const authRouter = {
       .where(eq(profiles.id, ctx.user.id));
     return { success: true };
   }),
+  updateDeliveryAvailability: protectedProcedure
+    .input(
+      z.object({
+        enabled: z.boolean(),
+        canteenIds: z.array(z.string().uuid()).max(100),
+        nearbyQuestAlertsEnabled: z.boolean(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await ctx.db
+        .update(profiles)
+        .set({
+          deliveryNotificationsEnabled: input.enabled,
+          deliveryCanteenIds: input.canteenIds,
+          nearbyQuestAlertsEnabled: input.nearbyQuestAlertsEnabled,
+        })
+        .where(eq(profiles.id, ctx.user.id));
+
+      return { success: true };
+    }),
   getSecretMessage: protectedProcedure.query(() => {
     return "you can see this secret message!";
   }),

@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  boolean,
   doublePrecision,
   index,
   integer,
@@ -8,7 +9,6 @@ import {
   text,
   timestamp,
   uuid,
-  boolean,
 } from "drizzle-orm/pg-core";
 
 // Roles enum: STUDENT, DELIVERER, ADMIN
@@ -27,6 +27,23 @@ export const profiles = pgTable("profiles", {
   walletBalance: integer("wallet_balance").default(0).notNull(), // In paise (e.g. 10000 = ₹100.00)
   frozenBalance: integer("frozen_balance").default(0).notNull(), // In paise
   pushToken: text("push_token"), // Expo push token for background notifications
+  // A member becomes a delivery candidate only after explicitly opting in.
+  // This keeps new-order broadcasts targeted and avoids treating every buyer
+  // with the app installed as an available deliverer.
+  deliveryNotificationsEnabled: boolean("delivery_notifications_enabled")
+    .default(false)
+    .notNull(),
+  // Canteens for which this member has chosen to receive delivery quests.
+  // JSON keeps the preference compact while the canteen list is campus-owned.
+  deliveryCanteenIds: jsonb("delivery_canteen_ids")
+    .$type<string[]>()
+    .default([])
+    .notNull(),
+  // This is intentionally separate from remote quest alerts: it is the
+  // explicit opt-in for Android background geofence monitoring.
+  nearbyQuestAlertsEnabled: boolean("nearby_quest_alerts_enabled")
+    .default(false)
+    .notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()
@@ -206,12 +223,21 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
 }));
 
 // Phone OTP Verifications table
-export const phoneVerifications = pgTable("phone_verifications", {
-  id: uuid("id").defaultRandom().primaryKey().notNull(),
-  phoneNumber: text("phone_number").notNull(),
-  otpCode: text("otp_code").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [
-  index("idx_phone_verifications_lookup").on(table.phoneNumber, table.createdAt.desc()),
-]);
+export const phoneVerifications = pgTable(
+  "phone_verifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey().notNull(),
+    phoneNumber: text("phone_number").notNull(),
+    otpCode: text("otp_code").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("idx_phone_verifications_lookup").on(
+      table.phoneNumber,
+      table.createdAt.desc(),
+    ),
+  ],
+);

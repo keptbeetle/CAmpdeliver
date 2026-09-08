@@ -206,14 +206,21 @@ export const orderRouter = {
         });
       }
 
-      // Broadcast remote push notifications to all deliverers with registered tokens
+      // Broadcast only to members who explicitly marked themselves available
+      // for this canteen. A device never has to upload its live location for
+      // this normal remote-push path.
       await (async () => {
         try {
           const potentialDeliverers = await ctx.db
             .select({ id: profiles.id, pushToken: profiles.pushToken })
             .from(profiles)
             .where(
-              and(ne(profiles.id, ctx.user.id), isNotNull(profiles.pushToken)),
+              and(
+                ne(profiles.id, ctx.user.id),
+                isNotNull(profiles.pushToken),
+                eq(profiles.deliveryNotificationsEnabled, true),
+                sql`${profiles.deliveryCanteenIds} @> ${JSON.stringify([canteen.id])}::jsonb`,
+              ),
             );
 
           const tokens = potentialDeliverers
