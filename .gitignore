@@ -8,6 +8,7 @@ node_modules
 # testing
 coverage
 playwright-report/
+playwright-report-expo/
 test-results/
 artifacts/
 

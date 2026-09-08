@@ -144,11 +144,7 @@ jobs:
             exit 1
           fi
 
-          if [[ "$wanted_environment" == "Production" ]]; then
-            api_url="$PRODUCTION_API_URL"
-          else
-            api_url="${deployment_url%/}"
-          fi
+          api_url="${deployment_url%/}"
 
           if [[ ! "$api_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app$ ]]; then
             echo "Refusing unexpected backend URL: $api_url" >&2

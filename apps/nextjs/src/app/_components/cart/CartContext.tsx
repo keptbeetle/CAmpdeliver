@@ -1,6 +1,7 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 
 export interface CartItem {
   id: string;
@@ -27,7 +28,7 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 
 const CART_STORAGE_KEY = "campdeliver_cart_v1";
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [canteenId, setCanteenId] = useState<string | null>(null);
   const [canteenName, setCanteenName] = useState<string | null>(null);
@@ -43,7 +44,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
           canteenId: string | null;
           canteenName: string | null;
         };
-        if (parsed.items && Array.isArray(parsed.items)) {
+        if (Array.isArray(parsed.items)) {
           setItems(parsed.items);
           setCanteenId(parsed.canteenId ?? null);
           setCanteenName(parsed.canteenName ?? null);
@@ -74,7 +75,7 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     if (canteenId && canteenId !== newItem.canteenId) {
       if (
         !window.confirm(
-          `Your cart contains items from ${canteenName || "another canteen"}. Clear cart and start new order from ${newItem.canteenName}?`,
+          `Your cart contains items from ${canteenName ?? "another canteen"}. Clear cart and start new order from ${newItem.canteenName}?`,
         )
       ) {
         return;
@@ -141,7 +142,9 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
     setCanteenName(null);
     try {
       localStorage.removeItem(CART_STORAGE_KEY);
-    } catch {}
+    } catch (err) {
+      console.warn("Failed to clear cart storage:", err);
+    }
   };
 
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);

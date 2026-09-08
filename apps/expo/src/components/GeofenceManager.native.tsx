@@ -9,10 +9,10 @@ import { queryClient, trpc } from "~/utils/api";
 
 const GEOFENCE_TASK_NAME = "LOCATION_GEOFENCE_TASK";
 
-type GeofenceEvent = {
+interface GeofenceEvent {
   eventType: Location.GeofencingEventType;
   region: Location.LocationRegion;
-};
+}
 
 /**
  * Android starts this task after an opted-in deliverer enters a registered
@@ -106,7 +106,6 @@ export function GeofenceManager() {
       }
 
       await stop();
-      if (cancelled) return;
 
       await Location.startGeofencingAsync(
         GEOFENCE_TASK_NAME,
