@@ -30,9 +30,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   android: {
     package: "com.campdeliver.app",
     googleServicesFile: "./google-services.json",
-    // Android 13+ requires this runtime permission before remote order updates
-    // can be shown. No background location permission is requested.
-    permissions: ["android.permission.POST_NOTIFICATIONS"],
+    // Background location is declared only for the optional "near a canteen"
+    // feature. The app asks for it only after a deliverer explicitly enables
+    // that feature in the Quests screen.
+    permissions: [
+      "android.permission.POST_NOTIFICATIONS",
+      "android.permission.ACCESS_BACKGROUND_LOCATION",
+    ],
     adaptiveIcon: {
       foregroundImage: "./assets/icon-light.png",
       backgroundColor: "#1F104A",
@@ -82,6 +86,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         locationWhenInUsePermission:
           "Allow CAmpDeliver to use your location to broadcast it to the buyer.",
+        locationAlwaysAndWhenInUsePermission:
+          "Allow CAmpDeliver to alert you about delivery quests when you are near a selected canteen. Your location is not continuously sent to us.",
       },
     ],
     [

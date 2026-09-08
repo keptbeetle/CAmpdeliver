@@ -21,6 +21,7 @@ import type { RouterOutputs } from "~/utils/api";
 import { ActiveOrderBar } from "~/components/app/ActiveOrderBar";
 import { ShellHeader } from "~/components/app/ShellHeader";
 import { colors, formatCurrency } from "~/components/app/theme";
+import { DeliveryAvailabilityCard } from "~/components/DeliveryAvailabilityCard";
 import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
 
@@ -107,17 +108,21 @@ export default function QuestsTab() {
           />
         }
         ListHeaderComponent={
-          <View style={styles.hero}>
-            <View style={styles.heroIcon}>
-              <Feather name="compass" size={22} color="#c7d2fe" />
+          <>
+            <View style={styles.hero}>
+              <View style={styles.heroIcon}>
+                <Feather name="compass" size={22} color="#c7d2fe" />
+              </View>
+              <View style={styles.heroCopy}>
+                <Text style={styles.heroTitle}>Delivery side quests</Text>
+                <Text style={styles.heroSubtitle}>
+                  Accept food runs that are close to your current campus
+                  location.
+                </Text>
+              </View>
             </View>
-            <View style={styles.heroCopy}>
-              <Text style={styles.heroTitle}>Delivery side quests</Text>
-              <Text style={styles.heroSubtitle}>
-                Accept food runs that are close to your current campus location.
-              </Text>
-            </View>
-          </View>
+            <DeliveryAvailabilityCard />
+          </>
         }
         ListEmptyComponent={
           <View style={styles.empty}>
