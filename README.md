@@ -50,7 +50,7 @@ pnpm --filter @acme/expo dev:web       # Browser development with Fast Refresh
 pnpm --filter @acme/expo dev           # Expo development client / device
 pnpm --filter @acme/expo export:web    # Production web bundle
 pnpm --filter @acme/expo export:android
-pnpm test:e2e:expo                      # Mobile-browser buyer/deliverer journey
+pnpm test:e2e:expo                      # Mobile-browser buyer/deliverer/admin payment journey
 ```
 
 Ordinary TypeScript, UI, and business-logic changes do not require rebuilding the Android APK. Rebuild only when native dependencies, permissions, plugins, or native configuration change.
@@ -67,7 +67,7 @@ The core delivery tracking and verification engine was completed and merged dire
 - **Interactive Dual-Marker Map Tracker**: Real-time live map rendering buyer & deliverer positions, OSRM road routing, and dynamic distance calculations.
 - **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` → `NEAR_YOU`).
 - **Real-Time P2P Chat**: WebSocket streaming via Supabase Realtime for instant messaging between buyer and deliverer per active order.
-- **Escrow Wallet Ledger & 4-Digit Handover OTP**: Funds (`foodPrice` + `deliveryFee`) frozen upon acceptance and released to deliverer upon 4-digit OTP verification.
+- **4-Digit Handover OTP**: Delivery completion is gated by a buyer-held handover code. The current payment branch additionally requires verified order payment before the OTP can complete a delivery.
 
 ---
 
@@ -75,14 +75,14 @@ The core delivery tracking and verification engine was completed and merged dire
 
 Overhauled the Next.js web app into a mobile-first design system and polished the Expo mobile app for full parity:
 
-- **Persistent Bottom Navigation (`BottomNav.tsx`)**: Fixed bottom navigation bar for **Home** (`/`), **Available Quests** (`/quests`), **My Orders** (`/orders`), and **Wallet** (`/wallet`).
+- **Persistent Bottom Navigation (`BottomNav.tsx`)**: Fixed bottom navigation bar for **Home** (`/`), **Available Quests** (`/quests`), **My Orders** (`/orders`), and **Earnings** (`/earnings`).
 - **YouTube-Style Canteen Feed (`CanteenFeed.tsx`)**: Hero banner promotional carousel, 16:9 canteen video-cards with "Open Now" pills, preparation times, and landmark tags with responsive flex layout.
 - **Active Order Floating Banner (`ActiveOrderBanner.tsx`)**: Sticky floating card anchored above `BottomNav` showing active order progress bars linking directly to the status hub with external floating close badge.
 - **Interactive Cart & Stepper Controls (`CartContext.tsx`)**: Local cart state with `[-] [ Count ] [+]` quantity steppers, canteen boundary validation, and a sticky bottom cart bar.
 - **Full Checkout Experience (`/checkout`)**: Item breakdown, campus landmark drop-off picker, room/block details input, and bill breakdown.
 - **Order Status Hub (`/orders/[id]/status`)**: 4-step visual progress timeline, quick shortcuts for Live Map & Chat, and delivery OTP verification card.
 - **Mobile Map Stability (Expo)**: Android renders the same CARTO tiles and shared route/marker data as web through MapLibre Native. It does not require a Google Maps SDK key.
-- **Mobile Wallet Integration (Expo)**: Introduced digital wallet tab into Android bottom navigation with mock balance top-up functionality matching the web app.
+- **Earnings & Settlement Activity**: The legacy mock wallet/top-up UI has been replaced by delivery earnings, reimbursement, pending-settlement, and settlement-history views shared across student accounts.
 - **EAS APK Builds**: Configured `eas.json` for standalone `.apk` builds under the `preview` profile for Android device testing.
 
 ---
@@ -101,7 +101,7 @@ Integrated locked delivery points during checkout to ensure navigation accuracy 
 
 The customer and deliverer flows now share one Expo codebase across Android and the web, while Next.js remains the API gateway and administration surface:
 
-- **Shared Product Experience**: Canteen browsing, cart and checkout, quests, order history, wallet, chat, status, and live tracking use the same Expo routes and business logic on both platforms.
+- **Shared Product Experience**: Canteen browsing, cart and checkout, quests, order history, earnings, chat, payment-aware status, and live tracking use the same Expo routes and business logic on both platforms.
 - **Platform-Specific Adapters**: Android uses SecureStore, native location/geofencing, notifications, and MapLibre; web uses browser storage/geolocation and Leaflet.
 - **Automated Journey Coverage**: Playwright exercises the two-user buyer/deliverer flow against the Expo web build.
 - **Build Verification**: CI exports both web and Android bundles. The APK workflow supports `arm64-v8a` and `x86_64`, resolves the matching Vercel deployment, and verifies that the backend URL is embedded in the Android bundle.
@@ -109,14 +109,14 @@ The customer and deliverer flows now share one Expo codebase across Android and 
 
 ---
 
-### 🚧 5. Current Branch: Android Background Push Notifications (`fix/android-background-push-notifications`)
+### ✅ 5. Feature: Android Background Push Notifications
 
-The active branch implements Firebase-backed Expo push notifications so order updates can reach Android users while the app is backgrounded:
+The app uses Firebase-backed Expo push notifications so order updates can reach Android users while the app is backgrounded:
 
 - **Native Notification Setup**: Added Firebase configuration and the `expo-notifications` plugin with background remote notifications enabled.
 - **Device Registration**: The Expo client requests notification permission, obtains an Expo push token, and stores it on the authenticated user's profile through tRPC.
 - **Order Lifecycle Alerts**: New quests are broadcast to registered deliverers; buyers are notified when an order is accepted, on the way, nearby, and delivered; deliverers receive a payout confirmation after OTP handover.
-- **Deep Linking**: Tapping a notification opens the relevant quests, order status, or wallet screen.
+- **Deep Linking**: Tapping a notification opens the relevant quests, order status, or earnings/settlement screen.
 - **Resilient Dispatch**: The API validates tokens, batches requests to the Expo Push API, and keeps push-delivery failures from blocking the underlying order action.
 
 After pulling this branch, apply the new `profiles.push_token` column and regenerate the native Android project before rebuilding:
@@ -129,6 +129,27 @@ pnpm --filter @acme/expo exec expo run:android
 
 ---
 
+### 🚧 6. Current Branch: Pilot Payments, Settlements & Database Hardening (`feat/payment-settlement-security`)
+
+This branch replaces the mock wallet with a small-pilot payment workflow designed for real campus usage without pretending to be an automated payment gateway:
+
+- **Dual Student Roles**: Every normal account is a `STUDENT`; the same user can place orders as a buyer and complete other orders as a deliverer. `ADMIN` is the only elevated role.
+- **Deliverer-Controlled Pay at Delivery**: Accepting a quest defaults to advance payment. A deliverer can explicitly opt into digital Pay at Delivery for that order and accept the risk of fronting the canteen cost. Before payment, the deliverer can end an accepted quest only by declaring the requested items unavailable; after availability is confirmed, manual cancellation is allowed only when CAmpDeliver has verified advance payment and therefore can queue the buyer's refund.
+- **Manual UPI Verification**: Buyers pay the configured CAmpDeliver UPI account and submit the transaction reference. Client-side UPI success is never treated as proof; only an ADMIN can mark the incoming payment verified after matching it against the bank/UPI history.
+- **Irreversible Purchase Boundary**: Advance orders cannot be marked purchased until payment is verified. Pay-at-delivery orders may be purchased first only when the assigned deliverer offered that mode. Once the canteen purchase is confirmed, normal cancellation is disabled.
+- **Refund & Settlement Queues**: A verified payment on an order cancelled before purchase becomes `REFUND_REQUIRED`. Successful OTP handover creates a reimbursement record containing food cost plus delivery earnings in `AVAILABLE` state; the deliverer explicitly requests it from Earnings, which moves it into the admin settlement queue. Admins record outgoing refund/payout references.
+- **No Wallet Balance**: The user-facing wallet/top-up system and wallet tRPC router are removed. Earnings distinguish actual delivery earnings from food reimbursement and show paid/pending settlement totals.
+- **Server-Authoritative Pricing**: Order creation accepts only menu-item IDs and quantities. The API fetches current menu prices from PostgreSQL so a modified client cannot submit a fake food price.
+- **Backend TTLs**: Broadcast, accepted, payment-selection, payment-verification, and paid-before-purchase states carry server deadlines. Expired pre-purchase orders are cancelled by the backend; purchased orders never auto-cancel and require fulfilment/admin resolution.
+- **Database & Realtime Hardening**: The additive SQL migration adds payment/settlement tables, financial and coordinate constraints, indexes, update triggers, least-privilege grants, RLS, backend-only access to sensitive order/payment/chat/OTP data, and participant-only authorization for private `order:<uuid>` Realtime Broadcast channels. Legacy wallet columns/table remain physically present only for safe rollback and are not used by the application.
+- **OTP & Auth Hardening**: Signup OTPs are stored as HMACs, production requires a server-only OTP hash secret, and protected/admin tRPC calls authorize against Supabase's verified user lookup rather than trusting local session material. Signup and 4-digit handover verification both persist failed-attempt counters; five incorrect attempts trigger a 15-minute server-side lock, and handover attempts are serialized per order.
+
+The manual settlement layer is intentionally isolated from the order state machine. A future regulated payment provider can replace manual UPI verification/payout operations without redesigning fulfilment states.
+
+For Realtime privacy, the order/chat channels are created as private channels and the migration authorizes only the order's buyer, assigned deliverer, or an ADMIN. In Supabase **Realtime Settings**, also disable **Allow public access** when deploying this branch so clients cannot create public channels that bypass the project's private-channel requirement.
+
+---
+
 ## ⚠️ Known Issue & Technical Note: Phone OTP Verification
 
 > [!WARNING]
@@ -138,8 +159,8 @@ pnpm --filter @acme/expo exec expo run:android
 
 ### 🛠️ Developer Workarounds for Testing OTPs:
 
-1. **Server Console Output (Recommended)**:
-   Every generated OTP code is logged directly to the server terminal:
+1. **Development Server Console Output**:
+   In development/test mode, generated OTP codes are logged to the local server terminal. Production does not log OTP material:
    ```text
    [OTP-LOG] Generated OTP for +919876543210 is: 482910
    [SMS-MOCK] OTP for +919876543210 is: 482910
@@ -212,28 +233,37 @@ Copy `.env.example` to `.env` in the repository root:
 cp .env.example .env
 ```
 
-Fill in your Supabase project credentials in `.env`:
+Fill in the environment values from `.env.example`. The payment branch additionally requires server-only payment/TTL configuration:
 
 ```env
-# Database connection string (Transaction pooler)
+# Database and Supabase
 POSTGRES_URL="postgresql://postgres.[REF]:[PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres"
-
-# Supabase Public API Keys used by Next.js
 NEXT_PUBLIC_SUPABASE_URL="https://[YOUR-PROJECT-REF].supabase.co"
 NEXT_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
-
-# Public values bundled into the universal Expo web/Android client
 EXPO_PUBLIC_SUPABASE_URL="https://[YOUR-PROJECT-REF].supabase.co"
 EXPO_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
-# Optional one-off override; leave empty for automatic branch Preview resolution.
-# EXPO_PUBLIC_API_URL is generated by the Expo wrapper and should not be stored.
 EXPO_API_URL_OVERRIDE=""
 
-# Optional: Supabase Service Role Key (for admin auto-confirming users)
+# Server-only auth/SMS
+PHONE_OTP_HASH_SECRET="replace-with-at-least-32-random-characters"
 SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-
-# Optional: Fast2SMS API Key (for SMS OTP dispatch in production)
 FAST2SMS_API_KEY="your-fast2sms-api-key"
+
+# Pilot payment configuration (amounts are paise)
+CAMPDELIVER_UPI_ID="your-upi-id@provider"
+CAMPDELIVER_UPI_PAYEE_NAME="CAmpDeliver"
+DELIVERY_FEE_PAISE="500"
+PLATFORM_FEE_PAISE="300"
+
+# Pre-purchase state deadlines in seconds
+ORDER_BROADCAST_TTL_SECONDS="600"
+ORDER_ACCEPTED_TTL_SECONDS="300"
+ORDER_PAYMENT_SELECTION_TTL_SECONDS="300"
+ORDER_PAYMENT_VERIFICATION_TTL_SECONDS="900"
+ORDER_PAID_PURCHASE_TTL_SECONDS="600"
+
+# Server-only bearer secret for /api/cron/orders
+CRON_SECRET="replace-with-at-least-32-random-characters"
 ```
 
 Expo commands run through `pnpm --filter @acme/expo with-env ...`. On non-`main` branches this resolves the latest successful Vercel Preview in the current Git history, so a stale `EXPO_PUBLIC_API_URL` inherited from `.env`, Playwright, or a parent shell cannot silently point the app at an older branch. If backend-relevant files are modified locally or a backend-changing commit has not received a successful Vercel Preview yet, the command fails instead of silently using an older backend. Commit/push the backend change first, or use `EXPO_API_URL_OVERRIDE` only when you intentionally need to target a specific backend for one run.
@@ -245,13 +275,25 @@ For the `Android APK` GitHub Actions workflow, configure these repository variab
 
 The APK workflow resolves its backend from the same branch history and falls back to the production API only when that history has no usable Preview deployment.
 
-### 3. Push Database Schema
+### 3. Apply the Database Security Migration
 
-Sync your Drizzle schema with your PostgreSQL database:
+For a fresh database, sync the Drizzle schema first. For an existing deployment, make sure there are no in-flight legacy orders before applying the payment/security migration.
 
 ```bash
+# Fresh database only / normal schema development
 pnpm db:push
+
+# Existing payment branch rollout: validate the migration inside a transaction
+# and roll it back. This targets the POSTGRES_URL in .env.
+pnpm --filter @acme/db security:check
+
+# Apply only after the check succeeds and active legacy orders are finished/cancelled.
+pnpm --filter @acme/db security:apply
 ```
+
+`security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
+
+Configure a backend scheduler to call `GET /api/cron/orders` with `Authorization: Bearer <CRON_SECRET>` at a cadence appropriate for the configured TTLs (for example once per minute). Order queries also opportunistically expire stale pre-purchase orders, but the scheduler ensures ghosted orders are cleaned up even when no student has the app open.
 
 ### 4. Start Development Servers
 

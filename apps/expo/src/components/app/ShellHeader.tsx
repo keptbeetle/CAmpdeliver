@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -15,7 +14,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
-import { colors, formatCurrency, radius, shadow } from "./theme";
+import { confirmAppAction } from "~/utils/dialog";
+import { colors, radius, shadow } from "./theme";
 
 interface ShellHeaderProps {
   title?: string;
@@ -62,14 +62,13 @@ export function ShellHeader({
   };
 
   const requestSignOut = () => {
-    Alert.alert(
-      "Sign out of CAmpDeliver?",
-      "You can sign back in with your phone number and password.",
-      [
-        { text: "Stay signed in", style: "cancel" },
-        { text: "Sign out", onPress: () => void performSignOut() },
-      ],
-    );
+    confirmAppAction({
+      title: "Sign out of CAmpDeliver?",
+      message: "You can sign back in with your phone number and password.",
+      cancelLabel: "Stay signed in",
+      confirmLabel: "Sign out",
+      onConfirm: () => void performSignOut(),
+    });
   };
 
   return (
@@ -95,17 +94,15 @@ export function ShellHeader({
           {profile ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Open wallet"
-              onPress={() => router.push("/wallet" as never)}
+              accessibilityLabel="Open earnings"
+              onPress={() => router.push("/earnings" as never)}
               style={({ pressed }) => [
-                styles.walletPill,
+                styles.earningsPill,
                 pressed && styles.pressed,
               ]}
             >
-              <Feather name="credit-card" size={13} color={colors.primary} />
-              <Text style={styles.walletText}>
-                {formatCurrency(profile.walletBalance)}
-              </Text>
+              <Feather name="trending-up" size={13} color={colors.primary} />
+              <Text style={styles.earningsText}>Earnings</Text>
             </Pressable>
           ) : null}
           <Pressable
@@ -187,16 +184,22 @@ export function ShellHeader({
                 onPress={() => closeAndGo("/quests")}
               />
               <DrawerLink
-                icon="credit-card"
-                label="Wallet"
-                helper="Balance and test top-ups"
-                onPress={() => closeAndGo("/wallet")}
+                icon="trending-up"
+                label="Earnings"
+                helper="Delivery earnings and settlements"
+                onPress={() => closeAndGo("/earnings")}
               />
             </View>
 
             {isAdmin ? (
               <View style={styles.adminGroup}>
                 <Text style={styles.groupLabel}>Administration</Text>
+                <DrawerLink
+                  icon="credit-card"
+                  label="Payments & settlements"
+                  helper="Verify UPI, refunds, and payouts"
+                  onPress={() => closeAndGo("/admin/payments")}
+                />
                 <DrawerLink
                   icon="shopping-bag"
                   label="Canteens"
@@ -487,7 +490,7 @@ const styles = StyleSheet.create({
   titleWrap: {
     flexShrink: 1,
   },
-  walletPill: {
+  earningsPill: {
     alignItems: "center",
     backgroundColor: colors.panel,
     borderColor: colors.border,
@@ -498,7 +501,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
   },
-  walletText: {
+  earningsText: {
     color: colors.primaryStrong,
     fontSize: 11,
     fontWeight: "800",

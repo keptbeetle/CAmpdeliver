@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  Alert,
   FlatList,
   KeyboardAvoidingView,
   Linking,
@@ -23,10 +22,12 @@ import { colors, radius, shadow, shortId } from "~/components/app/theme";
 import { EmptyState, InlineNotice, LoadingState } from "~/components/app/ui";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 import { trpc } from "~/utils/api";
+import { showAppAlert } from "~/utils/dialog";
 
 const ACTIVE_CHAT_STATUSES = [
   "ACCEPTED",
-  "PREPARING",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
 ];
@@ -82,7 +83,7 @@ export default function OrderChatScreen() {
     try {
       const result = await refetchContactPhone();
       if (!result.data?.phoneNumber) {
-        Alert.alert(
+        showAppAlert(
           "Phone unavailable",
           "A contact number is not available for this order.",
         );
@@ -91,7 +92,7 @@ export default function OrderChatScreen() {
 
       const phoneUrl = `tel:${result.data.phoneNumber}`;
       if (!(await Linking.canOpenURL(phoneUrl))) {
-        Alert.alert(
+        showAppAlert(
           "Dialer unavailable",
           "This device cannot open a phone call.",
         );
@@ -99,7 +100,7 @@ export default function OrderChatScreen() {
       }
       await Linking.openURL(phoneUrl);
     } catch (error) {
-      Alert.alert(
+      showAppAlert(
         "Call could not start",
         error instanceof Error ? error.message : "Please try again.",
       );
@@ -202,7 +203,7 @@ export default function OrderChatScreen() {
             <InlineNotice
               icon="user-plus"
               title="Chat opens after assignment"
-              copy="A buyer and deliverer conversation starts only after a rider accepts this order."
+              copy="A buyer and deliverer conversation starts only after another student accepts this order."
             />
           </View>
         ) : !chatActive ? (

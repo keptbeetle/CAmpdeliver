@@ -69,31 +69,38 @@ export function shortId(id?: string) {
 export const ACTIVE_ORDER_STATUSES = [
   "BROADCASTED",
   "ACCEPTED",
-  "PREPARING",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
 ];
 
 export const statusLabels: Record<string, string> = {
   BROADCASTED: "Finding a deliverer",
-  ACCEPTED: "Rider accepted",
-  PREPARING: "Preparing pickup",
+  ACCEPTED: "Deliverer accepted",
+  ITEM_AVAILABLE: "Items available",
+  PURCHASED: "Purchased at canteen",
   ON_THE_WAY: "On the way",
   NEAR_YOU: "Near you",
   DELIVERED: "Delivered",
-  COMPLETED: "Completed",
   CANCELLED: "Cancelled",
+  FAILED: "Needs admin review",
+  PREPARING: "Legacy preparing",
+  COMPLETED: "Legacy completed",
 };
 
 export const statusProgress: Record<string, number> = {
-  BROADCASTED: 16,
-  ACCEPTED: 34,
-  PREPARING: 56,
+  BROADCASTED: 12,
+  ACCEPTED: 26,
+  ITEM_AVAILABLE: 42,
+  PURCHASED: 60,
   ON_THE_WAY: 78,
   NEAR_YOU: 92,
   DELIVERED: 100,
-  COMPLETED: 100,
   CANCELLED: 100,
+  FAILED: 100,
+  PREPARING: 50,
+  COMPLETED: 100,
 };
 
 export function statusTone(status: string) {

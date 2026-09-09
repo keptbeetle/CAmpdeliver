@@ -1,3 +1,4 @@
+import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -5,11 +6,10 @@ import { desc, eq } from "@acme/db";
 import { chatMessages, orders } from "@acme/db/schema";
 
 import { protectedProcedure } from "../trpc";
-import type { TRPCRouterRecord } from "@trpc/server";
 
 export const chatRouter = {
   getMessages: protectedProcedure
-    .input(z.object({ orderId: z.string() }))
+    .input(z.object({ orderId: z.string().uuid() }).strict())
     .query(async ({ ctx, input }) => {
       // Validate user has access to order
       const order = await ctx.db.query.orders.findFirst({
@@ -50,10 +50,12 @@ export const chatRouter = {
 
   sendMessage: protectedProcedure
     .input(
-      z.object({
-        orderId: z.string(),
-        message: z.string().min(1),
-      }),
+      z
+        .object({
+          orderId: z.string().uuid(),
+          message: z.string().trim().min(1).max(1000),
+        })
+        .strict(),
     )
     .mutation(async ({ ctx, input }) => {
       // Validate user has access

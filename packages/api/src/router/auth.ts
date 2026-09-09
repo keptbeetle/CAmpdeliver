@@ -6,10 +6,29 @@ import { profiles } from "@acme/db/schema";
 
 import { protectedProcedure, publicProcedure } from "../trpc";
 
+type ProfileRow = typeof profiles.$inferSelect;
+
+function publicProfile(profile: ProfileRow) {
+  return {
+    id: profile.id,
+    name: profile.name,
+    email: profile.email,
+    phoneNumber: profile.phoneNumber,
+    rollNumber: profile.rollNumber,
+    hostelName: profile.hostelName,
+    avatarUrl: profile.avatarUrl,
+    role: profile.role,
+    deliveryNotificationsEnabled: profile.deliveryNotificationsEnabled,
+    deliveryCanteenIds: profile.deliveryCanteenIds,
+    nearbyQuestAlertsEnabled: profile.nearbyQuestAlertsEnabled,
+    createdAt: profile.createdAt,
+    updatedAt: profile.updatedAt,
+  };
+}
+
 export const authRouter = {
-  getUser: publicProcedure.query(({ ctx }) => {
-    return ctx.user;
-  }),
+  getUser: publicProcedure.query(({ ctx }) => ctx.user),
+
   getMyProfile: protectedProcedure.query(async ({ ctx }) => {
     const [profile] = await ctx.db
       .select()
@@ -19,11 +38,9 @@ export const authRouter = {
 
     if (!profile) {
       const userEmail = ctx.user.email ?? "";
-      let extractedPhone = null;
-      if (userEmail.endsWith("@campus.edu")) {
-        extractedPhone = userEmail.replace("@campus.edu", "");
-      }
-
+      const extractedPhone = userEmail.endsWith("@campus.edu")
+        ? userEmail.replace("@campus.edu", "")
+        : null;
       const [newProfile] = await ctx.db
         .insert(profiles)
         .values({
@@ -35,53 +52,60 @@ export const authRouter = {
           email: userEmail,
           phoneNumber: extractedPhone,
           role: "STUDENT",
-          walletBalance: 0,
-          frozenBalance: 0,
         })
         .returning();
-      return newProfile;
+      if (!newProfile) throw new Error("Failed to create profile");
+      return publicProfile(newProfile);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!profile.phoneNumber && profile.email?.endsWith("@campus.edu")) {
-      const extractedPhone = profile.email.replace("@campus.edu", "");
+    if (!profile.phoneNumber && profile.email.endsWith("@campus.edu")) {
       const [updatedProfile] = await ctx.db
         .update(profiles)
-        .set({ phoneNumber: extractedPhone })
+        .set({
+          phoneNumber: profile.email.replace("@campus.edu", ""),
+          updatedAt: new Date(),
+        })
         .where(eq(profiles.id, profile.id))
         .returning();
-      return updatedProfile ?? profile;
+      return publicProfile(updatedProfile ?? profile);
     }
 
-    return profile;
+    return publicProfile(profile);
   }),
+
   updatePushToken: protectedProcedure
     .input(
-      z.object({
-        pushToken: z.string().regex(/^(?:Expo|Exponent)PushToken\[[^\]]+\]$/),
-      }),
+      z
+        .object({
+          pushToken: z.string().regex(/^(?:Expo|Exponent)PushToken\[[^\]]+\]$/),
+        })
+        .strict(),
     )
     .mutation(async ({ ctx, input }) => {
       await ctx.db
         .update(profiles)
-        .set({ pushToken: input.pushToken })
+        .set({ pushToken: input.pushToken, updatedAt: new Date() })
         .where(eq(profiles.id, ctx.user.id));
       return { success: true };
     }),
+
   clearPushToken: protectedProcedure.mutation(async ({ ctx }) => {
     await ctx.db
       .update(profiles)
-      .set({ pushToken: null })
+      .set({ pushToken: null, updatedAt: new Date() })
       .where(eq(profiles.id, ctx.user.id));
     return { success: true };
   }),
+
   updateDeliveryAvailability: protectedProcedure
     .input(
-      z.object({
-        enabled: z.boolean(),
-        canteenIds: z.array(z.string().uuid()).max(100),
-        nearbyQuestAlertsEnabled: z.boolean(),
-      }),
+      z
+        .object({
+          enabled: z.boolean(),
+          canteenIds: z.array(z.string().uuid()).max(100),
+          nearbyQuestAlertsEnabled: z.boolean(),
+        })
+        .strict(),
     )
     .mutation(async ({ ctx, input }) => {
       await ctx.db
@@ -90,12 +114,9 @@ export const authRouter = {
           deliveryNotificationsEnabled: input.enabled,
           deliveryCanteenIds: input.canteenIds,
           nearbyQuestAlertsEnabled: input.nearbyQuestAlertsEnabled,
+          updatedAt: new Date(),
         })
         .where(eq(profiles.id, ctx.user.id));
-
       return { success: true };
     }),
-  getSecretMessage: protectedProcedure.query(() => {
-    return "you can see this secret message!";
-  }),
 } satisfies TRPCRouterRecord;

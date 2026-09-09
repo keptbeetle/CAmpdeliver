@@ -73,12 +73,12 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="wallet"
+        name="earnings"
         options={{
-          title: "Wallet",
+          title: "Earnings",
           tabBarIcon: ({ color, focused }) => (
             <Feather
-              name="credit-card"
+              name="trending-up"
               size={focused ? 22 : 21}
               color={color}
             />

@@ -28,10 +28,10 @@ TaskManager.defineTask(GEOFENCE_TASK_NAME, async ({ data, error }) => {
     const profile = await queryClient.fetchQuery(
       trpc.auth.getMyProfile.queryOptions(),
     );
-    const selectedIds = profile?.deliveryCanteenIds ?? [];
+    const selectedIds = profile.deliveryCanteenIds;
     if (
       !region.identifier ||
-      !profile?.deliveryNotificationsEnabled ||
+      !profile.deliveryNotificationsEnabled ||
       !profile.nearbyQuestAlertsEnabled ||
       !selectedIds.includes(region.identifier)
     ) {

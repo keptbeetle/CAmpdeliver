@@ -23,7 +23,11 @@ async function login(
   ).toBeVisible();
 }
 
-test("universal Expo buyer and deliverer complete the core product flow", async ({
+function orderReference(orderId: string) {
+  return orderId.slice(0, 8).toUpperCase();
+}
+
+test("universal Expo buyer, deliverer, and admin complete payment, delivery, and settlement", async ({
   browser,
 }, testInfo) => {
   const users = await resetScenario();
@@ -41,15 +45,25 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
     geolocation: LOCATIONS.outsideCanteen,
     permissions: ["geolocation"],
   });
-  await Promise.all([stubRouting(buyerContext), stubRouting(delivererContext)]);
+  const adminContext = await browser.newContext({
+    baseURL,
+    viewport: { width: 390, height: 844 },
+  });
+  await Promise.all([
+    stubRouting(buyerContext),
+    stubRouting(delivererContext),
+    stubRouting(adminContext),
+  ]);
 
   const buyer = await buyerContext.newPage();
   const deliverer = await delivererContext.newPage();
+  const admin = await adminContext.newPage();
 
   try {
     await Promise.all([
       login(buyer, TEST_USERS.buyer.phone),
       login(deliverer, TEST_USERS.deliverer.phone),
+      login(admin, TEST_USERS.admin.phone),
     ]);
 
     await buyer.getByText(TEST_CANTEEN.name, { exact: true }).first().click();
@@ -67,6 +81,7 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
     await expect(buyer).toHaveURL(/\/orders\/[^/]+\/status/);
     const orderId = buyer.url().match(/\/orders\/([^/]+)\/status/)?.[1];
     expect(orderId).toBeTruthy();
+    const shortOrderId = orderReference(orderId!);
     await expect(buyer.getByTestId("order-status")).toHaveText("BROADCASTED");
 
     await deliverer.goto("/quests");
@@ -79,15 +94,54 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
     await expect(
       deliverer.getByText(TEST_CANTEEN.name, { exact: true }),
     ).toBeVisible();
-    await deliverer.getByText("Accept Quest", { exact: true }).click();
+    await deliverer.getByText("Advance only", { exact: true }).click();
     await expect(deliverer).toHaveURL(new RegExp(`/orders/${orderId}/status`));
     await expect(deliverer.getByTestId("order-status")).toHaveText("ACCEPTED");
 
-    await deliverer
-      .getByText("Confirm Item Availability", { exact: true })
+    await deliverer.getByText("Items Are Available", { exact: true }).click();
+    await expect(deliverer.getByTestId("order-status")).toHaveText(
+      "ITEM_AVAILABLE",
+    );
+
+    await expect(
+      buyer.getByText("Pay Now - Advance", { exact: true }),
+    ).toBeVisible({ timeout: 20_000 });
+    await buyer.getByText("Pay Now - Advance", { exact: true }).click();
+    const paymentReference = `EXPO-PAY-${Date.now()}`;
+    await buyer
+      .getByPlaceholder("UPI transaction reference / UTR")
+      .fill(paymentReference);
+    await buyer
+      .getByText("Submit for Admin Verification", { exact: true })
       .click();
-    await expect(deliverer.getByTestId("order-status")).toHaveText("PREPARING");
-    await expect(buyer.getByTestId("delivery-otp")).toBeVisible();
+    await expect(
+      buyer.getByText("Payment submitted for verification", { exact: true }),
+    ).toBeVisible();
+
+    await admin.goto("/admin/payments");
+    const paymentCard = admin
+      .getByText(`Order #${shortOrderId}`, { exact: true })
+      .locator("..")
+      .locator("..");
+    await expect(
+      admin.getByText(paymentReference, { exact: true }),
+    ).toBeVisible({
+      timeout: 20_000,
+    });
+    await paymentCard.getByText("Verify bank credit", { exact: true }).click();
+
+    await expect(
+      buyer.getByText("Payment verified", { exact: true }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      deliverer.getByText("Buyer payment secured", { exact: true }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    deliverer.once("dialog", (dialog) => void dialog.accept());
+    await deliverer
+      .getByText("I Paid the Canteen / Order Placed", { exact: true })
+      .click();
+    await expect(deliverer.getByTestId("order-status")).toHaveText("PURCHASED");
 
     await buyer.goto(`/order/${orderId}/chat`);
     await deliverer.goto(`/order/${orderId}/chat`);
@@ -97,25 +151,25 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
     await buyer.getByText("Send", { exact: true }).click();
     await expect(
       deliverer.getByText("Buyer test message", { exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
     await deliverer
       .getByPlaceholder("Type a message...")
       .fill("Deliverer test reply");
     await deliverer.getByText("Send", { exact: true }).click();
     await expect(
       buyer.getByText("Deliverer test reply", { exact: true }),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 20_000 });
 
     await buyer.goto(`/order/${orderId}/tracker`);
     await deliverer.goto(`/orders/${orderId}/status`);
     const distanceLabel = buyer.getByTestId("tracking-distance");
-    await expect(distanceLabel).toBeVisible();
+    await expect(distanceLabel).toBeVisible({ timeout: 20_000 });
     const initialDistance = displayedDistance(
       await distanceLabel.textContent(),
     );
     expect(initialDistance).toBeGreaterThan(0);
 
-    await deliverer.getByText("Mark On The Way", { exact: true }).click();
+    await deliverer.getByText("Start Delivery", { exact: true }).click();
     await expect(deliverer.getByTestId("order-status")).toHaveText(
       "ON_THE_WAY",
     );
@@ -126,6 +180,7 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
       })
       .toBeLessThan(initialDistance);
 
+    await delivererContext.setGeolocation(LOCATIONS.nearBuyer);
     await deliverer.getByText("Mark Near You", { exact: true }).click();
     await expect(deliverer.getByTestId("order-status")).toHaveText("NEAR_YOU");
     await buyer.goto(`/orders/${orderId}/status`);
@@ -134,30 +189,61 @@ test("universal Expo buyer and deliverer complete the core product flow", async 
 
     await deliverer.getByLabel("Delivery OTP").fill(otp!);
     await deliverer.getByText("Verify", { exact: true }).click();
-    await expect(deliverer.getByTestId("order-status")).toHaveText(
-      /DELIVERED|COMPLETED/,
-    );
+    await expect(deliverer.getByTestId("order-status")).toHaveText("DELIVERED");
 
-    await buyer.goto("/wallet");
+    await deliverer.goto("/earnings");
     await expect(
-      buyer.getByText("Current Balance", { exact: true }),
+      deliverer.getByText("Request Reimbursement", { exact: true }),
     ).toBeVisible();
-    await buyer.getByPlaceholder("e.g. 100").fill("1");
-    await buyer.getByPlaceholder("Enter mock UTR").fill(`EXPO-${Date.now()}`);
-    await buyer.getByText("Submit Top Up", { exact: true }).click();
-    await expect(buyer.getByPlaceholder("e.g. 100")).toHaveValue("");
+    await deliverer.getByText("Request Reimbursement", { exact: true }).click();
+    await expect(
+      deliverer.getByText("Settlement requested", { exact: true }),
+    ).toBeVisible();
+
+    await admin.goto("/admin/payments");
+    await expect(
+      admin.getByText(`Settlement #${shortOrderId}`, { exact: true }),
+    ).toBeVisible({ timeout: 20_000 });
+    const payoutReference = `EXPO-PAYOUT-${Date.now()}`;
+    await admin
+      .getByPlaceholder("Outgoing payout UTR / reference")
+      .fill(payoutReference);
+    await admin.getByText("Mark Settlement Paid", { exact: true }).click();
+
+    const state = await readScenarioState(orderId!, users);
+    expect(state.order).toMatchObject({
+      status: "DELIVERED",
+      foodPrice: TEST_CANTEEN.itemPrice,
+      deliveryFee: 500,
+      platformFee: 300,
+    });
+    expect(state.order?.delivererLatitude).not.toBeNull();
+    expect(state.payment).toMatchObject({
+      method: "ADVANCE",
+      status: "PAID",
+      expectedAmount: TEST_CANTEEN.itemPrice + 500 + 300,
+      submittedUtr: paymentReference,
+      verifiedByAdminId: users.adminId,
+    });
+    expect(state.settlement).toMatchObject({
+      status: "PAID",
+      foodReimbursement: TEST_CANTEEN.itemPrice,
+      deliveryEarning: 500,
+      amountDue: TEST_CANTEEN.itemPrice + 500,
+      payoutReference,
+    });
 
     await buyer.goto("/history_tab");
     await expect(
       buyer.getByText(TEST_CANTEEN.name, { exact: true }).first(),
     ).toBeVisible();
-    await expect(buyer.getByText(/Delivered|Completed/i).first()).toBeVisible();
-
-    const state = await readScenarioState(orderId!, users);
-    expect(state.order?.status).toMatch(/DELIVERED|COMPLETED/);
-    expect(state.order?.delivererLatitude).not.toBeNull();
+    await expect(buyer.getByText(/Delivered/i).first()).toBeVisible();
   } finally {
-    await Promise.all([buyerContext.close(), delivererContext.close()]);
+    await Promise.all([
+      buyerContext.close(),
+      delivererContext.close(),
+      adminContext.close(),
+    ]);
   }
 });
 

@@ -12,7 +12,8 @@ import { trpc } from "~/utils/api";
 
 const TRACKED_STATUSES = [
   "ACCEPTED",
-  "PREPARING",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
 ] as const;

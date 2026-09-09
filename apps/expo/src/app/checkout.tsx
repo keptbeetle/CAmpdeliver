@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -24,9 +23,10 @@ import { EmptyState, InlineNotice, MotionView } from "~/components/app/ui";
 import { useCart } from "~/components/cart/CartContext";
 import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
+import { showAppAlert } from "~/utils/dialog";
 
-const deliveryFee = 500;
-const convenienceFee = 0;
+const fallbackDeliveryFee = 500;
+const fallbackPlatformFee = 300;
 
 type CheckoutStage = "idle" | "locating" | "broadcasting";
 
@@ -54,17 +54,20 @@ export default function CheckoutScreen() {
   const [stage, setStage] = useState<CheckoutStage>("idle");
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions(),
   );
 
-  const finalAmount = totalPrice + deliveryFee + convenienceFee;
+  const deliveryFee = paymentConfig?.deliveryFeePaise ?? fallbackDeliveryFee;
+  const platformFee = paymentConfig?.platformFeePaise ?? fallbackPlatformFee;
+  const finalAmount = totalPrice + deliveryFee + platformFee;
   const busy = stage !== "idle" || createOrderMutation.isPending;
 
   const placeOrder = async () => {
     if (busy) return;
     if (!canteenId || items.length === 0) {
-      Alert.alert("Cart is empty", "Add dishes before placing an order.");
+      showAppAlert("Cart is empty", "Add dishes before placing an order.");
       return;
     }
 
@@ -73,7 +76,7 @@ export default function CheckoutScreen() {
       const permissionGranted =
         await locationService.requestForegroundPermission();
       if (!permissionGranted) {
-        Alert.alert(
+        showAppAlert(
           "Location is required",
           "CAmpDeliver needs your current location to lock the delivery point for this order.",
         );
@@ -124,8 +127,7 @@ export default function CheckoutScreen() {
       const order = await createOrderMutation.mutateAsync({
         canteenId,
         items: items.map((item) => ({
-          name: item.name,
-          price: item.price,
+          menuItemId: item.id,
           quantity: item.quantity,
         })),
         deliveryLocationName,
@@ -139,7 +141,7 @@ export default function CheckoutScreen() {
       });
       router.replace(`/orders/${order.id}/status` as never);
     } catch (error) {
-      Alert.alert(
+      showAppAlert(
         "Order was not placed",
         error instanceof Error
           ? error.message
@@ -265,7 +267,7 @@ export default function CheckoutScreen() {
             <InlineNotice
               icon="crosshair"
               title="Auto GPS Location"
-              copy="The drop-off coordinate is then fixed for this delivery so the rider gets one consistent destination."
+              copy="The drop-off coordinate is then fixed for this delivery so the deliverer gets one consistent destination."
             />
             <View style={styles.inputGroup}>
               <Text style={styles.inputLabel}>
@@ -293,16 +295,20 @@ export default function CheckoutScreen() {
               label="Delivery fee"
               value={formatCurrency(deliveryFee)}
             />
-            <BillLine label="Convenience fee" value="Waived" />
+            <BillLine
+              label="Platform fee"
+              value={formatCurrency(platformFee)}
+            />
             <View style={styles.billDivider} />
             <BillLine
-              label="Order total"
+              label="Estimated total"
               value={formatCurrency(finalAmount)}
               strong
             />
             <Text style={styles.paymentNote}>
-              Payment is handled through your CAmpDeliver wallet when a rider
-              confirms availability.
+              No payment is taken at checkout. After a deliverer confirms the
+              items are available, you will pay CAmpDeliver digitally before
+              purchase or at delivery when that deliverer offers the option.
             </Text>
           </Section>
         </ScrollView>

@@ -1,8 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Navigation, X } from "lucide-react";
 
@@ -11,25 +11,28 @@ import { useTRPC } from "~/trpc/react";
 const ACTIVE_STATUSES = [
   "BROADCASTED",
   "ACCEPTED",
-  "PREPARING",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
 ];
 
 const STATUS_PROGRESS: Record<string, number> = {
-  BROADCASTED: 20,
-  ACCEPTED: 40,
-  PREPARING: 60,
-  ON_THE_WAY: 80,
+  BROADCASTED: 15,
+  ACCEPTED: 30,
+  ITEM_AVAILABLE: 48,
+  PURCHASED: 65,
+  ON_THE_WAY: 82,
   NEAR_YOU: 95,
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  BROADCASTED: "Order Broadcasted",
-  ACCEPTED: "Accepted by Deliverer",
-  PREPARING: "Food Preparing",
-  ON_THE_WAY: "On the Way",
-  NEAR_YOU: "Deliverer is Near You!",
+  BROADCASTED: "Finding a deliverer",
+  ACCEPTED: "Deliverer checking items",
+  ITEM_AVAILABLE: "Payment step",
+  PURCHASED: "Canteen purchase confirmed",
+  ON_THE_WAY: "On the way",
+  NEAR_YOU: "Deliverer is nearby",
 };
 
 let globalIsHidden = false;
@@ -78,7 +81,7 @@ export function ActiveOrderBanner() {
   const statusLabel = STATUS_LABELS[activeOrder.status] ?? activeOrder.status;
 
   return (
-    <div className="fixed bottom-16 left-1/2 z-40 w-full -translate-x-1/2 max-w-md px-4">
+    <div className="fixed bottom-16 left-1/2 z-40 w-full max-w-md -translate-x-1/2 px-4">
       <div className="relative">
         <Link
           href={`/orders/${activeOrder.id}/status`}
@@ -119,7 +122,7 @@ export function ActiveOrderBanner() {
             e.stopPropagation();
             setIsHidden(true);
           }}
-          className="absolute -top-2.5 -right-2.5 z-50 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white shadow-xl"
+          className="absolute -top-2.5 -right-2.5 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 bg-zinc-800 text-zinc-400 shadow-xl hover:bg-zinc-700 hover:text-white"
         >
           <X className="h-3.5 w-3.5" />
         </button>

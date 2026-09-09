@@ -34,7 +34,7 @@ export function useOrderRealtime(
     if (!orderId) return;
 
     const channel = supabaseClient
-      .channel(`order:${orderId}`)
+      .channel(`order:${orderId}`, { config: { private: true } })
       .on("broadcast", { event: "location_update" }, (payload) => {
         const data = payload.payload as DelivererLocationPayload;
         setDelivererLocation({

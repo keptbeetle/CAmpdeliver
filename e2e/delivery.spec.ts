@@ -20,7 +20,11 @@ import {
 
 const demoMode = process.env.E2E_DEMO === "1";
 
-test("buyer and deliverer complete a tracked delivery", async ({
+function orderReference(orderId: string) {
+  return orderId.slice(0, 8).toUpperCase();
+}
+
+test("buyer, deliverer, and admin complete a paid tracked delivery and settlement", async ({
   browser,
 }, testInfo) => {
   const users = await resetScenario();
@@ -52,7 +56,12 @@ test("buyer and deliverer complete a tracked delivery", async ({
     permissions: ["geolocation"],
     ...recordingOptions,
   });
-  await Promise.all([stubRouting(buyerContext), stubRouting(delivererContext)]);
+  const adminContext = await browser.newContext({ baseURL });
+  await Promise.all([
+    stubRouting(buyerContext),
+    stubRouting(delivererContext),
+    stubRouting(adminContext),
+  ]);
 
   const buyer = new Actor(
     buyerContext,
@@ -64,6 +73,11 @@ test("buyer and deliverer complete a tracked delivery", async ({
     await delivererContext.newPage(),
     TEST_USERS.deliverer.phone,
   );
+  const admin = new Actor(
+    adminContext,
+    await adminContext.newPage(),
+    TEST_USERS.admin.phone,
+  );
   const buyerVideo = buyer.page.video();
   const delivererVideo = deliverer.page.video();
 
@@ -73,7 +87,7 @@ test("buyer and deliverer complete a tracked delivery", async ({
   ]);
 
   try {
-    await Promise.all([buyer.login(), deliverer.login()]);
+    await Promise.all([buyer.login(), deliverer.login(), admin.login()]);
     await Promise.all([
       setDemoStep(buyer.page, "Place a food order"),
       setDemoStep(deliverer.page, "Signed in outside the canteen geofence"),
@@ -102,6 +116,7 @@ test("buyer and deliverer complete a tracked delivery", async ({
 
     const orderId = buyer.page.url().match(/\/orders\/([^/]+)\/status/)?.[1];
     expect(orderId).toBeTruthy();
+    const shortOrderId = orderReference(orderId!);
 
     await deliverer.page.goto("/quests");
     await expect(
@@ -120,7 +135,7 @@ test("buyer and deliverer complete a tracked delivery", async ({
     await expect(deliverer.page.getByText(TEST_CANTEEN.name)).toBeVisible();
     await demoPause();
 
-    await deliverer.page.getByRole("button", { name: "Accept Quest" }).click();
+    await deliverer.page.getByRole("button", { name: "Advance only" }).click();
     await expect(deliverer.page).toHaveURL(
       new RegExp(`/orders/${orderId}/status`),
     );
@@ -137,17 +152,64 @@ test("buyer and deliverer complete a tracked delivery", async ({
     await demoPause();
 
     await deliverer.page
-      .getByRole("button", { name: "Confirm Item Availability" })
+      .getByRole("button", { name: "Items are available" })
       .click();
     await expect(deliverer.page.getByTestId("order-status")).toContainText(
-      "PREPARING",
+      "ITEM_AVAILABLE",
     );
-    await expect(buyer.page.getByTestId("delivery-otp")).toBeVisible();
-    await Promise.all([
-      setDemoStep(buyer.page, "Payment frozen and a delivery OTP generated"),
-      setDemoStep(deliverer.page, "Food confirmed: begin the tracked delivery"),
-    ]);
-    await demoPause(1_200);
+    await setDemoStep(
+      deliverer.page,
+      "Items confirmed: wait for verified advance payment",
+    );
+
+    await expect(
+      buyer.page.getByRole("button", { name: /Pay Now.*Advance/ }),
+    ).toBeVisible({ timeout: 20_000 });
+    await buyer.page.getByRole("button", { name: /Pay Now.*Advance/ }).click();
+    const paymentReference = `E2E-PAY-${Date.now()}`;
+    await buyer.page
+      .getByPlaceholder("UPI transaction reference / UTR")
+      .fill(paymentReference);
+    await buyer.page
+      .getByRole("button", { name: "Submit for admin verification" })
+      .click();
+    await expect(
+      buyer.page.getByText(/Payment reference submitted/i),
+    ).toBeVisible();
+    await setDemoStep(
+      buyer.page,
+      "Payment reference submitted for admin review",
+    );
+
+    await admin.page.goto("/admin/payments");
+    const paymentCard = admin.page
+      .locator("article")
+      .filter({ hasText: shortOrderId })
+      .filter({ hasText: paymentReference });
+    await expect(paymentCard).toBeVisible({ timeout: 20_000 });
+    await paymentCard
+      .getByRole("button", { name: "Verify bank credit" })
+      .click();
+    await expect(admin.page.getByText("Payment verified.")).toBeVisible();
+
+    await expect(
+      buyer.page.getByText("CAmpDeliver has verified the incoming payment."),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      deliverer.page.getByText(/Advance payment is verified/i),
+    ).toBeVisible({ timeout: 20_000 });
+    await setDemoStep(
+      deliverer.page,
+      "Admin verified the bank credit: purchase can proceed",
+    );
+
+    deliverer.page.once("dialog", (dialog) => void dialog.accept());
+    await deliverer.page
+      .getByRole("button", { name: "I paid the canteen / Order placed" })
+      .click();
+    await expect(deliverer.page.getByTestId("order-status")).toContainText(
+      "PURCHASED",
+    );
 
     await buyer.page.goto(`/order/${orderId}/tracker`);
     const distanceLabel = buyer.page.getByTestId("tracking-distance");
@@ -158,105 +220,110 @@ test("buyer and deliverer complete a tracked delivery", async ({
     expect(initialDistance).toBeGreaterThan(0);
     await Promise.all([
       setDemoStep(buyer.page, "Live map follows the runner's GPS"),
-      setDemoStep(deliverer.page, "Move along the simulated campus route"),
+      setDemoStep(deliverer.page, "Start the tracked campus delivery"),
     ]);
-    await demoPause();
-
-    await deliverer.moveTo(LOCATIONS.midway);
-    await expect
-      .poll(
-        async () => {
-          const distance = displayedDistance(await distanceLabel.textContent());
-          return distance > 0 && distance < initialDistance;
-        },
-        { timeout: 20_000 },
-      )
-      .toBe(true);
-    const midwayDistance = displayedDistance(await distanceLabel.textContent());
-    await setDemoStep(
-      buyer.page,
-      "The displayed distance decreases in real time",
-    );
-    await demoPause();
 
     await deliverer.page
-      .getByRole("button", { name: "Mark On The Way" })
+      .getByRole("button", { name: "Start delivery" })
       .click();
     await expect(deliverer.page.getByTestId("order-status")).toContainText(
       "ON_THE_WAY",
     );
-    await setDemoStep(deliverer.page, "Status changed to ON THE WAY");
+
+    await deliverer.moveTo(LOCATIONS.midway);
+    await expect
+      .poll(async () => displayedDistance(await distanceLabel.textContent()), {
+        timeout: 30_000,
+      })
+      .toBeLessThan(initialDistance);
+    const midwayDistance = displayedDistance(await distanceLabel.textContent());
 
     await deliverer.moveTo(LOCATIONS.nearBuyer);
     await expect
-      .poll(
-        async () => {
-          const distance = displayedDistance(await distanceLabel.textContent());
-          return distance > 0 && distance < midwayDistance;
-        },
-        { timeout: 20_000 },
-      )
-      .toBe(true);
-    await setDemoStep(
-      buyer.page,
-      "Location keeps updating after the ON THE WAY transition",
-    );
-    await demoPause(1_100);
-
+      .poll(async () => displayedDistance(await distanceLabel.textContent()), {
+        timeout: 30_000,
+      })
+      .toBeLessThan(midwayDistance);
     await deliverer.page.getByRole("button", { name: "Mark Near You" }).click();
     await expect(deliverer.page.getByTestId("order-status")).toContainText(
       "NEAR_YOU",
     );
-    await Promise.all([
-      setDemoStep(buyer.page, "Runner is nearby: share the one-time code"),
-      setDemoStep(deliverer.page, "Enter the buyer's 4-digit delivery code"),
-    ]);
-    await demoPause(1_200);
 
+    await buyer.page.goto(`/orders/${orderId}/status`);
     const otp = (
       await buyer.page.getByTestId("delivery-otp").textContent()
     )?.trim();
     expect(otp).toMatch(/^\d{4}$/);
-    await deliverer.page.getByPlaceholder("1234").fill(otp!);
-    await demoPause(600);
-    await deliverer.page.getByRole("button", { name: "Verify" }).click();
+    await deliverer.page.getByPlaceholder("0000").fill(otp!);
+    await deliverer.page.getByRole("button", { name: "Verify OTP" }).click();
     await expect(deliverer.page.getByTestId("order-status")).toContainText(
       "DELIVERED",
     );
     await Promise.all([
-      setDemoStep(buyer.page, "Delivery completed securely"),
-      setDemoStep(deliverer.page, "Delivered: payout and commission settled"),
+      setDemoStep(
+        buyer.page,
+        "Delivery completed with the one-time handover code",
+      ),
+      setDemoStep(deliverer.page, "Delivery complete: request reimbursement"),
     ]);
-    await demoPause(2_000);
+
+    await deliverer.page.goto("/earnings");
+    await expect(
+      deliverer.page.getByRole("button", { name: "Request reimbursement" }),
+    ).toBeVisible();
+    await deliverer.page
+      .getByRole("button", { name: "Request reimbursement" })
+      .click();
+    await expect(
+      deliverer.page.getByText(/waiting in the manual admin settlement queue/i),
+    ).toBeVisible();
+
+    await admin.page.goto("/admin/payments");
+    const settlementCard = admin.page
+      .locator("article")
+      .filter({ hasText: shortOrderId })
+      .filter({ hasText: "Food reimbursement" });
+    await expect(settlementCard).toBeVisible({ timeout: 20_000 });
+    const payoutReference = `E2E-PAYOUT-${Date.now()}`;
+    await settlementCard
+      .getByPlaceholder("Outgoing payout UTR / reference")
+      .fill(payoutReference);
+    await settlementCard
+      .getByRole("button", { name: "Mark settlement paid" })
+      .click();
+    await expect(admin.page.getByText("Settlement recorded.")).toBeVisible();
 
     const state = await readScenarioState(orderId!, users);
     expect(state.order).toMatchObject({
       status: "DELIVERED",
       foodPrice: TEST_CANTEEN.itemPrice,
       deliveryFee: 500,
+      platformFee: 300,
     });
     expect(state.order?.delivererLatitude).toBeCloseTo(
       LOCATIONS.nearBuyer.latitude,
       4,
     );
-
-    const balances = new Map(
-      state.profiles.map((profile) => [profile.id, profile]),
-    );
-    expect(balances.get(users.buyerId)).toMatchObject({
-      walletBalance: 87_500,
-      frozenBalance: 0,
+    expect(state.payment).toMatchObject({
+      method: "ADVANCE",
+      status: "PAID",
+      expectedAmount: TEST_CANTEEN.itemPrice + 500 + 300,
+      submittedUtr: paymentReference,
+      verifiedByAdminId: users.adminId,
     });
-    expect(balances.get(users.delivererId)?.walletBalance).toBe(12_225);
-    expect(state.transactions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ type: "ORDER_FREEZE", amount: -12_500 }),
-        expect.objectContaining({ type: "DELIVERY_PAYOUT", amount: 12_225 }),
-        expect.objectContaining({ type: "ADMIN_COMMISSION", amount: 275 }),
-      ]),
-    );
+    expect(state.settlement).toMatchObject({
+      status: "PAID",
+      foodReimbursement: TEST_CANTEEN.itemPrice,
+      deliveryEarning: 500,
+      amountDue: TEST_CANTEEN.itemPrice + 500,
+      payoutReference,
+    });
   } finally {
-    await Promise.all([buyerContext.close(), delivererContext.close()]);
+    await Promise.all([
+      buyerContext.close(),
+      delivererContext.close(),
+      adminContext.close(),
+    ]);
     if (demoMode) {
       await Promise.all([
         buyerVideo?.saveAs(path.join(demoDirectory, "buyer.webm")),

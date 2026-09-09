@@ -1,13 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Linking,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import {
   SafeAreaView,
   useSafeAreaInsets,
@@ -28,6 +20,7 @@ import { DeliveryMap } from "~/components/maps/DeliveryMap";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
+import { showAppAlert } from "~/utils/dialog";
 
 interface Coordinate {
   latitude: number;
@@ -117,7 +110,6 @@ export default function OrderTrackerScreen() {
   const [routeCoordinates, setRouteCoordinates] = useState<Coordinate[]>([]);
   const [distance, setDistance] = useState<number | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
-  const [otpInput, setOtpInput] = useState("");
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const {
@@ -150,9 +142,6 @@ export default function OrderTrackerScreen() {
 
   const updateStatusMutation = useMutation(
     trpc.order.updateOrderStatus.mutationOptions(),
-  );
-  const verifyDeliveryMutation = useMutation(
-    trpc.order.verifyDelivery.mutationOptions(),
   );
 
   useEffect(() => {
@@ -241,35 +230,9 @@ export default function OrderTrackerScreen() {
         queryKey: trpc.order.myOrders.queryKey(),
       });
     } catch (error) {
-      Alert.alert(
+      showAppAlert(
         "Status not updated",
         error instanceof Error ? error.message : "Please try again.",
-      );
-    }
-  };
-
-  const verifyDelivery = async () => {
-    if (!order || otpInput.length !== 4 || verifyDeliveryMutation.isPending)
-      return;
-    try {
-      await verifyDeliveryMutation.mutateAsync({
-        orderId: order.id,
-        otp: otpInput,
-      });
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: trpc.order.myOrders.queryKey(),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: trpc.auth.getMyProfile.queryKey(),
-        }),
-      ]);
-    } catch (error) {
-      Alert.alert(
-        "OTP verification failed",
-        error instanceof Error
-          ? error.message
-          : "Check the code and try again.",
       );
     }
   };
@@ -280,7 +243,7 @@ export default function OrderTrackerScreen() {
     try {
       await Linking.openURL(url);
     } catch {
-      Alert.alert(
+      showAppAlert(
         "Navigation unavailable",
         "A maps app or browser could not be opened.",
       );
@@ -359,7 +322,8 @@ export default function OrderTrackerScreen() {
   const showBuyerOtp =
     !isDeliverer &&
     Boolean(order.otp) &&
-    ["PREPARING", "ON_THE_WAY", "NEAR_YOU"].includes(order.status);
+    order.payment?.status === "PAID" &&
+    ["PURCHASED", "ON_THE_WAY", "NEAR_YOU"].includes(order.status);
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
@@ -486,16 +450,16 @@ export default function OrderTrackerScreen() {
 
         {isDeliverer ? (
           <View style={styles.actionArea}>
-            {order.status === "ACCEPTED" ? (
+            {["ACCEPTED", "ITEM_AVAILABLE"].includes(order.status) ? (
               <AppButton
-                label="Open Pickup Decision"
+                label="Open Order Actions"
                 icon="shopping-bag"
                 onPress={() =>
                   router.push(`/orders/${order.id}/status` as never)
                 }
               />
             ) : null}
-            {order.status === "PREPARING" ? (
+            {order.status === "PURCHASED" ? (
               <AppButton
                 label="Mark On The Way"
                 icon="navigation"
@@ -512,28 +476,13 @@ export default function OrderTrackerScreen() {
               />
             ) : null}
             {order.status === "NEAR_YOU" ? (
-              <View style={styles.verifyRow}>
-                <TextInput
-                  accessibilityLabel="Delivery OTP"
-                  value={otpInput}
-                  onChangeText={(value) =>
-                    setOtpInput(value.replace(/\D/g, "").slice(0, 4))
-                  }
-                  keyboardType="number-pad"
-                  placeholder="0000"
-                  placeholderTextColor={colors.faint}
-                  maxLength={4}
-                  style={styles.otpInput}
-                />
-                <View style={styles.verifyButtonWrap}>
-                  <AppButton
-                    label="Verify"
-                    loading={verifyDeliveryMutation.isPending}
-                    disabled={otpInput.length !== 4}
-                    onPress={() => void verifyDelivery()}
-                  />
-                </View>
-              </View>
+              <AppButton
+                label="Open Secure Handover"
+                icon="key"
+                onPress={() =>
+                  router.push(`/orders/${order.id}/status` as never)
+                }
+              />
             ) : null}
           </View>
         ) : !isAssigned ? (

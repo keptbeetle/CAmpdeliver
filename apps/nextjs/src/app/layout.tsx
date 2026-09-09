@@ -9,6 +9,7 @@ import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
 import "~/app/styles.css";
+
 import { CartProvider } from "~/app/_components/cart/CartContext";
 import { GlobalTracker } from "~/app/_components/GlobalTracker";
 import { BottomNav } from "~/app/_components/layout/BottomNav";
@@ -22,11 +23,11 @@ export const metadata: Metadata = {
   ),
   title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
   description:
-    "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
+    "Order food from campus canteens and complete delivery quests for student peers with secure pilot payments and tracked reimbursements.",
   openGraph: {
     title: "CAmpDeliver - Digital Campus Delivery & Side Quests",
     description:
-      "Order food from campus canteens, top up your wallet, and complete delivery side quests to earn payouts.",
+      "Order food from campus canteens and complete delivery quests for student peers with secure pilot payments and tracked reimbursements.",
     url: "https://campdeliver.vercel.app",
     siteName: "CAmpDeliver",
   },

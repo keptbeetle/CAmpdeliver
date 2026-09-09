@@ -7,13 +7,15 @@ export const createOrderInputSchema = z
   .object({
     items: z
       .array(
-        z.object({
-          name: z.string().trim().min(1).max(200),
-          quantity: z.number().int().positive().max(100),
-          price: z.number().int().nonnegative(),
-        }),
+        z
+          .object({
+            menuItemId: z.string().uuid(),
+            quantity: z.number().int().positive().max(20),
+          })
+          .strict(),
       )
-      .min(1),
+      .min(1)
+      .max(30),
     canteenId: z.string().uuid(),
     deliveryLocationName: z.string().trim().min(1).max(200),
     deliveryLatitude: latitudeSchema,

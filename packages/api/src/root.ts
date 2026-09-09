@@ -1,17 +1,17 @@
 import { authRouter } from "./router/auth";
-import { orderRouter } from "./router/order";
-import { walletRouter } from "./router/wallet";
-import { chatRouter } from "./router/chat";
-import { otpRouter } from "./router/otp";
 import { canteenRouter } from "./router/canteen";
-import { menuRouter } from "./router/menu";
+import { chatRouter } from "./router/chat";
 import { landmarkRouter } from "./router/landmark";
+import { menuRouter } from "./router/menu";
+import { orderRouter } from "./router/order";
+import { otpRouter } from "./router/otp";
+import { paymentRouter } from "./router/payment";
 import { createTRPCRouter } from "./trpc";
 
 export const appRouter = createTRPCRouter({
   auth: authRouter,
   order: orderRouter,
-  wallet: walletRouter,
+  payment: paymentRouter,
   chat: chatRouter,
   otp: otpRouter,
   canteen: canteenRouter,
@@ -19,5 +19,4 @@ export const appRouter = createTRPCRouter({
   landmark: landmarkRouter,
 });
 
-// export type definition of API
 export type AppRouter = typeof appRouter;

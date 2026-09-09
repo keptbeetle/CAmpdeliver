@@ -24,6 +24,7 @@ export function CanteenMenu({
     trpc.canteen.listActiveWithMenu.queryOptions(),
   );
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
 
   const [selectedCanteenId, setSelectedCanteenId] = useState<string>();
   const [cart, setCart] = useState<
@@ -169,8 +170,9 @@ export function CanteenMenu({
     (sum, item) => sum + item.price * item.quantity,
     0,
   );
-  const deliveryFee = 500;
-  const totalCost = totalFoodPrice + deliveryFee;
+  const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
+  const platformFee = paymentConfig?.platformFeePaise ?? 300;
+  const totalCost = totalFoodPrice + deliveryFee + platformFee;
 
   const handlePlaceOrder = async () => {
     if (cart.length === 0) {
@@ -192,8 +194,7 @@ export function CanteenMenu({
       await createOrderMutation.mutateAsync({
         canteenId: selectedCanteen.id,
         items: cart.map((item) => ({
-          name: item.name,
-          price: item.price,
+          menuItemId: item.id,
           quantity: item.quantity,
         })),
         deliveryLocationName: destinationLabel.trim(),
@@ -371,13 +372,23 @@ export function CanteenMenu({
                   <span>{formatCurrency(totalFoodPrice)}</span>
                 </div>
                 <div className="flex justify-between text-zinc-400">
-                  <span>Delivery Fee</span>
+                  <span>Delivery earning</span>
                   <span>{formatCurrency(deliveryFee)}</span>
                 </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Platform fee</span>
+                  <span>{formatCurrency(platformFee)}</span>
+                </div>
                 <div className="mt-2 flex justify-between border-t border-white/10 pt-2 font-bold text-white">
-                  <span>Total</span>
+                  <span>Estimated total</span>
                   <span>{formatCurrency(totalCost)}</span>
                 </div>
+                <p className="pt-2 text-xs leading-relaxed text-zinc-500">
+                  No money is taken at broadcast. After item availability is
+                  confirmed, the buyer chooses advance payment or Pay at
+                  Delivery when the deliverer offered it. Menu prices are
+                  revalidated by the server.
+                </p>
               </div>
 
               {error && <p className="text-xs text-red-400">{error}</p>}

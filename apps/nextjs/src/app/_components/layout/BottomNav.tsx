@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Compass, Home, ShoppingBag, Wallet } from "lucide-react";
+import { Compass, Home, ShoppingBag, TrendingUp } from "lucide-react";
 
 import { useCart } from "~/app/_components/cart/CartContext";
 
@@ -31,15 +31,15 @@ export function BottomNav() {
       badge: totalItems > 0 ? null : null, // orders badge if needed
     },
     {
-      label: "Wallet",
-      href: "/wallet",
-      icon: Wallet,
+      label: "Earnings",
+      href: "/earnings",
+      icon: TrendingUp,
       exact: false,
     },
   ];
 
   return (
-    <nav className="fixed bottom-0 left-1/2 z-40 w-full -translate-x-1/2 max-w-6xl border-t border-zinc-800/80 bg-zinc-950/95 p-2 backdrop-blur-lg">
+    <nav className="fixed bottom-0 left-1/2 z-40 w-full max-w-6xl -translate-x-1/2 border-t border-zinc-800/80 bg-zinc-950/95 p-2 backdrop-blur-lg">
       <div className="flex items-center justify-around">
         {navItems.map((item) => {
           const isActive = item.exact
@@ -53,7 +53,7 @@ export function BottomNav() {
               href={item.href}
               className={`relative flex flex-col items-center gap-1 rounded-xl px-4 py-1.5 transition-all ${
                 isActive
-                  ? "text-purple-400 font-semibold"
+                  ? "font-semibold text-purple-400"
                   : "text-zinc-400 hover:text-zinc-200"
               }`}
             >

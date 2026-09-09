@@ -2,19 +2,29 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
+import {
+  MapContainer,
+  Marker,
+  Polyline,
+  Popup,
+  TileLayer,
+  useMap,
+} from "react-leaflet";
+
 import "leaflet/dist/leaflet.css";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useTRPC } from "~/trpc/react";
+
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
+import { useTRPC } from "~/trpc/react";
 
 // Fix for default Leaflet icon not showing correctly in Next.js
 // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+  iconRetinaUrl:
+    "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
   shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
 });
@@ -39,7 +49,6 @@ const canteenIcon = createCustomIcon("#3b82f6"); // Blue
 const dropoffIcon = createCustomIcon("#22c55e"); // Green
 const delivererIcon = createCustomIcon("#a855f7"); // Purple
 
-
 // Component to dynamically control map view center
 function MapController({ center }: { center: [number, number] }) {
   const map = useMap();
@@ -55,7 +64,7 @@ function getHaversineDistance(
   lat1: number,
   lon1: number,
   lat2: number,
-  lon2: number
+  lon2: number,
 ): number {
   const R = 6371e3; // metres
   const phi1 = (lat1 * Math.PI) / 180;
@@ -65,7 +74,10 @@ function getHaversineDistance(
 
   const a =
     Math.sin(deltaPhi / 2) * Math.sin(deltaPhi / 2) +
-    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) * Math.sin(deltaLambda / 2);
+    Math.cos(phi1) *
+      Math.cos(phi2) *
+      Math.sin(deltaLambda / 2) *
+      Math.sin(deltaLambda / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
   return R * c; // in metres
@@ -79,12 +91,15 @@ function formatDistance(meters: number): string {
 }
 
 // Helper to fetch actual road-routing directions between two coordinates via OSRM
-async function fetchRoute(start: [number, number], end: [number, number]): Promise<{ coordinates: [number, number][]; distance: number }> {
+async function fetchRoute(
+  start: [number, number],
+  end: [number, number],
+): Promise<{ coordinates: [number, number][]; distance: number }> {
   const [lat1, lon1] = start;
   const [lat2, lon2] = end;
   try {
     const res = await fetch(
-      `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`
+      `https://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=full&geometries=geojson`,
     );
     interface OSRMResponse {
       code: string;
@@ -120,8 +135,10 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const queryClient = useQueryClient();
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
-  const { data: orders, isLoading } = useQuery(trpc.order.myOrders.queryOptions());
-  
+  const { data: orders, isLoading } = useQuery(
+    trpc.order.myOrders.queryOptions(),
+  );
+
   const order = orders?.find((o) => o.id === orderId);
   const isDeliverer = order?.delivererId === profile?.id;
 
@@ -135,20 +152,30 @@ export default function TrackerView({ orderId }: { orderId: string }) {
       });
     },
   });
-  const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(null);
+  const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(
+    null,
+  );
   const [mapCenter, setMapCenter] = useState<[number, number]>([0, 0]);
-  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>(
+    [],
+  );
   const [distance, setDistance] = useState<number | null>(null);
 
-  const canteenCoords: [number, number] | null = order ? [order.canteenLatitude, order.canteenLongitude] : null;
-  const deliveryCoords: [number, number] | null = order ? [order.deliveryLatitude, order.deliveryLongitude] : null;
+  const canteenCoords: [number, number] | null = order
+    ? [order.canteenLatitude, order.canteenLongitude]
+    : null;
+  const deliveryCoords: [number, number] | null = order
+    ? [order.deliveryLatitude, order.deliveryLongitude]
+    : null;
 
-  const startLoc: [number, number] | null = delivererLocation 
+  const startLoc: [number, number] | null = delivererLocation
     ? [delivererLocation.latitude, delivererLocation.longitude]
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    : (order?.delivererLatitude && order?.delivererLongitude 
-        ? [order.delivererLatitude, order.delivererLongitude] 
-        : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : null));
+    : // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      order?.delivererLatitude && order?.delivererLongitude
+      ? [order.delivererLatitude, order.delivererLongitude]
+      : canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0)
+        ? canteenCoords
+        : null;
 
   const endLoc: [number, number] | null =
     deliveryCoords && (deliveryCoords[0] !== 0 || deliveryCoords[1] !== 0)
@@ -156,13 +183,13 @@ export default function TrackerView({ orderId }: { orderId: string }) {
       : null;
 
   // Set initial map center to canteen coordinates if they are valid
-   
+
   useEffect(() => {
     if (order) {
       const canteenLat = order.canteenLatitude;
       const canteenLng = order.canteenLongitude;
       if (canteenLat !== 0 || canteenLng !== 0) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect 
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setMapCenter([canteenLat, canteenLng]);
       }
     }
@@ -196,7 +223,7 @@ export default function TrackerView({ orderId }: { orderId: string }) {
       {
         enableHighAccuracy: true,
         maximumAge: 0,
-      }
+      },
     );
 
     return () => {
@@ -215,8 +242,10 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           setMyWebLocation([latitude, longitude] as [number, number]);
         },
         () => {
-          alert("Could not retrieve your location. Ensure location services are enabled and permissions are granted.");
-        }
+          alert(
+            "Could not retrieve your location. Ensure location services are enabled and permissions are granted.",
+          );
+        },
       );
     }
   };
@@ -227,24 +256,31 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const eLng = endLoc?.[1];
 
   // Fetch actual street path when coordinates update
-   
+
   useEffect(() => {
-    if (sLat === undefined || sLng === undefined || eLat === undefined || eLng === undefined) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect 
+    if (
+      sLat === undefined ||
+      sLng === undefined ||
+      eLat === undefined ||
+      eLng === undefined
+    ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setRouteCoordinates([]);
-       
+
       setDistance(null);
       return;
     }
 
     let isMounted = true;
 
-    void fetchRoute([sLat, sLng], [eLat, eLng]).then(({ coordinates, distance }) => {
-      if (isMounted) {
-        setRouteCoordinates(coordinates);
-        setDistance(distance);
-      }
-    });
+    void fetchRoute([sLat, sLng], [eLat, eLng]).then(
+      ({ coordinates, distance }) => {
+        if (isMounted) {
+          setRouteCoordinates(coordinates);
+          setDistance(distance);
+        }
+      },
+    );
 
     return () => {
       isMounted = false;
@@ -260,17 +296,21 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   }
 
   // Determine fallback center if mapCenter is uninitialized
-  const displayCenter: [number, number] = mapCenter[0] !== 0 || mapCenter[1] !== 0 
-    ? mapCenter 
-    : (canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0) ? canteenCoords : [30.0, 70.0] as [number, number]);
-
+  const displayCenter: [number, number] =
+    mapCenter[0] !== 0 || mapCenter[1] !== 0
+      ? mapCenter
+      : canteenCoords && (canteenCoords[0] !== 0 || canteenCoords[1] !== 0)
+        ? canteenCoords
+        : ([30.0, 70.0] as [number, number]);
 
   return (
     <div className="relative flex h-full flex-col">
       <div className="flex items-center justify-between bg-zinc-900 p-4 shadow-md">
         <div>
           <h1 className="text-lg font-bold text-white">Live Tracking</h1>
-          <p className="text-xs text-zinc-400">Order ID: {order.id.slice(0, 8)}...</p>
+          <p className="text-xs text-zinc-400">
+            Order ID: {order.id.slice(0, 8)}...
+          </p>
         </div>
         <button
           onClick={() => router.push(`/`)}
@@ -293,24 +333,30 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           />
           <MapController center={displayCenter} />
 
-          {canteenCoords && canteenCoords[0] !== 0 && canteenCoords[1] !== 0 && (
-            <Marker position={canteenCoords} icon={canteenIcon}>
-              <Popup>
-                <b>Canteen</b><br />
-                {order.canteenName}
-              </Popup>
-            </Marker>
-          )}
+          {canteenCoords &&
+            canteenCoords[0] !== 0 &&
+            canteenCoords[1] !== 0 && (
+              <Marker position={canteenCoords} icon={canteenIcon}>
+                <Popup>
+                  <b>Canteen</b>
+                  <br />
+                  {order.canteenName}
+                </Popup>
+              </Marker>
+            )}
 
-          {deliveryCoords && deliveryCoords[0] !== 0 && deliveryCoords[1] !== 0 && (
-            <Marker position={deliveryCoords} icon={dropoffIcon}>
-              <Popup>
-                <b>Dropoff</b><br />
-                {order.deliveryLocationName}
-              </Popup>
-            </Marker>
-          )}
-          
+          {deliveryCoords &&
+            deliveryCoords[0] !== 0 &&
+            deliveryCoords[1] !== 0 && (
+              <Marker position={deliveryCoords} icon={dropoffIcon}>
+                <Popup>
+                  <b>Dropoff</b>
+                  <br />
+                  {order.deliveryLocationName}
+                </Popup>
+              </Marker>
+            )}
+
           {startLoc && (
             <Marker position={startLoc} icon={delivererIcon}>
               <Popup>
@@ -320,47 +366,75 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           )}
 
           {routeCoordinates.length > 0 && (
-            <Polyline positions={routeCoordinates} color="#a855f7" weight={5} opacity={0.7} />
+            <Polyline
+              positions={routeCoordinates}
+              color="#a855f7"
+              weight={5}
+              opacity={0.7}
+            />
           )}
         </MapContainer>
 
         {isDeliverer && (
           <button
             onClick={handleLocateMe}
-            className="absolute top-4 right-4 z-[1000] rounded-lg bg-zinc-900 border border-zinc-800 p-2.5 text-white hover:bg-zinc-800 shadow-md transition-colors flex items-center gap-2 text-xs font-semibold"
+            className="absolute top-4 right-4 z-[1000] flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-2.5 text-xs font-semibold text-white shadow-md transition-colors hover:bg-zinc-800"
           >
-            <svg className="h-4 w-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            <svg
+              className="h-4 w-4 text-purple-400"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+              />
             </svg>
             Locate Me
           </button>
         )}
       </div>
 
-      <div className="absolute bottom-6 left-6 right-6 z-[1000] flex flex-col gap-4 rounded-xl bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md border border-zinc-800">
+      <div className="absolute right-6 bottom-6 left-6 z-[1000] flex flex-col gap-4 rounded-xl border border-zinc-800 bg-zinc-900/95 p-6 shadow-2xl backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold text-white">Status: {order.status}</h2>
+              <h2 className="text-sm font-bold text-white">
+                Status: {order.status}
+              </h2>
               {distance !== null && (
-                <span data-testid="tracking-distance" className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-inset ring-purple-500/20">
+                <span
+                  data-testid="tracking-distance"
+                  className="inline-flex items-center rounded-md bg-purple-500/10 px-2.5 py-0.5 text-xs font-semibold text-purple-400 ring-1 ring-purple-500/20 ring-inset"
+                >
                   {formatDistance(distance)} away
                 </span>
               )}
             </div>
             <p className="mt-1 text-xs text-zinc-400">
-              {isDeliverer 
-                ? "You are delivering this order" 
-                : order.status === "PREPARING"
-                  ? "Deliverer is preparing the order"
-                  : order.status === "ON_THE_WAY"
-                    ? "Deliverer is on the way"
-                    : order.status === "NEAR_YOU"
-                      ? "Deliverer is near you"
-                      : order.status === "DELIVERED" || order.status === "COMPLETED"
-                        ? "Order delivered"
-                        : "Waiting for deliverer"}
+              {isDeliverer
+                ? "You are delivering this order"
+                : order.status === "ITEM_AVAILABLE"
+                  ? "Items are available; payment is the next step"
+                  : order.status === "PURCHASED"
+                    ? "Canteen purchase confirmed"
+                    : order.status === "ON_THE_WAY"
+                      ? "Deliverer is on the way"
+                      : order.status === "NEAR_YOU"
+                        ? "Deliverer is near you"
+                        : order.status === "DELIVERED" ||
+                            order.status === "COMPLETED"
+                          ? "Order delivered"
+                          : "Waiting for deliverer"}
             </p>
           </div>
           <button
@@ -370,15 +444,27 @@ export default function TrackerView({ orderId }: { orderId: string }) {
             Open Chat
           </button>
         </div>
-        
+
         {/* OTP Display for Buyer */}
-        {!isDeliverer && order.otp && (
-          <div className="mt-2 flex flex-col items-center justify-center rounded-xl bg-zinc-800/50 p-4 border border-zinc-700/50">
-            <span className="mb-1 text-xs font-bold uppercase tracking-widest text-zinc-400">Your Delivery OTP</span>
-            <span data-testid="delivery-otp" className="text-3xl font-black tracking-[0.2em] text-white">{order.otp}</span>
-            <span className="mt-2 text-center text-xs text-zinc-500">Share this code with your deliverer to receive your order.</span>
-          </div>
-        )}
+        {!isDeliverer &&
+          order.otp &&
+          order.payment?.status === "PAID" &&
+          ["PURCHASED", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (
+            <div className="mt-2 flex flex-col items-center justify-center rounded-xl border border-zinc-700/50 bg-zinc-800/50 p-4">
+              <span className="mb-1 text-xs font-bold tracking-widest text-zinc-400 uppercase">
+                Your Delivery OTP
+              </span>
+              <span
+                data-testid="delivery-otp"
+                className="text-3xl font-black tracking-[0.2em] text-white"
+              >
+                {order.otp}
+              </span>
+              <span className="mt-2 text-center text-xs text-zinc-500">
+                Share this code with your deliverer to receive your order.
+              </span>
+            </div>
+          )}
       </div>
     </div>
   );

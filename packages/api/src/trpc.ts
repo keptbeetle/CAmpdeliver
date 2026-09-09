@@ -12,9 +12,9 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { z, ZodError } from "zod/v4";
 
+import { eq } from "@acme/db";
 import { db } from "@acme/db/client";
 import { profiles } from "@acme/db/schema";
-import { eq } from "@acme/db";
 
 /**
  * 1. CONTEXT
@@ -46,7 +46,10 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
         return cookieHeader.split(";").map((c) => {
           const [name, ...val] = c.trim().split("=");
           try {
-            return { name: decodeURIComponent(name ?? ""), value: decodeURIComponent(val.join("=")) };
+            return {
+              name: decodeURIComponent(name ?? ""),
+              value: decodeURIComponent(val.join("=")),
+            };
           } catch {
             return { name: name ?? "", value: val.join("=") };
           }
@@ -69,15 +72,12 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
       user = data.user;
     }
   } else {
+    // Server authorization must come from Supabase's verified user lookup.
+    // getSession() only reads locally supplied session material and is not an
+    // authorization source for protected/admin procedures.
     const { data } = await supabase.auth.getUser();
     if (data.user) {
       user = data.user;
-    } else {
-      // Fallback: try getSession if getUser fails (e.g. token refresh race)
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (sessionData.session?.user) {
-        user = sessionData.session.user;
-      }
     }
   }
 

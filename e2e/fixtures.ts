@@ -145,19 +145,13 @@ export async function resetScenario(): Promise<SeededScenario> {
          or deliverer_id in (${buyer.id}, ${deliverer.id})
     `;
     for (const { id } of orderIds) {
-      await sql`delete from chat_messages where order_id = ${id}`;
-      await sql`delete from wallet_transactions where reference_id = ${id}`;
       await sql`delete from orders where id = ${id}`;
     }
-    await sql`
-      delete from wallet_transactions
-      where user_id in (${buyer.id}, ${deliverer.id}, ${admin.id})
-    `;
 
     const profiles = [
-      { user: buyer, role: "STUDENT", balance: 100_000, hostel: "E2E Hostel" },
-      { user: deliverer, role: "DELIVERER", balance: 0, hostel: "E2E Hostel" },
-      { user: admin, role: "ADMIN", balance: 0, hostel: "E2E Admin" },
+      { user: buyer, role: "STUDENT", hostel: "E2E Hostel" },
+      { user: deliverer, role: "STUDENT", hostel: "E2E Hostel" },
+      { user: admin, role: "ADMIN", hostel: "E2E Admin" },
     ];
     for (const profile of profiles) {
       await sql`
@@ -167,7 +161,7 @@ export async function resetScenario(): Promise<SeededScenario> {
         ) values (
           ${profile.user.id}, ${profile.user.user_metadata.name as string},
           ${profile.user.email!}, ${profile.user.email!.replace("@campus.edu", "")},
-          ${profile.hostel}, ${profile.role}, ${profile.balance}, 0
+          ${profile.hostel}, ${profile.role}, 0, 0
         )
         on conflict (id) do update set
           name = excluded.name,
@@ -175,7 +169,7 @@ export async function resetScenario(): Promise<SeededScenario> {
           phone_number = excluded.phone_number,
           hostel_name = excluded.hostel_name,
           role = excluded.role,
-          wallet_balance = excluded.wallet_balance,
+          wallet_balance = 0,
           frozen_balance = 0
       `;
     }
@@ -227,7 +221,7 @@ export async function resetScenario(): Promise<SeededScenario> {
 
 export async function readScenarioState(
   orderId: string,
-  users: SeededScenario,
+  _users: SeededScenario,
 ) {
   const sql = postgres(required("POSTGRES_URL"), { prepare: false });
   try {
@@ -236,26 +230,52 @@ export async function readScenarioState(
         status: string;
         foodPrice: number;
         deliveryFee: number;
+        platformFee: number;
         delivererLatitude: number | null;
       }[]
     >`
-      select status, food_price as "foodPrice", delivery_fee as "deliveryFee",
+      select status,
+             food_price as "foodPrice",
+             delivery_fee as "deliveryFee",
+             platform_fee as "platformFee",
              deliverer_latitude as "delivererLatitude"
       from orders where id = ${orderId}
     `;
-    const profiles = await sql<
-      { id: string; walletBalance: number; frozenBalance: number }[]
+    const [payment] = await sql<
+      {
+        method: string | null;
+        status: string;
+        expectedAmount: number;
+        submittedUtr: string | null;
+        verifiedByAdminId: string | null;
+      }[]
     >`
-      select id, wallet_balance as "walletBalance", frozen_balance as "frozenBalance"
-      from profiles where id in (${users.buyerId}, ${users.delivererId}, ${users.adminId})
+      select method,
+             status,
+             expected_amount as "expectedAmount",
+             submitted_utr as "submittedUtr",
+             verified_by_admin_id as "verifiedByAdminId"
+      from order_payments where order_id = ${orderId}
     `;
-    const transactions = await sql<
-      { userId: string; amount: number; type: string }[]
+    const [settlement] = await sql<
+      {
+        status: string;
+        amountDue: number;
+        foodReimbursement: number;
+        deliveryEarning: number;
+        requestedAt: Date | null;
+        payoutReference: string | null;
+      }[]
     >`
-      select user_id as "userId", amount, type
-      from wallet_transactions where reference_id = ${orderId}
+      select status,
+             amount_due as "amountDue",
+             food_reimbursement as "foodReimbursement",
+             delivery_earning as "deliveryEarning",
+             requested_at as "requestedAt",
+             payout_reference as "payoutReference"
+      from order_settlements where order_id = ${orderId}
     `;
-    return { order, profiles, transactions };
+    return { order, payment, settlement };
   } finally {
     await sql.end();
   }

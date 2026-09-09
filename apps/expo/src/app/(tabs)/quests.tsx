@@ -1,12 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -26,6 +19,7 @@ import {
 import { DeliveryAvailabilityCard } from "~/components/DeliveryAvailabilityCard";
 import { locationService } from "~/platform/location";
 import { trpc } from "~/utils/api";
+import { showAppAlert } from "~/utils/dialog";
 
 type Quest = RouterOutputs["order"]["availableQuests"][number];
 
@@ -95,12 +89,13 @@ export default function QuestsTab() {
     trpc.order.acceptOrder.mutationOptions(),
   );
 
-  const acceptQuest = async (quest: Quest) => {
+  const acceptQuest = async (quest: Quest, allowPayAtDelivery: boolean) => {
     if (acceptingOrderId) return;
     setAcceptingOrderId(quest.id);
     try {
       const updatedOrder = await acceptOrderMutation.mutateAsync({
         orderId: quest.id,
+        allowPayAtDelivery,
       });
       await Promise.all([
         queryClient.invalidateQueries({
@@ -110,15 +105,12 @@ export default function QuestsTab() {
           queryKey: trpc.order.myOrders.queryKey(),
         }),
       ]);
-      if (updatedOrder?.id) {
-        router.push(`/orders/${updatedOrder.id}/status` as never);
-      }
+      router.push(`/orders/${updatedOrder.id}/status` as never);
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "This quest could not be accepted. It may have been claimed already.";
-      // Keep the error contextual to the action rather than replacing the list.
       alertMessage("Could not accept quest", message);
       await queryClient.invalidateQueries({
         queryKey: trpc.order.availableQuests.queryKey(),
@@ -237,7 +229,8 @@ export default function QuestsTab() {
               disabled={Boolean(
                 acceptingOrderId && acceptingOrderId !== item.id,
               )}
-              onAccept={() => void acceptQuest(item)}
+              onAcceptAdvance={() => void acceptQuest(item, false)}
+              onAcceptPayAtDelivery={() => void acceptQuest(item, true)}
             />
           </MotionView>
         )}
@@ -272,12 +265,14 @@ function QuestCard({
   quest,
   accepting,
   disabled,
-  onAccept,
+  onAcceptAdvance,
+  onAcceptPayAtDelivery,
 }: {
   quest: Quest;
   accepting: boolean;
   disabled: boolean;
-  onAccept: () => void;
+  onAcceptAdvance: () => void;
+  onAcceptPayAtDelivery: () => void;
 }) {
   return (
     <View style={styles.card}>
@@ -323,22 +318,37 @@ function QuestCard({
         </View>
       </View>
 
-      <AppButton
-        label={accepting ? "Accepting…" : "Accept Quest"}
-        icon="arrow-right"
-        loading={accepting}
-        disabled={disabled}
-        onPress={onAccept}
+      <InlineNotice
+        icon="shield"
+        title="Choose payment support before accepting"
+        copy="Advance only is safer: CAmpDeliver verifies the buyer's payment before you spend. Offer Pay at Delivery only if you are willing to front the canteen cost until handover."
       />
+      <View style={styles.acceptActions}>
+        <AppButton
+          label={accepting ? "Accepting…" : "Advance only"}
+          icon="shield"
+          loading={accepting}
+          disabled={disabled}
+          onPress={onAcceptAdvance}
+        />
+        <AppButton
+          label="Offer Pay at Delivery"
+          icon="clock"
+          tone="secondary"
+          disabled={disabled || accepting}
+          onPress={onAcceptPayAtDelivery}
+        />
+      </View>
     </View>
   );
 }
 
 function alertMessage(title: string, message: string) {
-  Alert.alert(title, message);
+  showAppAlert(title, message);
 }
 
 const styles = StyleSheet.create({
+  acceptActions: { gap: 9 },
   card: {
     backgroundColor: colors.panel,
     borderColor: colors.border,

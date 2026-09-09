@@ -50,6 +50,7 @@ export default function CheckoutPage() {
   } = useCart();
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
 
   // Auto-detected location state
   const [userCoords, setUserCoords] = useState<{
@@ -168,8 +169,9 @@ export default function CheckoutPage() {
     );
   }
 
-  const deliveryFee = 500; // ₹5 in paise
-  const finalTotal = totalPrice + deliveryFee;
+  const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
+  const platformFee = paymentConfig?.platformFeePaise ?? 300;
+  const finalTotal = totalPrice + deliveryFee + platformFee;
 
   const handlePlaceOrder = () => {
     setErrorMsg(null);
@@ -192,9 +194,8 @@ export default function CheckoutPage() {
       deliveryLatitude: userCoords.lat,
       deliveryLongitude: userCoords.lng,
       items: items.map((i) => ({
-        name: i.name,
+        menuItemId: i.id,
         quantity: i.quantity,
-        price: i.price,
       })),
     });
   };
@@ -359,16 +360,29 @@ export default function CheckoutPage() {
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-zinc-400">Campus Delivery Fee</span>
-            <span className="font-bold text-white">₹5</span>
+            <span className="text-zinc-400">Delivery earning</span>
+            <span className="font-bold text-white">
+              ₹{(deliveryFee / 100).toFixed(0)}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Platform fee</span>
+            <span className="font-bold text-white">
+              ₹{(platformFee / 100).toFixed(0)}
+            </span>
           </div>
           <div className="flex justify-between border-t border-zinc-800/80 pt-2 text-sm font-black text-white">
-            <span>To Pay</span>
+            <span>Estimated total</span>
             <span className="text-purple-400">
               ₹{(finalTotal / 100).toFixed(0)}
             </span>
           </div>
         </div>
+        <p className="text-xs leading-relaxed text-zinc-500">
+          No money is taken at broadcast. After a deliverer confirms
+          availability, you choose advance payment or Pay at Delivery when
+          offered. The server revalidates menu prices before creating the order.
+        </p>
       </div>
 
       {/* Error Banner */}

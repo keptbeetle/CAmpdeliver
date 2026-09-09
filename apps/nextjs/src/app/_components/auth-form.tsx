@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 import { Label } from "@acme/ui/label";
-import { useMutation } from "@tanstack/react-query";
 
 import { supabaseClient } from "~/auth/client";
 import { useTRPC } from "~/trpc/react";
@@ -27,7 +27,7 @@ function sanitizePhone(phone: string): string {
 
 export function AuthForm() {
   const router = useRouter();
-  
+
   // States
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
@@ -47,7 +47,9 @@ export function AuthForm() {
 
   const trpc = useTRPC();
   const sendOtpMutation = useMutation(trpc.otp.sendOtp.mutationOptions());
-  const verifyOtpMutation = useMutation(trpc.otp.verifyOtpAndSignup.mutationOptions());
+  const verifyOtpMutation = useMutation(
+    trpc.otp.verifyOtpAndSignup.mutationOptions(),
+  );
 
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -70,7 +72,12 @@ export function AuthForm() {
   }, [step]);
 
   const handleSendOtp = async () => {
-    if (!name.trim() || !hostelName.trim() || !phoneNumber.trim() || !password.trim()) {
+    if (
+      !name.trim() ||
+      !hostelName.trim() ||
+      !phoneNumber.trim() ||
+      !password.trim()
+    ) {
       setError("All fields are required");
       return;
     }
@@ -88,7 +95,11 @@ export function AuthForm() {
       setOtpCode("");
       setTimer(300);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to send verification code.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send verification code.",
+      );
     } finally {
       setLoading(false);
     }
@@ -115,19 +126,23 @@ export function AuthForm() {
         });
         if (error) throw error;
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        const virtualEmail = result.user?.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
+        const virtualEmail =
+          result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
         const { error } = await supabaseClient.auth.signInWithPassword({
           email: virtualEmail,
           password,
         });
         if (error) throw error;
       }
-      
+
       setMessage("Account created and signed in!");
       router.refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Verification failed. Invalid OTP.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Verification failed. Invalid OTP.",
+      );
       setOtpCode("");
     } finally {
       setLoading(false);
@@ -144,17 +159,22 @@ export function AuthForm() {
       const sanitizedPhone = sanitizePhone(phoneNumber);
       const formattedEmail = `${sanitizedPhone}@campus.edu`.toLowerCase();
       console.log("[Auth] Attempting sign-in with email:", formattedEmail);
-      const { error: signInError } = await supabaseClient.auth.signInWithPassword({
-        email: formattedEmail,
-        password,
-      });
+      const { error: signInError } =
+        await supabaseClient.auth.signInWithPassword({
+          email: formattedEmail,
+          password,
+        });
 
       if (signInError) throw signInError;
 
       setMessage("Logged in successfully!");
       router.refresh();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An authentication error occurred.");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "An authentication error occurred.",
+      );
     } finally {
       setLoading(false);
     }
@@ -175,7 +195,7 @@ export function AuthForm() {
         <p className="text-sm text-zinc-400">
           {isSignUp
             ? "Sign up to begin your campus delivery side quests"
-            : "Sign in to access your digital campus wallet"}
+            : "Sign in to order, deliver, and track campus payments"}
         </p>
       </div>
 
@@ -190,7 +210,9 @@ export function AuthForm() {
               type="text"
               placeholder="9999999999"
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d+\-\s()]/g, ""))}
+              onChange={(e) =>
+                setPhoneNumber(e.target.value.replace(/[^\d+\-\s()]/g, ""))
+              }
               className="border-white/10 bg-white/5 text-white placeholder-zinc-500 focus:border-purple-500"
               maxLength={20}
               required
@@ -273,7 +295,9 @@ export function AuthForm() {
               type="text"
               placeholder="9999999999"
               value={phoneNumber}
-              onChange={(e) => setPhoneNumber(e.target.value.replace(/[^\d+\-\s()]/g, ""))}
+              onChange={(e) =>
+                setPhoneNumber(e.target.value.replace(/[^\d+\-\s()]/g, ""))
+              }
               className="border-white/10 bg-white/5 text-white placeholder-zinc-500 focus:border-purple-500"
               maxLength={20}
               required
@@ -362,7 +386,9 @@ export function AuthForm() {
 
           <div className="flex items-center justify-between px-1">
             <span className="text-xs text-zinc-400">
-              {timer > 0 ? `Resend code in ${formatTimer(timer)}` : "Didn't receive code?"}
+              {timer > 0
+                ? `Resend code in ${formatTimer(timer)}`
+                : "Didn't receive code?"}
             </span>
             <button
               type="button"
