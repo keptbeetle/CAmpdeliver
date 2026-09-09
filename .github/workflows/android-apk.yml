@@ -120,6 +120,8 @@ jobs:
           } > .env
 
       - name: Generate Android project
+        env:
+          EXPO_API_URL_OVERRIDE: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo with-env expo prebuild --platform android --no-install
 
       - name: Build bundled preview APK

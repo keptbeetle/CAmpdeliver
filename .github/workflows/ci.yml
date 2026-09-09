@@ -11,6 +11,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions:
+  contents: read
+  deployments: read
+
 # You can leverage Vercel Remote Caching with Turbo to speed up your builds
 # @link https://turborepo.com/docs/core-concepts/remote-caching#remote-caching-on-vercel-builds
 env:
@@ -60,6 +64,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Setup
         uses: ./tooling/github/setup
@@ -68,8 +74,19 @@ jobs:
         shell: bash
         run: cp .env.example .env
 
+      - name: Resolve branch-aware Vercel backend
+        id: backend
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPO_PUBLIC_PRODUCTION_API_URL: https://c-ampdeliver-nextjs.vercel.app
+        run: node apps/expo/scripts/resolve-backend-url.mjs --github-output
+
       - name: Export universal web client
+        env:
+          EXPO_API_URL_OVERRIDE: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo with-env expo export --platform web --output-dir dist-web --clear
 
       - name: Export Android JavaScript bundle
+        env:
+          EXPO_API_URL_OVERRIDE: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo with-env expo export --platform android --output-dir dist-android --clear

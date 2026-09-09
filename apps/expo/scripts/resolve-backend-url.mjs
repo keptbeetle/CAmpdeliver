@@ -75,6 +75,7 @@ function repositorySlug() {
 }
 
 function isProductionRef() {
+  if (process.env.GITHUB_EVENT_NAME === "merge_group") return true;
   if (process.env.GITHUB_REF)
     return process.env.GITHUB_REF === "refs/heads/main";
   return git(["branch", "--show-current"]) === "main";
