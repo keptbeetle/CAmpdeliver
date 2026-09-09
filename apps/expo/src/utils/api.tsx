@@ -5,13 +5,17 @@ import superjson from "superjson";
 
 import type { AppRouter } from "@acme/api";
 
-import { supabase } from "./auth";
+import { getAuthAccessToken } from "./auth";
 import { getBaseUrl } from "./base-url";
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // ...
+      refetchOnReconnect: true,
+      refetchOnWindowFocus: true,
+      retry: 2,
+      retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2_000),
+      staleTime: 10_000,
     },
   },
 });
@@ -32,8 +36,7 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
         transformer: superjson,
         url: `${getBaseUrl()}/api/trpc`,
         async headers() {
-          const { data } = await supabase.auth.getSession();
-          const token = data.session?.access_token;
+          const token = await getAuthAccessToken();
           const headers: Record<string, string> = {
             "x-trpc-source": "expo-react",
           };

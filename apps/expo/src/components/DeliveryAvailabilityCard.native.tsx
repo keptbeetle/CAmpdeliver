@@ -61,7 +61,7 @@ export function DeliveryAvailabilityCard() {
     }
   };
 
-  const setDeliveryAvailability = (enabled: boolean) => {
+  const setDeliveryAvailability = async (enabled: boolean) => {
     const fallbackIds = (canteens ?? []).map((canteen) => canteen.id);
     const canteenIds =
       enabled && selectedCanteenIds.length === 0
@@ -76,7 +76,26 @@ export function DeliveryAvailabilityCard() {
       return;
     }
 
-    void persist(enabled, canteenIds, enabled ? nearbyEnabled : false);
+    if (enabled) {
+      const existingPermission = await Notifications.getPermissionsAsync();
+      const notificationPermission =
+        existingPermission.status ===
+        Notifications.PermissionStatus.UNDETERMINED
+          ? await Notifications.requestPermissionsAsync()
+          : existingPermission;
+
+      if (
+        notificationPermission.status !== Notifications.PermissionStatus.GRANTED
+      ) {
+        Alert.alert(
+          "Notifications are required",
+          "Enable notifications in system settings before marking yourself available for delivery quests.",
+        );
+        return;
+      }
+    }
+
+    await persist(enabled, canteenIds, enabled ? nearbyEnabled : false);
   };
 
   const toggleCanteen = (canteenId: string) => {
@@ -192,7 +211,7 @@ export function DeliveryAvailabilityCard() {
         <Switch
           accessibilityLabel="Available for delivery quests"
           disabled={isSaving || canteensLoading}
-          onValueChange={setDeliveryAvailability}
+          onValueChange={(enabled) => void setDeliveryAvailability(enabled)}
           thumbColor={colors.white}
           trackColor={{ false: colors.borderStrong, true: colors.primary }}
           value={active}

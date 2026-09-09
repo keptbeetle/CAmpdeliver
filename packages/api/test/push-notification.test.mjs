@@ -53,3 +53,41 @@ test("hands valid notifications to the Expo push endpoint", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("reports Expo credential rejection as an error ticket", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConsoleError = console.error;
+  const loggedErrors = [];
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        data: [
+          {
+            status: "error",
+            message: "FCM credentials are missing",
+            details: { error: "InvalidCredentials" },
+          },
+        ],
+      }),
+      { status: 200 },
+    );
+  console.error = (...args) => loggedErrors.push(args);
+
+  try {
+    const tickets = await sendExpoPushNotifications([
+      {
+        to: "ExpoPushToken[device-token]",
+        title: "Quest available",
+        body: "A new quest is ready.",
+      },
+    ]);
+
+    assert.equal(tickets[0]?.status, "error");
+    assert.equal(tickets[0]?.details?.error, "InvalidCredentials");
+    assert.equal(loggedErrors.length, 1);
+    assert.match(String(loggedErrors[0]?.[0]), /Expo rejected 1/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.error = originalConsoleError;
+  }
+});

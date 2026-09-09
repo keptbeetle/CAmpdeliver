@@ -2,8 +2,9 @@ import type { Session } from "@supabase/supabase-js";
 import type React from "react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { AppState } from "react-native";
+import { focusManager } from "@tanstack/react-query";
 
-import { supabase } from "~/utils/auth";
+import { cacheAuthSession, supabase } from "~/utils/auth";
 
 interface AuthSessionContextValue {
   isLoading: boolean;
@@ -22,47 +23,93 @@ export function AuthSessionProvider({
 
   useEffect(() => {
     let isMounted = true;
+    let restoreInFlight: Promise<void> | null = null;
 
-    const syncTokenRefresh = (state: string) => {
+    const applySession = (nextSession: Session | null) => {
+      if (!isMounted) return;
+      cacheAuthSession(nextSession);
+      setSession(nextSession);
+    };
+
+    const restoreSession = (initial: boolean) => {
+      if (restoreInFlight) return restoreInFlight;
+
+      restoreInFlight = supabase.auth
+        .getSession()
+        .then(({ data, error }) => {
+          if (error) throw error;
+          applySession(data.session);
+        })
+        .catch((error: unknown) => {
+          // A transient refresh/storage failure must not discard the in-memory
+          // session. Supabase will retry auto-refresh while the app is active.
+          console.warn("Unable to refresh the saved session:", error);
+        })
+        .finally(() => {
+          restoreInFlight = null;
+          if (initial && isMounted) setIsLoading(false);
+        });
+
+      return restoreInFlight;
+    };
+
+    const activate = async (initial: boolean) => {
+      void supabase.auth.startAutoRefresh();
+      await restoreSession(initial);
+      if (isMounted && AppState.currentState === "active") {
+        focusManager.setFocused(true);
+      }
+    };
+
+    const handleAppState = (state: string) => {
       if (state === "active") {
-        void supabase.auth.startAutoRefresh();
+        focusManager.setFocused(false);
+        void activate(false);
       } else {
+        focusManager.setFocused(false);
         void supabase.auth.stopAutoRefresh();
       }
     };
 
-    syncTokenRefresh(AppState.currentState);
-    const appStateSubscription = AppState.addEventListener(
-      "change",
-      syncTokenRefresh,
-    );
     const {
       data: { subscription: authSubscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) return;
-      setSession(nextSession);
+
+      if (event === "INITIAL_SESSION") {
+        if (nextSession) applySession(nextSession);
+        return;
+      }
+
+      if (event === "SIGNED_OUT") {
+        applySession(null);
+      } else if (nextSession) {
+        applySession(nextSession);
+      }
+
       setIsLoading(false);
     });
 
-    void supabase.auth
-      .getSession()
-      .then(({ data }) => {
-        if (!isMounted) return;
-        setSession(data.session);
-        setIsLoading(false);
-      })
-      .catch((error: unknown) => {
-        // Keep the app usable if local storage is temporarily unavailable. A
-        // future auth state event can still restore the persisted session.
-        console.warn("Unable to restore the saved session:", error);
-        if (isMounted) setIsLoading(false);
-      });
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      handleAppState,
+    );
+
+    if (AppState.currentState === "active") {
+      focusManager.setFocused(false);
+      void activate(true);
+    } else {
+      focusManager.setFocused(false);
+      void supabase.auth.stopAutoRefresh();
+      void restoreSession(true);
+    }
 
     return () => {
       isMounted = false;
       appStateSubscription.remove();
       authSubscription.unsubscribe();
       void supabase.auth.stopAutoRefresh();
+      focusManager.setFocused(undefined);
     };
   }, []);
 
