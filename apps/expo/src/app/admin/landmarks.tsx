@@ -16,7 +16,7 @@ export default function ManageLandmarksScreen() {
         <Text style={styles.title}>Manage Landmarks</Text>
       </View>
       <View style={styles.card}>
-        <Feather name="map-pin" size={36} color="#fcd34d" />
+        <Feather name="map-pin" size={36} color={colors.accent} />
         <Text style={styles.cardTitle}>Use the web admin map</Text>
         <Text style={styles.cardCopy}>
           Landmark creation and radius editing stays in the web dashboard so the

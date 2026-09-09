@@ -12,7 +12,7 @@
     "format": "prettier --check . --ignore-path ../../.gitignore --ignore-path .prettierignore",
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "typecheck": "tsc --noEmit",
-    "with-env": "dotenv -e ../../.env --",
+    "with-env": "node ./scripts/with-branch-env.mjs",
     "dev:web": "pnpm with-env expo start --web",
     "export:web": "pnpm with-env expo export --platform web",
     "export:android": "pnpm with-env expo export --platform android",

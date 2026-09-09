@@ -102,9 +102,25 @@ export async function sendExpoPushNotifications(
 
       if (json.data && Array.isArray(json.data)) {
         results.push(...json.data);
-        console.log(
-          `[PushNotification] Successfully sent ${json.data.length} push notification(s).`,
+        const accepted = json.data.filter((ticket) => ticket.status === "ok");
+        const rejected = json.data.filter(
+          (ticket) => ticket.status === "error",
         );
+
+        if (accepted.length > 0) {
+          console.log(
+            `[PushNotification] Expo accepted ${accepted.length} push notification(s).`,
+          );
+        }
+        if (rejected.length > 0) {
+          console.error(
+            `[PushNotification] Expo rejected ${rejected.length} push notification(s):`,
+            rejected.map((ticket) => ({
+              error: ticket.details?.error ?? "Unknown",
+              message: ticket.message ?? "No message returned",
+            })),
+          );
+        }
       }
     } catch (error) {
       console.error(

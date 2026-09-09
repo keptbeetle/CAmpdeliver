@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { useRouter } from "expo-router";
@@ -54,15 +54,10 @@ async function configureAndroidChannel() {
     name: "Order updates",
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
-    lightColor: "#FF231F7C",
+    lightColor: "#2E7B80",
   });
 }
 
-/**
- * Keeps the signed-in device registered for remote push independently of
- * location/geofencing permissions. It intentionally only asks for the Android
- * notification permission after a user has signed in.
- */
 export function PushNotificationManager() {
   const router = useRouter();
   const { isLoading, session } = useAuthSession();
@@ -97,49 +92,78 @@ export function PushNotificationManager() {
     }
 
     let cancelled = false;
-    const registerDevice = async () => {
-      try {
-        // Android 13 requires the channel to exist before the notification
-        // permission prompt and before an Expo token can be requested.
-        await configureAndroidChannel();
-        const currentPermissions = await Notifications.getPermissionsAsync();
-        const permissions =
-          currentPermissions.status ===
-          Notifications.PermissionStatus.UNDETERMINED
-            ? await Notifications.requestPermissionsAsync()
-            : currentPermissions;
+    let registrationInFlight: Promise<void> | null = null;
 
-        if (permissions.status !== Notifications.PermissionStatus.GRANTED) {
-          console.info("Push notifications are not enabled for this device.");
-          return;
+    const registerDevice = () => {
+      if (registrationInFlight) return registrationInFlight;
+
+      registrationInFlight = (async () => {
+        try {
+          await configureAndroidChannel();
+          const currentPermissions = await Notifications.getPermissionsAsync();
+          const permissions =
+            currentPermissions.status ===
+            Notifications.PermissionStatus.UNDETERMINED
+              ? await Notifications.requestPermissionsAsync()
+              : currentPermissions;
+
+          if (permissions.status !== Notifications.PermissionStatus.GRANTED) {
+            console.info("Push notifications are not enabled for this device.");
+            return;
+          }
+
+          const projectId = pushProjectId();
+          if (!projectId) {
+            console.warn(
+              "Push token registration skipped: missing EAS project ID.",
+            );
+            return;
+          }
+
+          const tokenResponse: unknown =
+            await Notifications.getExpoPushTokenAsync({ projectId });
+          const token =
+            isRecord(tokenResponse) && typeof tokenResponse.data === "string"
+              ? tokenResponse.data
+              : null;
+          if (!token || cancelled) return;
+
+          // Re-submit on every foreground transition. This repairs a missing
+          // server-side token without requiring the user to sign in again.
+          if (
+            token !== latestToken.current ||
+            AppState.currentState === "active"
+          ) {
+            await updatePushToken({ pushToken: token });
+            latestToken.current = token;
+          }
+        } catch (error) {
+          console.warn("Push token registration failed:", error);
+        } finally {
+          registrationInFlight = null;
         }
+      })();
 
-        const projectId = pushProjectId();
-        if (!projectId) {
-          console.warn(
-            "Push token registration skipped: missing EAS project ID.",
-          );
-          return;
-        }
-
-        const tokenResponse: unknown =
-          await Notifications.getExpoPushTokenAsync({ projectId });
-        const token =
-          isRecord(tokenResponse) && typeof tokenResponse.data === "string"
-            ? tokenResponse.data
-            : null;
-        if (!token || cancelled || token === latestToken.current) return;
-
-        await updatePushToken({ pushToken: token });
-        latestToken.current = token;
-      } catch (error) {
-        console.warn("Push token registration failed:", error);
-      }
+      return registrationInFlight;
     };
 
     void registerDevice();
+
+    const appStateSubscription = AppState.addEventListener(
+      "change",
+      (state) => {
+        if (state === "active") void registerDevice();
+      },
+    );
+    const tokenSubscription = Notifications.addPushTokenListener(() => {
+      latestToken.current = null;
+      void registerDevice();
+    });
+
     return () => {
       cancelled = true;
+      appStateSubscription.remove();
+      tokenSubscription.remove();
     };
   }, [isLoading, session, updatePushToken]);
 

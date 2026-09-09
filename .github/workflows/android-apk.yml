@@ -81,82 +81,12 @@ jobs:
       - name: Setup workspace
         uses: ./tooling/github/setup
 
-      - name: Resolve same-commit Vercel backend
+      - name: Resolve branch-aware Vercel backend
         id: backend
         env:
           GH_TOKEN: ${{ github.token }}
-          PRODUCTION_API_URL: https://c-ampdeliver-nextjs.vercel.app
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ "$GITHUB_REF" == "refs/heads/main" ]]; then
-            wanted_environment="Production"
-          else
-            wanted_environment="Preview"
-          fi
-
-          echo "Waiting for Vercel $wanted_environment deployment of $TARGET_SHA"
-          deadline=$((SECONDS + 1200))
-          deployment_url=""
-
-          while (( SECONDS < deadline )); do
-            deployments="$(gh api "/repos/$GITHUB_REPOSITORY/deployments?sha=$TARGET_SHA&per_page=100")"
-            deployment_id="$(
-              jq -r --arg environment "$wanted_environment" '
-                [.[] | select(.environment == $environment)]
-                | sort_by(.created_at)
-                | last
-                | .id // empty
-              ' <<<"$deployments"
-            )"
-
-            if [[ -n "$deployment_id" ]]; then
-              statuses="$(gh api "/repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses?per_page=100")"
-              latest_state="$(jq -r 'sort_by(.created_at) | last | .state // empty' <<<"$statuses")"
-              deployment_url="$(
-                jq -r --arg environment "$wanted_environment" '
-                  [.[]
-                    | select(.state == "success")
-                    | select((.environment // $environment) == $environment)
-                    | select((.environment_url // "") != "")]
-                  | sort_by(.created_at)
-                  | last
-                  | .environment_url // empty
-                ' <<<"$statuses"
-              )"
-
-              if [[ -n "$deployment_url" ]]; then
-                break
-              fi
-
-              if [[ "$latest_state" == "failure" || "$latest_state" == "error" ]]; then
-                echo "Vercel $wanted_environment deployment failed for $TARGET_SHA" >&2
-                exit 1
-              fi
-            fi
-
-            sleep 10
-          done
-
-          if [[ -z "$deployment_url" ]]; then
-            echo "Timed out waiting for a successful Vercel $wanted_environment deployment of $TARGET_SHA" >&2
-            exit 1
-          fi
-
-          api_url="${deployment_url%/}"
-
-          if [[ ! "$api_url" =~ ^https://[A-Za-z0-9.-]+\.vercel\.app$ ]]; then
-            echo "Refusing unexpected backend URL: $api_url" >&2
-            exit 1
-          fi
-
-          short_sha="${TARGET_SHA:0:12}"
-          echo "api_url=$api_url" >> "$GITHUB_OUTPUT"
-          echo "deployment_url=${deployment_url%/}" >> "$GITHUB_OUTPUT"
-          echo "environment=$wanted_environment" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
-          echo "Resolved $wanted_environment backend for $short_sha: $api_url"
+          EXPO_PUBLIC_PRODUCTION_API_URL: https://c-ampdeliver-nextjs.vercel.app
+        run: node apps/expo/scripts/resolve-backend-url.mjs --github-output
 
       - name: Prepare build environment
         env:
@@ -190,6 +120,8 @@ jobs:
           } > .env
 
       - name: Generate Android project
+        env:
+          EXPO_API_URL_OVERRIDE: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo with-env expo prebuild --platform android --no-install
 
       - name: Build bundled preview APK

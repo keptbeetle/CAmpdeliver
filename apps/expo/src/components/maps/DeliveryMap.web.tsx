@@ -47,14 +47,14 @@ export function DeliveryMap({
       >
         <TileLayer
           attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <Recenter coordinate={center} />
         {canteen.latitude !== 0 && canteen.longitude !== 0 ? (
           <CircleMarker
             center={point(canteen)}
             radius={9}
-            pathOptions={{ color: "#3b82f6" }}
+            pathOptions={{ color: "#6879C8" }}
           >
             <Popup>{canteen.name}</Popup>
           </CircleMarker>
@@ -64,7 +64,7 @@ export function DeliveryMap({
             key={item.id}
             center={point(item)}
             radius={7}
-            pathOptions={{ color: "#14b8a6" }}
+            pathOptions={{ color: "#5D9EA0" }}
           >
             <Popup>{item.name}</Popup>
           </CircleMarker>
@@ -73,7 +73,7 @@ export function DeliveryMap({
           <CircleMarker
             center={point(delivery)}
             radius={9}
-            pathOptions={{ color: "#22c55e" }}
+            pathOptions={{ color: "#2E7D5B" }}
           >
             <Popup>{delivery.name}</Popup>
           </CircleMarker>
@@ -82,7 +82,7 @@ export function DeliveryMap({
           <CircleMarker
             center={point(deliverer)}
             radius={9}
-            pathOptions={{ color: "#a855f7" }}
+            pathOptions={{ color: "#2E7B80" }}
           >
             <Popup>Deliverer</Popup>
           </CircleMarker>
@@ -90,7 +90,7 @@ export function DeliveryMap({
         {route.length > 0 ? (
           <Polyline
             positions={route.map(point)}
-            pathOptions={{ color: "#a855f7", opacity: 0.85, weight: 5 }}
+            pathOptions={{ color: "#2E7B80", opacity: 0.85, weight: 5 }}
           />
         ) : null}
       </MapContainer>

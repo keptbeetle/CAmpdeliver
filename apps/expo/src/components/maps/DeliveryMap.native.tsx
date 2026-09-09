@@ -24,13 +24,13 @@ const BASE_STYLE: StyleSpecification = {
     {
       id: "background",
       type: "background",
-      paint: { "background-color": "#09090b" },
+      paint: { "background-color": "#EAF2F2" },
     },
   ],
 };
 
 const CARTO_TILES = [
-  "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+  "https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png",
 ];
 
 interface MarkerDotProps {
@@ -138,7 +138,7 @@ export function DeliveryMap({
       scaleBar={false}
       attribution
       attributionPosition={{ top: 8, right: 8 }}
-      tintColor="#c4b5fd"
+      tintColor="#2E7B80"
     >
       <Camera
         initialViewState={{
@@ -164,7 +164,7 @@ export function DeliveryMap({
             id="delivery-route-line"
             type="line"
             paint={{
-              "line-color": "#a855f7",
+              "line-color": "#2E7B80",
               "line-opacity": 0.85,
               "line-width": 5,
             }}
@@ -180,7 +180,7 @@ export function DeliveryMap({
         <Marker id="selected-canteen" lngLat={toLngLat(canteen)}>
           <MarkerDot
             accessibilityLabel={`Selected canteen: ${canteen.name}`}
-            color="#3b82f6"
+            color="#6879C8"
           />
         </Marker>
       ) : null}
@@ -193,7 +193,7 @@ export function DeliveryMap({
         >
           <MarkerDot
             accessibilityLabel={`Active canteen: ${point.name}`}
-            color="#14b8a6"
+            color="#5D9EA0"
           />
         </Marker>
       ))}
@@ -202,14 +202,14 @@ export function DeliveryMap({
         <Marker id="delivery-dropoff" lngLat={toLngLat(delivery)}>
           <MarkerDot
             accessibilityLabel={`Delivery location: ${delivery.name}`}
-            color="#22c55e"
+            color="#2E7D5B"
           />
         </Marker>
       ) : null}
 
       {deliverer ? (
         <Marker id="deliverer" lngLat={toLngLat(deliverer)}>
-          <MarkerDot accessibilityLabel="Deliverer" color="#a855f7" />
+          <MarkerDot accessibilityLabel="Deliverer" color="#2E7B80" />
         </Marker>
       ) : null}
 
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(9, 9, 11, 0.85)",
+    backgroundColor: "rgba(255, 255, 255, 0.94)",
     borderWidth: 2,
     borderColor: "#ffffff",
   },

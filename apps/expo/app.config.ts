@@ -8,7 +8,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "0.1.0",
   orientation: "portrait",
   icon: "./assets/icon-light.png",
-  userInterfaceStyle: "automatic",
+  userInterfaceStyle: "light",
   updates: {
     fallbackToCacheTimeout: 0,
   },
@@ -39,7 +39,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     ],
     adaptiveIcon: {
       foregroundImage: "./assets/icon-light.png",
-      backgroundColor: "#1F104A",
+      backgroundColor: "#DDF0EF",
     },
     edgeToEdgeEnabled: true,
   },
@@ -73,7 +73,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     [
       "expo-splash-screen",
       {
-        backgroundColor: "#E4E4E7",
+        backgroundColor: "#F4F8F8",
         image: "./assets/icon-light.png",
         dark: {
           backgroundColor: "#18181B",
@@ -94,7 +94,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-notifications",
       {
         icon: "./assets/icon-light.png",
-        color: "#FF231F7C",
+        color: "#2E7B80",
         defaultChannel: "default",
         enableBackgroundRemoteNotifications: true,
       },
