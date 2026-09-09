@@ -41,12 +41,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Setup
         uses: ./tooling/github/setup
 
-      - name: Format
-        run: pnpm format
+      - name: Check formatting for changed files
+        env:
+          FORMAT_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.event.merge_group.base_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_sha="${FORMAT_BASE_SHA:-}"
+          if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]]; then
+            base_sha="$(git rev-parse HEAD^)"
+          fi
+
+          mapfile -t files < <(
+            git diff --name-only --diff-filter=ACMR "$base_sha"...HEAD -- \
+              '*.ts' '*.tsx' '*.js' '*.jsx' '*.mjs' '*.cjs' \
+              '*.json' '*.md' '*.mdx' '*.yml' '*.yaml' \
+              '*.css' '*.scss' '*.html'
+          )
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No Prettier-supported files changed."
+            exit 0
+          fi
+
+          printf 'Checking formatting for %s changed file(s).\n' "${#files[@]}"
+          pnpm exec prettier --check \
+            --ignore-path .gitignore \
+            --ignore-path apps/expo/.prettierignore \
+            "${files[@]}"
 
   typecheck:
     runs-on: ubuntu-latest
