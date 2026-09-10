@@ -309,6 +309,8 @@ export const orderPayments = pgTable(
       .default("NOT_STARTED")
       .notNull(),
     expectedAmount: integer("expected_amount").notNull(),
+    destinationUpiId: text("destination_upi_id"),
+    destinationUpiPayeeName: text("destination_upi_payee_name"),
     submittedUtr: text("submitted_utr"),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     verifiedAt: timestamp("verified_at", { withTimezone: true }),
@@ -348,6 +350,22 @@ export const orderPayments = pgTable(
       table.createdAt,
     ),
     check("order_payments_amount_positive", sql`${table.expectedAmount} > 0`),
+    check(
+      "order_payments_destination_pair_check",
+      sql`(${table.destinationUpiId} is null and ${table.destinationUpiPayeeName} is null) or (${table.destinationUpiId} is not null and ${table.destinationUpiPayeeName} is not null)`,
+    ),
+    check(
+      "order_payments_destination_upi_length",
+      sql`${table.destinationUpiId} is null or char_length(${table.destinationUpiId}) between 5 and 100`,
+    ),
+    check(
+      "order_payments_destination_upi_format",
+      sql`${table.destinationUpiId} is null or ${table.destinationUpiId} ~* '^[a-z0-9][a-z0-9._-]{1,63}@[a-z0-9][a-z0-9.-]{1,63}$'`,
+    ),
+    check(
+      "order_payments_destination_payee_length",
+      sql`${table.destinationUpiPayeeName} is null or char_length(${table.destinationUpiPayeeName}) between 2 and 80`,
+    ),
     check(
       "order_payments_method_check",
       sql`${table.method} is null or ${table.method} in ('ADVANCE','PAY_AT_DELIVERY')`,
@@ -420,6 +438,88 @@ export const orderSettlements = pgTable(
     check(
       "order_settlements_status_check",
       sql`${table.status} in ('AVAILABLE','PENDING','PAID','ON_HOLD','FAILED')`,
+    ),
+  ],
+);
+
+export const platformPaymentSettings = pgTable(
+  "platform_payment_settings",
+  {
+    id: text("id").primaryKey().default("primary").notNull(),
+    upiId: text("upi_id").notNull(),
+    upiPayeeName: text("upi_payee_name").default("CAmpDeliver").notNull(),
+    updatedByAdminId: uuid("updated_by_admin_id").references(
+      () => profiles.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    check("platform_payment_settings_singleton", sql`${table.id} = 'primary'`),
+    check(
+      "platform_payment_settings_upi_id_length",
+      sql`char_length(${table.upiId}) between 5 and 100`,
+    ),
+    check(
+      "platform_payment_settings_upi_id_format",
+      sql`${table.upiId} ~* '^[a-z0-9][a-z0-9._-]{1,63}@[a-z0-9][a-z0-9.-]{1,63}$'`,
+    ),
+    check(
+      "platform_payment_settings_payee_name_length",
+      sql`char_length(${table.upiPayeeName}) between 2 and 80`,
+    ),
+  ],
+);
+
+export const platformPaymentSettingsHistory = pgTable(
+  "platform_payment_settings_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom().notNull(),
+    settingsId: text("settings_id")
+      .references(() => platformPaymentSettings.id, { onDelete: "restrict" })
+      .default("primary")
+      .notNull(),
+    previousUpiId: text("previous_upi_id"),
+    previousUpiPayeeName: text("previous_upi_payee_name"),
+    newUpiId: text("new_upi_id").notNull(),
+    newUpiPayeeName: text("new_upi_payee_name").notNull(),
+    changedByAdminId: uuid("changed_by_admin_id").references(
+      () => profiles.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "platform_payment_settings_history_singleton",
+      sql`${table.settingsId} = 'primary'`,
+    ),
+    check(
+      "platform_payment_settings_history_new_upi_length",
+      sql`char_length(${table.newUpiId}) between 5 and 100`,
+    ),
+    check(
+      "platform_payment_settings_history_new_upi_format",
+      sql`${table.newUpiId} ~* '^[a-z0-9][a-z0-9._-]{1,63}@[a-z0-9][a-z0-9.-]{1,63}$'`,
+    ),
+    check(
+      "platform_payment_settings_history_new_payee_length",
+      sql`char_length(${table.newUpiPayeeName}) between 2 and 80`,
+    ),
+    index("idx_platform_payment_settings_history_created").on(
+      table.createdAt.desc(),
     ),
   ],
 );

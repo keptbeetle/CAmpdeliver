@@ -64,6 +64,8 @@ export default function CheckoutScreen() {
   const platformFee = paymentConfig?.platformFeePaise ?? fallbackPlatformFee;
   const finalAmount = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
+  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const orderReady = databaseReady && paymentDestinationReady;
   const busy = stage !== "idle" || createOrderMutation.isPending;
 
   const placeOrder = async () => {
@@ -72,6 +74,13 @@ export default function CheckoutScreen() {
       showAppAlert(
         "Payment upgrade pending",
         "CAmpDeliver is connected, but new orders are paused until the server database migration is applied.",
+      );
+      return;
+    }
+    if (!paymentDestinationReady) {
+      showAppAlert(
+        "Payments temporarily unavailable",
+        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Your cart is safe; try again after it is configured.",
       );
       return;
     }
@@ -246,6 +255,13 @@ export default function CheckoutScreen() {
               title="New orders are temporarily paused"
               copy="This build is connected correctly, but the payment/security database migration has not been applied yet. Your cart is safe; place the order after the server upgrade is complete."
             />
+          ) : !paymentDestinationReady ? (
+            <InlineNotice
+              icon="credit-card"
+              tone="warning"
+              title="Receiving UPI is not configured"
+              copy="An administrator needs to save the CAmpDeliver receiving UPI ID before new orders can be placed. Your cart is safe."
+            />
           ) : null}
 
           <Section title="Order summary" icon="shopping-bag">
@@ -363,12 +379,12 @@ export default function CheckoutScreen() {
           ) : null}
           <Pressable
             accessibilityRole="button"
-            disabled={busy || !databaseReady}
+            disabled={busy || !orderReady}
             onPress={() => void placeOrder()}
             style={({ pressed }) => [
               styles.placeButton,
-              pressed && !busy && databaseReady && styles.pressed,
-              (busy || !databaseReady) && styles.disabled,
+              pressed && !busy && orderReady && styles.pressed,
+              (busy || !orderReady) && styles.disabled,
             ]}
           >
             <View>
@@ -379,14 +395,16 @@ export default function CheckoutScreen() {
                     ? "Checking server…"
                     : paymentConfigQuery.isError
                       ? "Payment service unavailable"
-                      : databaseReady
-                        ? "Place Order"
-                        : "Server upgrade pending"}
+                      : !databaseReady
+                        ? "Server upgrade pending"
+                        : paymentDestinationReady
+                          ? "Place Order"
+                          : "UPI setup pending"}
               </Text>
               <Text style={styles.placeSubtext}>
                 {busy
                   ? "Please keep this screen open"
-                  : databaseReady
+                  : orderReady
                     ? "Location is checked next"
                     : "Your cart stays unchanged"}
               </Text>

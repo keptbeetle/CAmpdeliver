@@ -9,6 +9,8 @@ const DEFAULT_TTLS_SECONDS = {
   paidAwaitingPurchase: 10 * 60,
 } as const;
 
+const UPI_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}@[a-z0-9][a-z0-9.-]{1,63}$/i;
+
 function readNonNegativeInt(name: string, fallback: number) {
   const raw = process.env[name]?.trim();
   if (!raw) return fallback;
@@ -22,9 +24,6 @@ function readPositiveInt(name: string, fallback: number) {
 }
 
 export function getPaymentConfig() {
-  const configuredUpiId = process.env.CAMPDELIVER_UPI_ID?.trim();
-  const configuredPayeeName = process.env.CAMPDELIVER_UPI_PAYEE_NAME?.trim();
-  const upiId = configuredUpiId ?? null;
   return {
     deliveryFeePaise: readNonNegativeInt(
       "DELIVERY_FEE_PAISE",
@@ -34,8 +33,6 @@ export function getPaymentConfig() {
       "PLATFORM_FEE_PAISE",
       DEFAULT_PLATFORM_FEE_PAISE,
     ),
-    upiId,
-    upiPayeeName: configuredPayeeName ?? "CAmpDeliver",
     ttls: {
       broadcasted: readPositiveInt(
         "ORDER_BROADCAST_TTL_SECONDS",
@@ -59,6 +56,19 @@ export function getPaymentConfig() {
       ),
     },
   };
+}
+
+export function normalizeUpiId(value: string) {
+  return value.trim().toLowerCase();
+}
+
+export function isValidUpiId(value: string) {
+  const normalized = normalizeUpiId(value);
+  return normalized.length <= 100 && UPI_ID_PATTERN.test(normalized);
+}
+
+export function normalizeUpiPayeeName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
 }
 
 export function expiresFromNow(seconds: number, now = new Date()) {

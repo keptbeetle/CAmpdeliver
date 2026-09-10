@@ -161,6 +161,8 @@ export default function OrderStatusPage({
   const total =
     payment?.expectedAmount ??
     order.foodPrice + order.deliveryFee + order.platformFee;
+  const receivingUpiId = payment?.destinationUpiId ?? null;
+  const receivingPayeeName = payment?.destinationUpiPayeeName ?? "CAmpDeliver";
   const paymentDatabaseReady = paymentConfig?.databaseReady === true;
   const terminal = !ACTIVE_STATUSES.includes(order.status);
   const currentStep = STEP_INDEX[order.status] ?? 0;
@@ -175,13 +177,13 @@ export default function OrderStatusPage({
     submitReference.isPending;
 
   const openUpi = () => {
-    if (!paymentConfig?.upiId) {
+    if (!receivingUpiId) {
       setErrorMsg("The pilot UPI account is not configured yet.");
       return;
     }
     const query = new URLSearchParams({
-      pa: paymentConfig.upiId,
-      pn: paymentConfig.upiPayeeName,
+      pa: receivingUpiId,
+      pn: receivingPayeeName,
       am: (total / 100).toFixed(2),
       cu: "INR",
       tn: `CAmpDeliver ${order.id.slice(0, 8).toUpperCase()}`,
@@ -368,7 +370,7 @@ export default function OrderStatusPage({
                   Pay exact amount to
                 </p>
                 <p className="mt-1 text-base font-black text-white select-all">
-                  {paymentConfig.upiId ?? "UPI not configured"}
+                  {receivingUpiId ?? "UPI not configured"}
                 </p>
                 <p className="mt-2 text-2xl font-black text-emerald-400">
                   {formatCurrency(total)}
@@ -378,7 +380,7 @@ export default function OrderStatusPage({
                 </p>
               </div>
               <button
-                disabled={!paymentConfig.upiId || busy}
+                disabled={!receivingUpiId || busy}
                 onClick={openUpi}
                 className="flex items-center justify-center gap-2 rounded-xl border border-purple-500/40 px-4 py-2.5 text-xs font-bold text-purple-300 disabled:opacity-50"
               >

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,6 +23,8 @@ export default function AdminPaymentsPage() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [holdReasons, setHoldReasons] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
+  const [upiId, setUpiId] = useState("");
+  const [upiPayeeName, setUpiPayeeName] = useState("CAmpDeliver");
 
   const { data: profile, isLoading: profileLoading } = useQuery(
     trpc.auth.getMyProfile.queryOptions(),
@@ -33,6 +35,16 @@ export default function AdminPaymentsPage() {
     enabled: isAdmin,
     refetchInterval: isAdmin ? 10000 : false,
   });
+  const paymentSettings = useQuery({
+    ...trpc.payment.adminPaymentSettings.queryOptions(),
+    enabled: isAdmin && dashboard.data?.databaseReady === true,
+  });
+
+  useEffect(() => {
+    if (!paymentSettings.data) return;
+    setUpiId(paymentSettings.data.upiId ?? "");
+    setUpiPayeeName(paymentSettings.data.upiPayeeName);
+  }, [paymentSettings.data]);
 
   const refresh = async () => {
     await Promise.all([
@@ -41,6 +53,12 @@ export default function AdminPaymentsPage() {
       }),
       queryClient.invalidateQueries({
         queryKey: trpc.payment.earnings.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.payment.adminPaymentSettings.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.payment.config.queryKey(),
       }),
       queryClient.invalidateQueries({
         queryKey: trpc.order.myOrders.queryKey(),
@@ -81,6 +99,9 @@ export default function AdminPaymentsPage() {
   );
   const holdSettlement = useMutation(
     trpc.payment.adminHoldSettlement.mutationOptions(),
+  );
+  const updatePaymentDestination = useMutation(
+    trpc.payment.adminUpdatePaymentDestination.mutationOptions(),
   );
 
   if (profileLoading) {
@@ -181,6 +202,136 @@ export default function AdminPaymentsPage() {
         </div>
       )}
 
+      <section className="rounded-2xl border border-purple-500/25 bg-zinc-900/70 p-4 sm:p-5">
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black tracking-[0.14em] text-purple-400 uppercase">
+                Payment destination
+              </p>
+              <h2 className="mt-1 text-lg font-black text-white">
+                CAmpDeliver receiving UPI
+              </h2>
+              <p className="mt-1 max-w-xl text-xs leading-relaxed text-zinc-400">
+                New payment selections use this destination immediately. Orders
+                that already started payment keep their original UPI, which
+                stays visible in the verification queue for reconciliation.
+              </p>
+            </div>
+            <CreditCard className="mt-1 h-5 w-5 shrink-0 text-purple-400" />
+          </div>
+
+          {paymentSettings.isLoading ? (
+            <p className="text-xs text-zinc-400">
+              Loading payment destination...
+            </p>
+          ) : paymentSettings.isError ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-950/20 p-3">
+              <p className="text-xs text-red-200">
+                Payment destination could not be loaded.
+              </p>
+              <button
+                onClick={() => void paymentSettings.refetch()}
+                className="rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-bold text-red-200"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-xs font-bold text-zinc-300">
+                  UPI ID
+                  <input
+                    value={upiId}
+                    onChange={(event) => setUpiId(event.target.value)}
+                    placeholder="name@bank"
+                    maxLength={100}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-purple-500"
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs font-bold text-zinc-300">
+                  Payee name
+                  <input
+                    value={upiPayeeName}
+                    onChange={(event) => setUpiPayeeName(event.target.value)}
+                    placeholder="CAmpDeliver"
+                    maxLength={80}
+                    className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-purple-500"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-zinc-500">
+                  {paymentSettings.data?.upiId ? (
+                    <>
+                      Current:{" "}
+                      <span className="font-bold text-zinc-200 select-all">
+                        {paymentSettings.data.upiId}
+                      </span>
+                      {` - Updated ${new Date(paymentSettings.data.updatedAt).toLocaleString()}`}
+                    </>
+                  ) : (
+                    <span className="text-amber-300">
+                      No receiving UPI is configured yet. Buyer payment
+                      selection remains blocked.
+                    </span>
+                  )}
+                </div>
+                <button
+                  disabled={
+                    busy !== null ||
+                    !upiId.trim().includes("@") ||
+                    upiPayeeName.trim().length < 2
+                  }
+                  onClick={() =>
+                    void run(
+                      "payment-destination",
+                      () =>
+                        updatePaymentDestination.mutateAsync({
+                          upiId,
+                          upiPayeeName,
+                        }),
+                      "Payment destination updated.",
+                    )
+                  }
+                  className="rounded-xl bg-purple-600 px-5 py-2.5 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy === "payment-destination"
+                    ? "Saving..."
+                    : "Save UPI destination"}
+                </button>
+              </div>
+
+              {paymentSettings.data?.history.length ? (
+                <div className="border-t border-zinc-800 pt-3">
+                  <p className="text-[10px] font-black tracking-wide text-zinc-500 uppercase">
+                    Recent destination changes
+                  </p>
+                  <div className="mt-2 grid gap-1.5 text-[11px] text-zinc-500">
+                    {paymentSettings.data.history.slice(0, 3).map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex flex-wrap justify-between gap-2"
+                      >
+                        <span className="select-all">{entry.newUpiId}</span>
+                        <span>
+                          {new Date(entry.createdAt).toLocaleString()}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          )}
+        </div>
+      </section>
+
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Metric
           label="Verify"
@@ -222,6 +373,10 @@ export default function AdminPaymentsPage() {
                     ? "Pay at Delivery"
                     : "Advance"
                 }
+              />
+              <Info
+                label="Expected UPI"
+                value={payment.destinationUpiId ?? "Not captured"}
               />
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
                 <p className="text-[10px] font-black text-zinc-500 uppercase">

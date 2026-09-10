@@ -6,7 +6,9 @@ import {
   LOCATIONS,
   readScenarioState,
   resetScenario,
+  restorePaymentDestination,
   TEST_CANTEEN,
+  TEST_UPI,
   TEST_USERS,
 } from "./fixtures";
 import {
@@ -88,6 +90,17 @@ test("buyer, deliverer, and admin complete a paid tracked delivery and settlemen
 
   try {
     await Promise.all([buyer.login(), deliverer.login(), admin.login()]);
+
+    await admin.page.goto("/admin/payments");
+    await admin.page.getByLabel("UPI ID").fill(TEST_UPI.id);
+    await admin.page.getByLabel("Payee name").fill(TEST_UPI.payeeName);
+    await admin.page
+      .getByRole("button", { name: "Save UPI destination" })
+      .click();
+    await expect(
+      admin.page.getByText("Payment destination updated."),
+    ).toBeVisible();
+
     await Promise.all([
       setDemoStep(buyer.page, "Place a food order"),
       setDemoStep(deliverer.page, "Signed in outside the canteen geofence"),
@@ -166,6 +179,27 @@ test("buyer, deliverer, and admin complete a paid tracked delivery and settlemen
       buyer.page.getByRole("button", { name: /Pay Now.*Advance/ }),
     ).toBeVisible({ timeout: 20_000 });
     await buyer.page.getByRole("button", { name: /Pay Now.*Advance/ }).click();
+
+    // Payment routing is snapshotted when the buyer chooses a method. A later
+    // ADMIN destination change must apply to future payments, not this order.
+    await admin.page.goto("/admin/payments");
+    await admin.page.getByLabel("UPI ID").fill(TEST_UPI.changedId);
+    await admin.page.getByLabel("Payee name").fill(TEST_UPI.changedPayeeName);
+    await admin.page
+      .getByRole("button", { name: "Save UPI destination" })
+      .click();
+    await expect(
+      admin.page.getByText("Payment destination updated."),
+    ).toBeVisible();
+
+    await buyer.page.reload();
+    await expect(
+      buyer.page.getByText(TEST_UPI.id, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      buyer.page.getByText(TEST_UPI.changedId, { exact: true }),
+    ).toHaveCount(0);
+
     const paymentReference = `E2E-PAY-${Date.now()}`;
     await buyer.page
       .getByPlaceholder("UPI transaction reference / UTR")
@@ -308,6 +342,8 @@ test("buyer, deliverer, and admin complete a paid tracked delivery and settlemen
       method: "ADVANCE",
       status: "PAID",
       expectedAmount: TEST_CANTEEN.itemPrice + 500 + 300,
+      destinationUpiId: TEST_UPI.id,
+      destinationUpiPayeeName: TEST_UPI.payeeName,
       submittedUtr: paymentReference,
       verifiedByAdminId: users.adminId,
     });
@@ -319,11 +355,12 @@ test("buyer, deliverer, and admin complete a paid tracked delivery and settlemen
       payoutReference,
     });
   } finally {
-    await Promise.all([
+    await Promise.allSettled([
       buyerContext.close(),
       delivererContext.close(),
       adminContext.close(),
     ]);
+    await restorePaymentDestination(users);
     if (demoMode) {
       await Promise.all([
         buyerVideo?.saveAs(path.join(demoDirectory, "buyer.webm")),

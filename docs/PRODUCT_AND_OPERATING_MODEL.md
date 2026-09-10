@@ -270,14 +270,14 @@ The backend therefore exposes payment-schema readiness and supports a read-only 
 - legacy participant chat can continue using polling;
 - `/api/health/payment-schema` returns readiness for deployment checks.
 
-This compatibility mode is only a rollout safety mechanism. It does not activate the new payment flow. The new flow is active only after the migration/RLS rollout and required production environment values are configured.
+This compatibility mode is only a rollout safety mechanism. It does not activate the new payment flow. The new flow is active only after the migration/RLS rollout and required production configuration is complete. The receiving UPI destination is managed dynamically by an ADMIN in the app rather than through deployment environment variables.
 
 ## 15. Production/pilot configuration
 
+ADMIN-managed payment configuration includes the receiving UPI ID and payee name in **Payments & Settlements**. Each change is stored with an audit record and takes effect for new buyer payment selections without a redeploy. The selected destination is then snapshotted onto that order's payment record, so changing the platform UPI does not reroute an in-progress payment or make later bank reconciliation ambiguous.
+
 Backend-only or deployment configuration includes:
 
-- `CAMPDELIVER_UPI_ID`
-- `CAMPDELIVER_UPI_PAYEE_NAME`
 - `DELIVERY_FEE_PAISE`
 - `PLATFORM_FEE_PAISE`
 - `ORDER_BROADCAST_TTL_SECONDS`

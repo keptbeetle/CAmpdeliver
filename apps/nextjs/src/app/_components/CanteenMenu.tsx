@@ -175,11 +175,19 @@ export function CanteenMenu({
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const totalCost = totalFoodPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
+  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const orderReady = databaseReady && paymentDestinationReady;
 
   const handlePlaceOrder = async () => {
     if (!databaseReady) {
       setError(
         "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
+      );
+      return;
+    }
+    if (!paymentDestinationReady) {
+      setError(
+        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Try again after it is configured.",
       );
       return;
     }
@@ -416,11 +424,16 @@ export function CanteenMenu({
                   New orders are paused until the payment/security database
                   upgrade is complete.
                 </div>
+              ) : !paymentDestinationReady ? (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
+                  New orders are paused until an administrator saves the
+                  CAmpDeliver receiving UPI ID.
+                </div>
               ) : null}
               <Button
                 onClick={() => void handlePlaceOrder()}
                 disabled={
-                  !databaseReady ||
+                  !orderReady ||
                   placingOrder ||
                   locatingDestination ||
                   createOrderMutation.isPending
@@ -433,9 +446,11 @@ export function CanteenMenu({
                     ? "Payment service unavailable"
                     : !databaseReady
                       ? "Server upgrade pending"
-                      : placingOrder || createOrderMutation.isPending
-                        ? "Broadcasting..."
-                        : "Broadcast Order"}
+                      : !paymentDestinationReady
+                        ? "UPI setup pending"
+                        : placingOrder || createOrderMutation.isPending
+                          ? "Broadcasting..."
+                          : "Broadcast Order"}
               </Button>
             </div>
           )}

@@ -219,6 +219,8 @@ export default function OrderStatusScreen() {
   const expectedAmount =
     payment?.expectedAmount ??
     order.foodPrice + order.deliveryFee + order.platformFee;
+  const receivingUpiId = payment?.destinationUpiId ?? null;
+  const receivingPayeeName = payment?.destinationUpiPayeeName ?? "CAmpDeliver";
   const isTerminal = ["DELIVERED", "COMPLETED", "CANCELLED", "FAILED"].includes(
     order.status,
   );
@@ -233,7 +235,7 @@ export default function OrderStatusScreen() {
     );
 
   const openUpi = async () => {
-    if (!paymentConfig?.upiId) {
+    if (!receivingUpiId) {
       showAppAlert(
         "UPI is not configured",
         "The admin has not configured the pilot UPI account yet.",
@@ -241,8 +243,8 @@ export default function OrderStatusScreen() {
       return;
     }
     const params = new URLSearchParams({
-      pa: paymentConfig.upiId,
-      pn: paymentConfig.upiPayeeName,
+      pa: receivingUpiId,
+      pn: receivingPayeeName,
       am: (expectedAmount / 100).toFixed(2),
       cu: "INR",
       tn: `CAmpDeliver ${shortId(order.id)}`,
@@ -813,6 +815,8 @@ function PaymentCard({
     );
   }
 
+  const receivingUpiId = order.payment?.destinationUpiId ?? null;
+
   const canSelectMethod =
     isBuyer &&
     order.status === "ITEM_AVAILABLE" &&
@@ -915,7 +919,7 @@ function PaymentCard({
           <View style={styles.upiBox}>
             <Text style={styles.upiLabel}>Pay exact amount to</Text>
             <Text selectable style={styles.upiId}>
-              {paymentConfig?.upiId ?? "UPI ID not configured"}
+              {receivingUpiId ?? "UPI ID not configured"}
             </Text>
             <Text style={styles.upiAmount}>
               {formatCurrency(expectedAmount)}
@@ -928,7 +932,7 @@ function PaymentCard({
             label="Open UPI App"
             icon="external-link"
             tone="secondary"
-            disabled={!paymentConfig?.upiId || activeAction !== null}
+            disabled={!receivingUpiId || activeAction !== null}
             onPress={openUpi}
           />
           <TextInput

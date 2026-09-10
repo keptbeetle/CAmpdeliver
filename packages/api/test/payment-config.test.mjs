@@ -4,12 +4,13 @@ import test from "node:test";
 import {
   expiresFromNow,
   getPaymentConfig,
+  isValidUpiId,
   normalizeTransactionReference,
+  normalizeUpiId,
+  normalizeUpiPayeeName,
 } from "../src/services/payment-config.ts";
 
 const CONFIG_KEYS = [
-  "CAMPDELIVER_UPI_ID",
-  "CAMPDELIVER_UPI_PAYEE_NAME",
   "DELIVERY_FEE_PAISE",
   "PLATFORM_FEE_PAISE",
   "ORDER_BROADCAST_TTL_SECONDS",
@@ -32,13 +33,11 @@ function withCleanPaymentEnv(callback) {
   }
 }
 
-test("uses safe pilot defaults and keeps UPI optional", () => {
+test("uses safe pilot fee and TTL defaults", () => {
   withCleanPaymentEnv(() => {
     const config = getPaymentConfig();
     assert.equal(config.deliveryFeePaise, 500);
     assert.equal(config.platformFeePaise, 300);
-    assert.equal(config.upiId, null);
-    assert.equal(config.upiPayeeName, "CAmpDeliver");
     assert.deepEqual(config.ttls, {
       broadcasted: 600,
       accepted: 300,
@@ -49,17 +48,13 @@ test("uses safe pilot defaults and keeps UPI optional", () => {
   });
 });
 
-test("reads configured fees, UPI identity, and positive TTLs", () => {
+test("reads configured fees and positive TTLs", () => {
   withCleanPaymentEnv(() => {
-    process.env.CAMPDELIVER_UPI_ID = "campdeliver@upi";
-    process.env.CAMPDELIVER_UPI_PAYEE_NAME = "Campus Deliver";
     process.env.DELIVERY_FEE_PAISE = "700";
     process.env.PLATFORM_FEE_PAISE = "300";
     process.env.ORDER_BROADCAST_TTL_SECONDS = "120";
 
     const config = getPaymentConfig();
-    assert.equal(config.upiId, "campdeliver@upi");
-    assert.equal(config.upiPayeeName, "Campus Deliver");
     assert.equal(config.deliveryFeePaise, 700);
     assert.equal(config.platformFeePaise, 300);
     assert.equal(config.ttls.broadcasted, 120);
@@ -77,6 +72,23 @@ test("invalid fee or TTL configuration falls back instead of weakening invariant
     assert.equal(config.platformFeePaise, 300);
     assert.equal(config.ttls.accepted, 300);
   });
+});
+
+test("normalizes and validates UPI destinations", () => {
+  assert.equal(
+    normalizeUpiId("  Campus.Payments@YBL  "),
+    "campus.payments@ybl",
+  );
+  assert.equal(
+    normalizeUpiPayeeName("  CAmpDeliver   Campus  "),
+    "CAmpDeliver Campus",
+  );
+  assert.equal(isValidUpiId("campus.payments@ybl"), true);
+  assert.equal(isValidUpiId("student_123@okaxis"), true);
+  assert.equal(isValidUpiId("missing-handle"), false);
+  assert.equal(isValidUpiId("@ybl"), false);
+  assert.equal(isValidUpiId("name@"), false);
+  assert.equal(isValidUpiId("name with space@ybl"), false);
 });
 
 test("normalizes transaction references consistently", () => {

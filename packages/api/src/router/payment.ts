@@ -8,6 +8,8 @@ import {
   orderPayments,
   orders,
   orderSettlements,
+  platformPaymentSettings,
+  platformPaymentSettingsHistory,
   profiles,
 } from "@acme/db/schema";
 
@@ -15,8 +17,17 @@ import { expireStaleOrders } from "../services/order-expiry";
 import {
   expiresFromNow,
   getPaymentConfig,
+  isValidUpiId,
   normalizeTransactionReference,
+  normalizeUpiId,
+  normalizeUpiPayeeName,
 } from "../services/payment-config";
+import {
+  DEFAULT_UPI_PAYEE_NAME,
+  getPaymentDestination,
+  getPaymentDestinationHistory,
+  PAYMENT_SETTINGS_ID,
+} from "../services/payment-destination";
 import {
   canSubmitPaymentReference,
   settlementRequestDisposition,
@@ -27,6 +38,23 @@ import { adminProcedure, protectedProcedure } from "../trpc";
 
 const orderIdInput = z.object({ orderId: z.string().uuid() }).strict();
 const referenceSchema = z.string().trim().min(5).max(80);
+const paymentDestinationInput = z
+  .object({
+    upiId: z
+      .string()
+      .trim()
+      .min(5)
+      .max(100)
+      .transform(normalizeUpiId)
+      .refine(isValidUpiId, "Enter a valid UPI ID such as name@bank."),
+    upiPayeeName: z
+      .string()
+      .trim()
+      .min(2)
+      .max(80)
+      .transform(normalizeUpiPayeeName),
+  })
+  .strict();
 const REQUESTED_SETTLEMENT_STATUSES = ["PENDING", "ON_HOLD", "FAILED"] as const;
 
 async function requirePaymentSchemaReady() {
@@ -168,16 +196,89 @@ export const paymentRouter = {
   config: protectedProcedure.query(async () => {
     const config = getPaymentConfig();
     const database = await getPaymentSchemaReadiness();
+    const destination = database.ready
+      ? await getPaymentDestination()
+      : { upiId: null, upiPayeeName: DEFAULT_UPI_PAYEE_NAME, updatedAt: null };
     return {
       deliveryFeePaise: config.deliveryFeePaise,
       platformFeePaise: config.platformFeePaise,
-      upiId: config.upiId,
-      upiPayeeName: config.upiPayeeName,
+      upiId: destination.upiId,
+      upiPayeeName: destination.upiPayeeName,
+      paymentDestinationUpdatedAt: destination.updatedAt,
       manualVerification: true as const,
       databaseReady: database.ready,
       schemaVersion: database.version,
     };
   }),
+
+  adminPaymentSettings: adminProcedure.query(async () => {
+    await requirePaymentSchemaReady();
+    const [destination, history] = await Promise.all([
+      getPaymentDestination(),
+      getPaymentDestinationHistory(10),
+    ]);
+    return { ...destination, history };
+  }),
+
+  adminUpdatePaymentDestination: adminProcedure
+    .input(paymentDestinationInput)
+    .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
+      const now = new Date();
+
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended('platform-payment-settings', 0))`,
+        );
+        const [previous] = await tx
+          .select()
+          .from(platformPaymentSettings)
+          .where(eq(platformPaymentSettings.id, PAYMENT_SETTINGS_ID))
+          .limit(1);
+
+        if (
+          previous?.upiId === input.upiId &&
+          previous.upiPayeeName === input.upiPayeeName
+        ) {
+          return { ...previous, changed: false as const };
+        }
+
+        const [saved] = await tx
+          .insert(platformPaymentSettings)
+          .values({
+            id: PAYMENT_SETTINGS_ID,
+            upiId: input.upiId,
+            upiPayeeName: input.upiPayeeName,
+            updatedByAdminId: ctx.user.id,
+            createdAt: previous?.createdAt ?? now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: platformPaymentSettings.id,
+            set: {
+              upiId: input.upiId,
+              upiPayeeName: input.upiPayeeName,
+              updatedByAdminId: ctx.user.id,
+              updatedAt: now,
+            },
+          })
+          .returning();
+
+        if (!saved) throw new Error("Failed to save payment destination");
+
+        await tx.insert(platformPaymentSettingsHistory).values({
+          settingsId: PAYMENT_SETTINGS_ID,
+          previousUpiId: previous?.upiId ?? null,
+          previousUpiPayeeName: previous?.upiPayeeName ?? null,
+          newUpiId: saved.upiId,
+          newUpiPayeeName: saved.upiPayeeName,
+          changedByAdminId: ctx.user.id,
+          createdAt: now,
+        });
+
+        return { ...saved, changed: true as const };
+      });
+    }),
 
   chooseMethod: protectedProcedure
     .input(
@@ -192,18 +293,29 @@ export const paymentRouter = {
       await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
-      if (!config.upiId) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: "The pilot UPI account is not configured.",
-        });
-      }
       const now = new Date();
 
       const result = await ctx.db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
         );
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended('platform-payment-settings', 0))`,
+        );
+        const [destination] = await tx
+          .select({
+            upiId: platformPaymentSettings.upiId,
+            upiPayeeName: platformPaymentSettings.upiPayeeName,
+          })
+          .from(platformPaymentSettings)
+          .where(eq(platformPaymentSettings.id, PAYMENT_SETTINGS_ID))
+          .limit(1);
+        if (!destination) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "The pilot UPI account is not configured.",
+          });
+        }
         const [order] = await tx
           .select()
           .from(orders)
@@ -263,6 +375,8 @@ export const paymentRouter = {
           .set({
             method: input.method,
             status: "AWAITING_PAYMENT",
+            destinationUpiId: destination.upiId,
+            destinationUpiPayeeName: destination.upiPayeeName,
             submittedUtr: null,
             submittedAt: null,
             rejectionReason: null,
@@ -281,6 +395,8 @@ export const paymentRouter = {
           success: true,
           method: input.method,
           expectedAmount: payment.expectedAmount,
+          destinationUpiId: destination.upiId,
+          destinationUpiPayeeName: destination.upiPayeeName,
         };
       });
       return result;
@@ -346,6 +462,13 @@ export const paymentRouter = {
           throw new TRPCError({
             code: "BAD_REQUEST",
             message: "Choose a payment method before submitting a reference.",
+          });
+        }
+        if (!payment.destinationUpiId || !payment.destinationUpiPayeeName) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "This order has no locked payment destination. Contact an administrator before paying.",
           });
         }
         if (!canSubmitPaymentReference(payment.method, order.status)) {

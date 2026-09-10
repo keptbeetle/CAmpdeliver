@@ -174,6 +174,8 @@ export default function CheckoutPage() {
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const finalTotal = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
+  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const orderReady = databaseReady && paymentDestinationReady;
 
   const handlePlaceOrder = () => {
     setErrorMsg(null);
@@ -181,6 +183,12 @@ export default function CheckoutPage() {
     if (!databaseReady) {
       setErrorMsg(
         "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
+      );
+      return;
+    }
+    if (!paymentDestinationReady) {
+      setErrorMsg(
+        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Your cart is safe; try again after it is configured.",
       );
       return;
     }
@@ -240,6 +248,14 @@ export default function CheckoutPage() {
             Your connection is working. This build is waiting for the
             payment/security database migration before payment-enabled orders
             can be broadcast.
+          </p>
+        </div>
+      ) : !paymentDestinationReady ? (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
+          <p className="font-black">Receiving UPI is not configured</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+            An administrator needs to save the CAmpDeliver receiving UPI ID
+            before new orders can be placed. Your cart is safe.
           </p>
         </div>
       ) : null}
@@ -425,7 +441,7 @@ export default function CheckoutPage() {
         disabled={
           createOrderMutation.isPending ||
           locationStatus !== "success" ||
-          !databaseReady
+          !orderReady
         }
         onClick={handlePlaceOrder}
         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-600 py-4 text-sm font-black text-white shadow-xl shadow-purple-600/30 transition-all hover:bg-purple-500 active:scale-95 disabled:opacity-50"
@@ -438,9 +454,11 @@ export default function CheckoutPage() {
               ? "Payment service unavailable"
               : !databaseReady
                 ? "Server upgrade pending"
-                : createOrderMutation.isPending
-                  ? "Broadcasting Order…"
-                  : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
+                : !paymentDestinationReady
+                  ? "UPI setup pending"
+                  : createOrderMutation.isPending
+                    ? "Broadcasting Order…"
+                    : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
         </span>
       </button>
     </div>

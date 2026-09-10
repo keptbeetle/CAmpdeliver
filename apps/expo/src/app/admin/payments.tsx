@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Pressable,
   RefreshControl,
@@ -32,6 +32,7 @@ import { trpc } from "~/utils/api";
 import { showAppAlert } from "~/utils/dialog";
 
 type AdminDashboard = RouterOutputs["payment"]["adminDashboard"];
+type AdminPaymentSettings = RouterOutputs["payment"]["adminPaymentSettings"];
 type Verification = AdminDashboard["paymentVerifications"][number];
 type Refund = AdminDashboard["refunds"][number];
 type Settlement = AdminDashboard["settlements"][number];
@@ -46,6 +47,8 @@ export default function AdminPaymentsScreen() {
     Record<string, string>
   >({});
   const [holdReasons, setHoldReasons] = useState<Record<string, string>>({});
+  const [upiId, setUpiId] = useState("");
+  const [upiPayeeName, setUpiPayeeName] = useState("CAmpDeliver");
 
   const { data: profile, isLoading: profileLoading } = useQuery(
     trpc.auth.getMyProfile.queryOptions(),
@@ -56,6 +59,16 @@ export default function AdminPaymentsScreen() {
     enabled: isAdmin,
     refetchInterval: isAdmin ? 10000 : false,
   });
+  const paymentSettings = useQuery({
+    ...trpc.payment.adminPaymentSettings.queryOptions(),
+    enabled: isAdmin && data?.databaseReady === true,
+  });
+
+  useEffect(() => {
+    if (!paymentSettings.data) return;
+    setUpiId(paymentSettings.data.upiId ?? "");
+    setUpiPayeeName(paymentSettings.data.upiPayeeName);
+  }, [paymentSettings.data]);
 
   const confirmPaymentMutation = useMutation(
     trpc.payment.adminConfirmPayment.mutationOptions(),
@@ -72,6 +85,9 @@ export default function AdminPaymentsScreen() {
   const holdSettlementMutation = useMutation(
     trpc.payment.adminHoldSettlement.mutationOptions(),
   );
+  const updatePaymentDestinationMutation = useMutation(
+    trpc.payment.adminUpdatePaymentDestination.mutationOptions(),
+  );
 
   const refresh = useCallback(async () => {
     await Promise.all([
@@ -83,6 +99,12 @@ export default function AdminPaymentsScreen() {
       }),
       queryClient.invalidateQueries({
         queryKey: trpc.payment.earnings.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.payment.adminPaymentSettings.queryKey(),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: trpc.payment.config.queryKey(),
       }),
     ]);
   }, [queryClient]);
@@ -195,6 +217,28 @@ export default function AdminPaymentsScreen() {
           />
         ) : (
           <>
+            <PaymentDestinationCard
+              settings={paymentSettings.data}
+              loading={paymentSettings.isLoading}
+              error={paymentSettings.isError}
+              upiId={upiId}
+              payeeName={upiPayeeName}
+              busy={busyKey === "payment-destination"}
+              onChangeUpiId={setUpiId}
+              onChangePayeeName={setUpiPayeeName}
+              onRetry={() => void paymentSettings.refetch()}
+              onSave={() =>
+                void runAdminAction(
+                  "payment-destination",
+                  () =>
+                    updatePaymentDestinationMutation.mutateAsync({
+                      upiId,
+                      upiPayeeName,
+                    }),
+                  "Payment destination updated",
+                )
+              }
+            />
             <Summary data={data} />
 
             <QueueSection
@@ -364,6 +408,132 @@ export default function AdminPaymentsScreen() {
   );
 }
 
+function PaymentDestinationCard({
+  settings,
+  loading,
+  error,
+  upiId,
+  payeeName,
+  busy,
+  onChangeUpiId,
+  onChangePayeeName,
+  onRetry,
+  onSave,
+}: {
+  settings: AdminPaymentSettings | undefined;
+  loading: boolean;
+  error: boolean;
+  upiId: string;
+  payeeName: string;
+  busy: boolean;
+  onChangeUpiId: (value: string) => void;
+  onChangePayeeName: (value: string) => void;
+  onRetry: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <MotionView style={styles.destinationCard}>
+      <View style={styles.summaryHeader}>
+        <View style={styles.destinationHeadingCopy}>
+          <Text style={styles.eyebrow}>PAYMENT DESTINATION</Text>
+          <Text style={styles.sectionTitle}>CAmpDeliver receiving UPI</Text>
+          <Text style={styles.destinationCopy}>
+            New payment selections use the latest saved destination immediately.
+            Orders that already started payment keep their original UPI for safe
+            reconciliation.
+          </Text>
+        </View>
+        <Feather name="credit-card" size={20} color={colors.primary} />
+      </View>
+
+      {loading ? (
+        <LoadingState title="Loading payment destination" />
+      ) : error ? (
+        <EmptyState
+          icon="wifi-off"
+          title="Payment destination unavailable"
+          copy="Retry before changing where buyer payments are sent."
+          actionLabel="Retry"
+          onAction={onRetry}
+        />
+      ) : (
+        <>
+          {settings?.upiId ? (
+            <View style={styles.destinationCurrent}>
+              <Text style={styles.referenceLabel}>CURRENT RECEIVING UPI</Text>
+              <Text selectable style={styles.destinationCurrentId}>
+                {settings.upiId}
+              </Text>
+              <Text style={styles.destinationCurrentMeta}>
+                {settings.upiPayeeName}
+                {` - Updated ${new Date(settings.updatedAt).toLocaleString()}`}
+              </Text>
+            </View>
+          ) : (
+            <InlineNotice
+              tone="warning"
+              icon="alert-circle"
+              title="No receiving UPI configured"
+              copy="Buyer payment selection remains blocked until an ADMIN saves a valid UPI destination."
+            />
+          )}
+
+          <View style={styles.destinationField}>
+            <Text style={styles.destinationLabel}>UPI ID</Text>
+            <TextInput
+              value={upiId}
+              onChangeText={onChangeUpiId}
+              autoCapitalize="none"
+              autoCorrect={false}
+              placeholder="name@bank"
+              placeholderTextColor={colors.faint}
+              style={styles.input}
+              maxLength={100}
+            />
+          </View>
+          <View style={styles.destinationField}>
+            <Text style={styles.destinationLabel}>Payee name</Text>
+            <TextInput
+              value={payeeName}
+              onChangeText={onChangePayeeName}
+              autoCapitalize="words"
+              placeholder="CAmpDeliver"
+              placeholderTextColor={colors.faint}
+              style={styles.input}
+              maxLength={80}
+            />
+          </View>
+          <AppButton
+            label="Save UPI Destination"
+            icon="save"
+            loading={busy}
+            disabled={
+              busy || !upiId.trim().includes("@") || payeeName.trim().length < 2
+            }
+            onPress={onSave}
+          />
+
+          {settings?.history.length ? (
+            <View style={styles.destinationHistory}>
+              <Text style={styles.referenceLabel}>RECENT CHANGES</Text>
+              {settings.history.slice(0, 3).map((entry) => (
+                <View key={entry.id} style={styles.destinationHistoryRow}>
+                  <Text selectable style={styles.destinationHistoryId}>
+                    {entry.newUpiId}
+                  </Text>
+                  <Text style={styles.destinationHistoryDate}>
+                    {new Date(entry.createdAt).toLocaleString()}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </>
+      )}
+    </MotionView>
+  );
+}
+
 function Summary({ data }: { data: AdminDashboard }) {
   return (
     <MotionView style={styles.summaryCard}>
@@ -465,6 +635,10 @@ function VerificationCard({
         value={
           payment.method === "PAY_AT_DELIVERY" ? "Pay at Delivery" : "Advance"
         }
+      />
+      <InfoLine
+        label="Expected UPI"
+        value={payment.destinationUpiId ?? "Not captured"}
       />
       <View style={styles.referenceBox}>
         <Text style={styles.referenceLabel}>SUBMITTED UPI / UTR</Text>
@@ -711,6 +885,57 @@ const styles = StyleSheet.create({
   cardTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
   centerState: { flex: 1, justifyContent: "center", padding: 22 },
   content: { gap: 18, padding: 18, paddingBottom: 40 },
+  destinationCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    gap: 13,
+    padding: 16,
+    ...shadow,
+  },
+  destinationCopy: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 5,
+  },
+  destinationCurrent: {
+    backgroundColor: colors.bgElevated,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 12,
+  },
+  destinationCurrentId: {
+    color: colors.text,
+    fontSize: 17,
+    fontWeight: "900",
+    marginTop: 4,
+  },
+  destinationCurrentMeta: { color: colors.muted, fontSize: 10, marginTop: 3 },
+  destinationField: { gap: 6 },
+  destinationHeadingCopy: { flex: 1 },
+  destinationHistory: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    gap: 7,
+    paddingTop: 12,
+  },
+  destinationHistoryDate: { color: colors.faint, fontSize: 9 },
+  destinationHistoryId: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  destinationHistoryRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+  },
+  destinationLabel: { color: colors.muted, fontSize: 11, fontWeight: "800" },
   countPill: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,

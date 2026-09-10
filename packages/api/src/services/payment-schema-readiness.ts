@@ -21,7 +21,7 @@ const READINESS_CACHE_MS = 10_000;
 export interface PaymentSchemaReadiness {
   ready: boolean;
   missing: string[];
-  version: "payment-settlement-security-v1";
+  version: "payment-settlement-security-v2";
 }
 
 let cachedReadiness:
@@ -34,6 +34,18 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
     select
       to_regclass('public.order_payments') is not null as order_payments,
       to_regclass('public.order_settlements') is not null as order_settlements,
+      to_regclass('public.platform_payment_settings') is not null as platform_payment_settings,
+      to_regclass('public.platform_payment_settings_history') is not null as platform_payment_settings_history,
+      exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'order_payments'
+          and column_name = 'destination_upi_id'
+      ) as payment_destination_upi_id,
+      exists (
+        select 1 from information_schema.columns
+        where table_schema = 'public' and table_name = 'order_payments'
+          and column_name = 'destination_upi_payee_name'
+      ) as payment_destination_upi_payee_name,
       coalesce((
         select array_agg(required.column_name order by required.column_name)
         from unnest(array[${sql.join(
@@ -54,6 +66,10 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
     | {
         order_payments?: boolean;
         order_settlements?: boolean;
+        platform_payment_settings?: boolean;
+        platform_payment_settings_history?: boolean;
+        payment_destination_upi_id?: boolean;
+        payment_destination_upi_payee_name?: boolean;
         missing_order_columns?: string[];
       }
     | undefined;
@@ -63,11 +79,19 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
   );
   if (!row?.order_payments) missing.push("order_payments");
   if (!row?.order_settlements) missing.push("order_settlements");
+  if (!row?.platform_payment_settings)
+    missing.push("platform_payment_settings");
+  if (!row?.platform_payment_settings_history)
+    missing.push("platform_payment_settings_history");
+  if (!row?.payment_destination_upi_id)
+    missing.push("order_payments.destination_upi_id");
+  if (!row?.payment_destination_upi_payee_name)
+    missing.push("order_payments.destination_upi_payee_name");
 
   return {
     ready: missing.length === 0,
     missing,
-    version: "payment-settlement-security-v1",
+    version: "payment-settlement-security-v2",
   };
 }
 

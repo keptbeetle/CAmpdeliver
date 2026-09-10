@@ -136,9 +136,12 @@ export default function TrackerView({ orderId }: { orderId: string }) {
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
-  const { data: orders, isLoading } = useQuery(
-    trpc.order.myOrders.queryOptions(),
-  );
+  const { data: orders, isLoading } = useQuery({
+    ...trpc.order.myOrders.queryOptions(),
+    // Realtime is the fast path, but tracking must remain correct when a private
+    // channel is temporarily unavailable or still authorizing.
+    refetchInterval: 5_000,
+  });
 
   const order = orders?.find((o) => o.id === orderId);
   const paymentDatabaseReady = paymentConfig?.databaseReady === true;

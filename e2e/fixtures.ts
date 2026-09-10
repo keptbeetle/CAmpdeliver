@@ -23,6 +23,13 @@ export const TEST_USERS = {
   },
 } as const;
 
+export const TEST_UPI = {
+  id: "campdeliver.e2e@upi",
+  payeeName: "CAmpDeliver E2E",
+  changedId: "campdeliver.changed@upi",
+  changedPayeeName: "CAmpDeliver Changed",
+} as const;
+
 export const TEST_CANTEEN = {
   id: "00000000-0000-4000-8000-000000000101",
   menuItemId: "00000000-0000-4000-8000-000000000201",
@@ -98,10 +105,19 @@ async function ensureAuthUser(
   return data.user;
 }
 
+interface PreviousPaymentDestination {
+  upiId: string;
+  upiPayeeName: string;
+  updatedByAdminId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface SeededScenario {
   buyerId: string;
   delivererId: string;
   adminId: string;
+  previousPaymentDestination: PreviousPaymentDestination | null;
 }
 
 export async function resetScenario(): Promise<SeededScenario> {
@@ -116,6 +132,20 @@ export async function resetScenario(): Promise<SeededScenario> {
   const sql = postgres(required("POSTGRES_URL"), { prepare: false });
 
   try {
+    const [previousPaymentDestination] = await sql<
+      PreviousPaymentDestination[]
+    >`
+      select
+        upi_id as "upiId",
+        upi_payee_name as "upiPayeeName",
+        updated_by_admin_id as "updatedByAdminId",
+        created_at as "createdAt",
+        updated_at as "updatedAt"
+      from platform_payment_settings
+      where id = 'primary'
+      limit 1
+    `;
+
     const buyer = await ensureAuthUser(
       supabase,
       TEST_USERS.buyer.email,
@@ -175,6 +205,19 @@ export async function resetScenario(): Promise<SeededScenario> {
     }
 
     await sql`
+      insert into platform_payment_settings (
+        id, upi_id, upi_payee_name, updated_by_admin_id
+      ) values (
+        'primary', 'campdeliver.seed@upi', 'CAmpDeliver Seed', ${admin.id}
+      )
+      on conflict (id) do update set
+        upi_id = excluded.upi_id,
+        upi_payee_name = excluded.upi_payee_name,
+        updated_by_admin_id = excluded.updated_by_admin_id,
+        updated_at = now()
+    `;
+
+    await sql`
       insert into canteens (id, name, latitude, longitude, radius, is_active)
       values (
         ${TEST_CANTEEN.id}, ${TEST_CANTEEN.name}, ${TEST_CANTEEN.latitude},
@@ -213,7 +256,56 @@ export async function resetScenario(): Promise<SeededScenario> {
         is_active = true
     `;
 
-    return { buyerId: buyer.id, delivererId: deliverer.id, adminId: admin.id };
+    return {
+      buyerId: buyer.id,
+      delivererId: deliverer.id,
+      adminId: admin.id,
+      previousPaymentDestination: previousPaymentDestination ?? null,
+    };
+  } finally {
+    await sql.end();
+  }
+}
+
+export async function restorePaymentDestination(
+  users: SeededScenario,
+): Promise<void> {
+  const sql = postgres(required("POSTGRES_URL"), { prepare: false });
+  try {
+    await sql.begin(async (tx) => {
+      await tx`
+        delete from platform_payment_settings_history
+        where changed_by_admin_id = ${users.adminId}
+          and new_upi_id in (${TEST_UPI.id}, ${TEST_UPI.changedId})
+      `;
+
+      const previous = users.previousPaymentDestination;
+      if (previous) {
+        await tx`
+          insert into platform_payment_settings (
+            id, upi_id, upi_payee_name, updated_by_admin_id, created_at, updated_at
+          ) values (
+            'primary', ${previous.upiId}, ${previous.upiPayeeName},
+            ${previous.updatedByAdminId}, ${previous.createdAt}, ${previous.updatedAt}
+          )
+          on conflict (id) do update set
+            upi_id = excluded.upi_id,
+            upi_payee_name = excluded.upi_payee_name,
+            updated_by_admin_id = excluded.updated_by_admin_id,
+            created_at = excluded.created_at,
+            updated_at = excluded.updated_at
+        `;
+      } else {
+        await tx`
+          delete from platform_payment_settings
+          where id = 'primary'
+            and updated_by_admin_id = ${users.adminId}
+            and upi_id in (
+              ${TEST_UPI.id}, ${TEST_UPI.changedId}, 'campdeliver.seed@upi'
+            )
+        `;
+      }
+    });
   } finally {
     await sql.end();
   }
@@ -246,6 +338,8 @@ export async function readScenarioState(
         method: string | null;
         status: string;
         expectedAmount: number;
+        destinationUpiId: string | null;
+        destinationUpiPayeeName: string | null;
         submittedUtr: string | null;
         verifiedByAdminId: string | null;
       }[]
@@ -253,6 +347,8 @@ export async function readScenarioState(
       select method,
              status,
              expected_amount as "expectedAmount",
+             destination_upi_id as "destinationUpiId",
+             destination_upi_payee_name as "destinationUpiPayeeName",
              submitted_utr as "submittedUtr",
              verified_by_admin_id as "verifiedByAdminId"
       from order_payments where order_id = ${orderId}

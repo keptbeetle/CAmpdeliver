@@ -250,8 +250,7 @@ SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 FAST2SMS_API_KEY="your-fast2sms-api-key"
 
 # Pilot payment configuration (amounts are paise)
-CAMPDELIVER_UPI_ID="your-upi-id@provider"
-CAMPDELIVER_UPI_PAYEE_NAME="CAmpDeliver"
+# Receiving UPI ID/payee name are managed dynamically by ADMIN in the app.
 DELIVERY_FEE_PAISE="500"
 PLATFORM_FEE_PAISE="300"
 
@@ -290,9 +289,16 @@ pnpm --filter @acme/db security:check
 
 # Apply only after the check succeeds and active legacy orders are finished/cancelled.
 pnpm --filter @acme/db security:apply
+
+# Add the ADMIN-managed receiving UPI destination and its audit trail.
+pnpm --filter @acme/db payment-destination:preflight
+pnpm --filter @acme/db payment-destination:check
+pnpm --filter @acme/db payment-destination:apply
 ```
 
 `security:preflight` is read-only and reports active-order counts, the legacy deliverer-role count, payment-table presence, and whether the migration can proceed. `security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
+
+The second migration is additive and stores the current receiving UPI destination plus an append-only ADMIN change history. The settings tables are backend-only under RLS. After it is applied, an ADMIN configures or changes the UPI ID and payee name from **Payments & Settlements**; buyer payment selection fails closed until a valid destination has been saved. When a buyer chooses a payment method, that order snapshots the current UPI destination so later ADMIN changes affect new payment selections without rerouting an in-progress payment.
 
 Configure a backend scheduler to call `GET /api/cron/orders` with `Authorization: Bearer <CRON_SECRET>` at a cadence appropriate for the configured TTLs (for example once per minute). Order queries also opportunistically expire stale pre-purchase orders, but the scheduler ensures ghosted orders are cleaned up even when no student has the app open.
 

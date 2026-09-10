@@ -35,6 +35,7 @@ import {
   remainingLockSeconds,
 } from "../services/otp-security";
 import { expiresFromNow, getPaymentConfig } from "../services/payment-config";
+import { getPaymentDestination } from "../services/payment-destination";
 import {
   canConfirmCanteenPurchase,
   canRevealHandoverOtp,
@@ -207,6 +208,8 @@ export const orderRouter = {
         paymentMethod: orderPayments.method,
         paymentStatus: orderPayments.status,
         expectedAmount: orderPayments.expectedAmount,
+        paymentDestinationUpiId: orderPayments.destinationUpiId,
+        paymentDestinationUpiPayeeName: orderPayments.destinationUpiPayeeName,
         submittedUtr: orderPayments.submittedUtr,
         paymentRejectionReason: orderPayments.rejectionReason,
       })
@@ -236,6 +239,8 @@ export const orderRouter = {
               method: row.paymentMethod,
               status: row.paymentStatus,
               expectedAmount: row.expectedAmount,
+              destinationUpiId: row.paymentDestinationUpiId,
+              destinationUpiPayeeName: row.paymentDestinationUpiPayeeName,
               submittedUtr: isBuyer ? row.submittedUtr : null,
               rejectionReason: isBuyer ? row.paymentRejectionReason : null,
             }
@@ -339,6 +344,14 @@ export const orderRouter = {
     .mutation(async ({ ctx, input }) => {
       await requirePaymentSchemaReady();
       await expireStaleOrders();
+      const destination = await getPaymentDestination();
+      if (!destination.upiId) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "CAmpDeliver is not accepting new orders until an administrator configures the receiving UPI ID.",
+        });
+      }
 
       const uniqueIds = new Set(input.items.map((item) => item.menuItemId));
       if (uniqueIds.size !== input.items.length) {
