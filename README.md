@@ -63,7 +63,7 @@ Ordinary TypeScript, UI, and business-logic changes do not require rebuilding th
 
 The core delivery tracking and verification engine was completed and merged directly into `main`:
 
-- **College Email Auth**: New accounts verify an allowed official college email with a 6-digit Supabase email OTP. A valid Indian phone number is still mandatory profile/contact information but is not OTP-verified, and login accepts either the registered email or phone number.
+- **College Email Auth**: New accounts verify an allowed official college email with an 8-digit Supabase email OTP. A valid Indian phone number is still mandatory profile/contact information but is not OTP-verified, and login accepts either the registered email or phone number.
 - **Interactive Dual-Marker Map Tracker**: Real-time live map rendering buyer & deliverer positions, OSRM road routing, and dynamic distance calculations.
 - **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` → `NEAR_YOU`).
 - **Real-Time P2P Chat**: WebSocket streaming via Supabase Realtime for instant messaging between buyer and deliverer per active order.
@@ -154,7 +154,7 @@ For Realtime privacy, the order/chat channels are created as private channels an
 
 New account registration verifies the student's official IIITDMJ email through Supabase Auth email OTP. Student addresses use the student's unique roll number before `@iiitdmj.ac.in`. The phone number remains mandatory profile/contact information but is never used as an OTP identity. Production defaults to the exact `iiitdmj.ac.in` domain; `COLLEGE_EMAIL_DOMAINS` is retained only as an explicit server-side override for staging/test environments.
 
-Supabase must be configured to send a numeric email OTP rather than a confirmation/magic link. In the hosted Supabase Dashboard, edit **Authentication → Email Templates → Confirm signup** and **Magic Link** so their content uses `{{ .Token }}` and does not use `{{ .ConfirmationURL }}`. The app verifies that 6-digit token with `verifyOtp({ type: "email" })`. A suitable subject is `Your CAmpDeliver verification code`, with content such as `Your CAmpDeliver verification code is: <strong>{{ .Token }}</strong>`. No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
+Supabase must be configured to send a numeric email OTP rather than a confirmation/magic link. In the hosted Supabase Dashboard, edit **Authentication → Email Templates → Confirm signup** and **Magic link or OTP** so their content uses `{{ .Token }}` and does not use `{{ .ConfirmationURL }}`. The hosted project is configured for an 8-digit numeric email OTP, and the app verifies that exact token with `verifyOtp({ type: "email" })`. Keep Supabase's Email OTP length at 8 so the dashboard and clients stay aligned. A suitable subject is `Your CAmpDeliver verification code`, with content such as `Your CAmpDeliver verification code is: <strong>{{ .Token }}</strong>`. No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
 
 ---
 

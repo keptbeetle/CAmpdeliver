@@ -21,6 +21,12 @@ import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
+const EMAIL_OTP_LENGTH = 8;
+
+function isValidEmailOtp(code: string) {
+  return code.length === EMAIL_OTP_LENGTH && /^\d+$/.test(code);
+}
+
 function normalizeSignupPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
   const subscriber =
@@ -201,7 +207,7 @@ export default function AuthScreen() {
   };
 
   const handleVerifyOtp = async (codeToVerify: string) => {
-    if (authLoading || codeToVerify.length !== 6) return;
+    if (authLoading || !isValidEmailOtp(codeToVerify)) return;
     const signupEmail = normalizeEmail(email);
     const signupPhone = normalizeSignupPhone(phone);
     if (!signupEmail || !signupPhone) {
@@ -399,7 +405,7 @@ export default function AuthScreen() {
                   tone="info"
                   icon="mail"
                   title="College email verification"
-                  copy="We will send a 6-digit one-time code to your official college inbox."
+                  copy="We will send an 8-digit one-time code to your official college inbox."
                 />
                 {authError ? (
                   <InlineNotice
@@ -425,7 +431,7 @@ export default function AuthScreen() {
                     Verify your college email
                   </Text>
                   <Text style={styles.verifyCopy}>
-                    Enter the 6-digit code sent to {email}. Check spam or junk
+                    Enter the 8-digit code sent to {email}. Check spam or junk
                     if it does not appear in your inbox.
                   </Text>
                 </View>
@@ -435,35 +441,22 @@ export default function AuthScreen() {
                   title="Verification email sent"
                   copy="Only this email code is required. Your phone number is not OTP-verified."
                 />
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Enter six digit email verification code"
-                  onPress={() => otpInputRef.current?.focus()}
-                  style={styles.otpRow}
-                >
-                  {[0, 1, 2, 3, 4, 5].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.otpBox,
-                        otpCode[index] ? styles.otpBoxFilled : null,
-                      ]}
-                    >
-                      <Text style={styles.otpText}>{otpCode[index] ?? ""}</Text>
-                    </View>
-                  ))}
-                  <TextInput
-                    ref={otpInputRef}
-                    value={otpCode}
-                    onChangeText={(value) =>
-                      setOtpCode(value.replace(/\D/g, "").slice(0, 6))
-                    }
-                    keyboardType="number-pad"
-                    textContentType="oneTimeCode"
-                    maxLength={6}
-                    style={styles.hiddenInput}
-                  />
-                </Pressable>
+                <TextInput
+                  ref={otpInputRef}
+                  accessibilityLabel="Enter email verification code"
+                  value={otpCode}
+                  onChangeText={(value) =>
+                    setOtpCode(
+                      value.replace(/\D/g, "").slice(0, EMAIL_OTP_LENGTH),
+                    )
+                  }
+                  keyboardType="number-pad"
+                  textContentType="oneTimeCode"
+                  autoComplete="one-time-code"
+                  placeholder="00000000"
+                  placeholderTextColor={colors.faint}
+                  style={styles.otpInput}
+                />
                 <View style={styles.resendRow}>
                   <Text style={styles.timerText}>
                     {timer > 0
@@ -496,7 +489,7 @@ export default function AuthScreen() {
                 <AppButton
                   label="Verify Email & Create Account"
                   loading={authLoading}
-                  disabled={otpCode.length !== 6}
+                  disabled={!isValidEmailOtp(otpCode)}
                   onPress={() => void handleVerifyOtp(otpCode)}
                 />
                 <AppButton
@@ -667,14 +660,6 @@ const styles = StyleSheet.create({
     marginTop: 18,
     textAlign: "center",
   },
-  hiddenInput: {
-    bottom: 0,
-    left: 0,
-    opacity: 0,
-    position: "absolute",
-    right: 0,
-    top: 0,
-  },
   heroCopyWrap: { marginBottom: 18, marginTop: 28 },
   heroTitle: {
     color: colors.text,
@@ -715,26 +700,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 50,
   },
-  otpBox: {
-    alignItems: "center",
+  otpInput: {
     backgroundColor: colors.bgElevated,
     borderColor: colors.border,
     borderRadius: 12,
     borderWidth: 1,
-    height: 50,
-    justifyContent: "center",
-    width: 42,
+    color: colors.text,
+    fontSize: 24,
+    fontWeight: "900",
+    height: 54,
+    letterSpacing: 7,
+    paddingHorizontal: 14,
+    textAlign: "center",
   },
-  otpBoxFilled: {
-    backgroundColor: colors.primarySoft,
-    borderColor: "#BAD9D7",
-  },
-  otpRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    position: "relative",
-  },
-  otpText: { color: colors.text, fontSize: 20, fontWeight: "900" },
   resendButton: { padding: 6 },
   resendRow: {
     alignItems: "center",

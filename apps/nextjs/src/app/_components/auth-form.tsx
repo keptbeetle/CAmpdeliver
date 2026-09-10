@@ -10,6 +10,12 @@ import { Label } from "@acme/ui/label";
 import { supabaseClient } from "~/auth/client";
 import { useTRPC } from "~/trpc/react";
 
+const EMAIL_OTP_LENGTH = 8;
+
+function isValidEmailOtp(code: string) {
+  return code.length === EMAIL_OTP_LENGTH && /^\d+$/.test(code);
+}
+
 function normalizeSignupPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
   const subscriber =
@@ -131,7 +137,7 @@ export function AuthForm() {
   };
 
   const handleVerifyOtp = async () => {
-    if (loading || otpCode.length !== 6) return;
+    if (loading || !isValidEmailOtp(otpCode)) return;
     const signupEmail = normalizeEmail(email);
     const signupPhone = normalizeSignupPhone(phoneNumber);
     if (!signupEmail || !signupPhone) {
@@ -349,7 +355,8 @@ export function AuthForm() {
           </div>
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-700">
             <span className="font-semibold">College email verification:</span>{" "}
-            we will send a 6-digit one-time code to your official college inbox.
+            we will send an 8-digit one-time code to your official college
+            inbox.
           </div>
           {error ? <ErrorNotice message={error} /> : null}
           <Button
@@ -358,7 +365,7 @@ export function AuthForm() {
             onClick={() => void handleSendOtp()}
             className="w-full bg-blue-700 font-bold text-white hover:bg-blue-800"
           >
-            {loading ? "Sending…" : "Send Email Verification Code"}
+            {loading ? "Sending..." : "Send Email Verification Code"}
           </Button>
         </div>
       ) : (
@@ -366,7 +373,7 @@ export function AuthForm() {
           <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-center">
             <p className="font-bold text-green-800">Verification email sent</p>
             <p className="mt-1 text-xs leading-relaxed text-green-700">
-              Enter the 6-digit code sent to {email}. Check spam/junk if it does
+              Enter the 8-digit code sent to {email}. Check spam/junk if it does
               not appear in your inbox.
             </p>
           </div>
@@ -377,13 +384,16 @@ export function AuthForm() {
               id="emailOtp"
               inputMode="numeric"
               autoComplete="one-time-code"
-              maxLength={6}
               value={otpCode}
               onChange={(event) =>
-                setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                setOtpCode(
+                  event.target.value
+                    .replace(/\D/g, "")
+                    .slice(0, EMAIL_OTP_LENGTH),
+                )
               }
-              placeholder="000000"
-              className="text-center text-xl font-black tracking-[0.45em]"
+              placeholder="00000000"
+              className="text-center text-xl font-black tracking-[0.45em] placeholder:font-normal placeholder:tracking-normal"
             />
           </div>
           {message ? (
@@ -394,11 +404,11 @@ export function AuthForm() {
           {error ? <ErrorNotice message={error} /> : null}
           <Button
             type="button"
-            disabled={loading || otpCode.length !== 6}
+            disabled={loading || !isValidEmailOtp(otpCode)}
             onClick={() => void handleVerifyOtp()}
             className="w-full bg-blue-700 font-bold text-white hover:bg-blue-800"
           >
-            {loading ? "Verifying…" : "Verify Email & Create Account"}
+            {loading ? "Verifying..." : "Verify Email & Create Account"}
           </Button>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-500">

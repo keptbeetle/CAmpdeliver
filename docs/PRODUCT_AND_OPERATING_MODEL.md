@@ -43,7 +43,7 @@ An unauthenticated visitor may use only explicitly public catalog/auth entry poi
 
 1. Signup collects name, hostel, official college email, a mandatory Indian phone number, and a password.
 2. The backend accepts new signup only for the official `iiitdmj.ac.in` student domain by default. The local part is the student's unique roll number. `COLLEGE_EMAIL_DOMAINS` exists only as an explicit server-side override for staging/test environments.
-3. Supabase Auth sends a 6-digit OTP to the college email. The phone number is profile/contact information only and receives no OTP.
+3. Supabase Auth sends an 8-digit numeric OTP to the college email. The phone number is profile/contact information only and receives no OTP.
 4. The client verifies the email OTP with Supabase, sets the password on that verified identity, and only then calls the protected profile-completion mutation.
 5. Profile completion re-checks the confirmed Supabase email, college-domain policy, and unique normalized phone number, and always creates the ordinary role as `STUDENT`.
 6. Login uses one identifier field: college email authenticates directly, while a registered phone number is resolved server-side to its profile email before Supabase password authentication.
