@@ -12,8 +12,8 @@ import {
 
 test("normalizes college emails and Indian phone numbers", () => {
   assert.equal(
-    normalizeEmail(" Student@College.AC.IN "),
-    "student@college.ac.in",
+    normalizeEmail(" RollNumber@IIITDMJ.AC.IN "),
+    "rollnumber@iiitdmj.ac.in",
   );
   assert.equal(normalizeEmail("not-an-email"), null);
   assert.equal(normalizeIndianPhone("98765 43210"), "+919876543210");
@@ -37,20 +37,34 @@ test("parses and enforces explicit college email domains", () => {
   assert.equal(isAllowedCollegeEmail("user@sub.college.ac.in", domains), false);
 });
 
-test("college email domains fail closed outside tests", () => {
-  assert.throws(
-    () => getCollegeEmailDomains({ NODE_ENV: "production" }),
-    CollegeEmailConfigurationError,
+test("uses the official IIITDMJ domain by default and keeps test isolation", () => {
+  assert.deepEqual(getCollegeEmailDomains({ NODE_ENV: "production" }), [
+    "iiitdmj.ac.in",
+  ]);
+  assert.equal(
+    isAllowedCollegeEmail(
+      "2026abc001@iiitdmj.ac.in",
+      getCollegeEmailDomains({ NODE_ENV: "production" }),
+    ),
+    true,
   );
   assert.deepEqual(getCollegeEmailDomains({ NODE_ENV: "test" }), [
     "campus.edu",
   ]);
+  assert.throws(
+    () =>
+      getCollegeEmailDomains({
+        NODE_ENV: "production",
+        COLLEGE_EMAIL_DOMAINS: "not a domain",
+      }),
+    CollegeEmailConfigurationError,
+  );
 });
 
 test("classifies the shared login identifier without virtual-email mapping", () => {
-  assert.deepEqual(classifyLoginIdentifier("student@college.ac.in"), {
+  assert.deepEqual(classifyLoginIdentifier("2026abc001@iiitdmj.ac.in"), {
     type: "email",
-    email: "student@college.ac.in",
+    email: "2026abc001@iiitdmj.ac.in",
   });
   assert.deepEqual(classifyLoginIdentifier("9876543210"), {
     type: "phone",

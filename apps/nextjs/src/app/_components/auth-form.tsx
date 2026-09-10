@@ -91,7 +91,7 @@ export function AuthForm() {
     }
     const signupEmail = normalizeEmail(email);
     if (!signupEmail) {
-      setError("Enter a valid college email address.");
+      setError("Enter your valid IIITDMJ student email address.");
       return;
     }
     const signupPhone = normalizeSignupPhone(phoneNumber);
@@ -229,7 +229,7 @@ export function AuthForm() {
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
           {isSignUp
-            ? "Verify your official college email. Your phone number is required for delivery contact, not OTP verification."
+            ? "Verify your official IIITDMJ student email. Your phone number is required for delivery contact, not OTP verification."
             : "Sign in with your college email or registered phone number."}
         </p>
       </div>
@@ -261,7 +261,7 @@ export function AuthForm() {
               autoComplete="username"
               value={identifier}
               onChange={(event) => setIdentifier(event.target.value)}
-              placeholder="you@college.ac.in or 98765 43210"
+              placeholder="rollnumber@iiitdmj.ac.in or 98765 43210"
             />
           </div>
           <div className="space-y-1.5">
@@ -311,14 +311,14 @@ export function AuthForm() {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="email">College email</Label>
+            <Label htmlFor="email">IIITDMJ student email</Label>
             <Input
               id="email"
               type="email"
               autoComplete="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@college.ac.in"
+              placeholder="rollnumber@iiitdmj.ac.in"
             />
           </div>
           <div className="space-y-1.5">

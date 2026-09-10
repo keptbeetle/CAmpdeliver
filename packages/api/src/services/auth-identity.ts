@@ -1,5 +1,5 @@
 export class CollegeEmailConfigurationError extends Error {
-  constructor(message = "College email verification is not configured.") {
+  constructor(message = "College email domain configuration is invalid.") {
     super(message);
     this.name = "CollegeEmailConfigurationError";
   }
@@ -9,6 +9,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DOMAIN_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
 const INDIAN_MOBILE_PATTERN = /^[6-9]\d{9}$/;
+const DEFAULT_COLLEGE_EMAIL_DOMAINS = ["iiitdmj.ac.in"] as const;
 
 type Environment = Record<string, string | undefined>;
 
@@ -33,17 +34,28 @@ export function normalizeIndianPhone(value: string): string | null {
 export function getCollegeEmailDomains(
   env: Environment = process.env,
 ): readonly string[] {
-  const configured = env.COLLEGE_EMAIL_DOMAINS?.split(",")
+  const rawConfigured = env.COLLEGE_EMAIL_DOMAINS?.trim();
+  if (!rawConfigured) {
+    return env.NODE_ENV === "test"
+      ? ["campus.edu"]
+      : DEFAULT_COLLEGE_EMAIL_DOMAINS;
+  }
+
+  const configured = rawConfigured
+    .split(",")
     .map((domain) => domain.trim().toLowerCase().replace(/^@/, ""))
     .filter(Boolean);
 
-  const domains = [...new Set(configured ?? [])].filter((domain) =>
-    DOMAIN_PATTERN.test(domain),
-  );
+  if (
+    configured.length === 0 ||
+    configured.some((domain) => !DOMAIN_PATTERN.test(domain))
+  ) {
+    throw new CollegeEmailConfigurationError(
+      "COLLEGE_EMAIL_DOMAINS contains an invalid email domain.",
+    );
+  }
 
-  if (domains.length > 0) return domains;
-  if (env.NODE_ENV === "test") return ["campus.edu"];
-  throw new CollegeEmailConfigurationError();
+  return [...new Set(configured)];
 }
 
 export function isAllowedCollegeEmail(

@@ -152,7 +152,7 @@ For Realtime privacy, the order/chat channels are created as private channels an
 
 ## 📧 Production College Email Verification
 
-New account registration verifies the student's official college email through Supabase Auth email OTP. The phone number remains mandatory profile/contact information but is never used as an OTP identity. Signup domains are controlled by the server-only `COLLEGE_EMAIL_DOMAINS` allowlist; production signup fails closed when that allowlist is missing or the submitted email is outside it.
+New account registration verifies the student's official IIITDMJ email through Supabase Auth email OTP. Student addresses use the student's unique roll number before `@iiitdmj.ac.in`. The phone number remains mandatory profile/contact information but is never used as an OTP identity. Production defaults to the exact `iiitdmj.ac.in` domain; `COLLEGE_EMAIL_DOMAINS` is retained only as an explicit server-side override for staging/test environments.
 
 Supabase must be configured to send a numeric email OTP (the email template should include the OTP token rather than relying only on a magic link). No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
 
@@ -233,7 +233,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
 EXPO_API_URL_OVERRIDE=""
 
 # Auth policy / maintenance
-COLLEGE_EMAIL_DOMAINS="college.ac.in"
+COLLEGE_EMAIL_DOMAINS="iiitdmj.ac.in"
 SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
 
 # Pilot payment configuration (amounts are paise)

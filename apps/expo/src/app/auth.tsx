@@ -163,7 +163,7 @@ export default function AuthScreen() {
     }
     const signupEmail = normalizeEmail(email);
     if (!signupEmail) {
-      setError("Enter a valid college email address.");
+      setError("Enter your valid IIITDMJ student email address.");
       return;
     }
     const signupPhone = normalizeSignupPhone(phone);
@@ -302,7 +302,7 @@ export default function AuthScreen() {
             </Text>
             <Text style={styles.subtitle}>
               {isSignUp
-                ? "Verify your official college email. Your phone number is required for delivery contact, not OTP verification."
+                ? "Verify your official IIITDMJ student email. Your phone number is required for delivery contact, not OTP verification."
                 : "Sign in with your college email or registered phone number."}
             </Text>
           </View>
@@ -329,7 +329,7 @@ export default function AuthScreen() {
                   label="College email or phone number"
                   value={identifier}
                   onChangeText={setIdentifier}
-                  placeholder="you@college.ac.in or 98765 43210"
+                  placeholder="rollnumber@iiitdmj.ac.in or 98765 43210"
                 />
                 <Field
                   label="Password"
@@ -369,11 +369,11 @@ export default function AuthScreen() {
                   autoCapitalize="words"
                 />
                 <Field
-                  label="College email"
+                  label="IIITDMJ student email"
                   value={email}
                   onChangeText={setEmail}
                   keyboardType="email-address"
-                  placeholder="you@college.ac.in"
+                  placeholder="rollnumber@iiitdmj.ac.in"
                 />
                 <Field
                   label="Phone number"
