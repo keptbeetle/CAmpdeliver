@@ -150,23 +150,11 @@ For Realtime privacy, the order/chat channels are created as private channels an
 
 ---
 
-## ⚠️ Known Issue & Technical Note: Phone OTP Verification
+## 📱 Production Phone Verification
 
-> [!WARNING]
-> **External SMS Gateway Limitation (Fast2SMS)**
->
-> The backend (`packages/api/src/router/otp.ts`) includes integration for third-party SMS delivery via Fast2SMS. However, due to external API key restrictions, SMS gateway quota limits, or carrier delays, **live SMS messages may not arrive on real mobile numbers during local testing**.
+New account registration always requires a real 6-digit SMS delivered through Fast2SMS to a valid Indian mobile number. There is no development console OTP, built-in dummy signup number, or client-side verification bypass. The backend stores only an HMAC of the short-lived code, enforces a 60-second resend cooldown and a maximum of three sends per 15-minute window, expires codes after five minutes, and locks verification for 15 minutes after five incorrect attempts.
 
-### 🛠️ Developer Workarounds for Testing OTPs:
-
-1. **Development Server Console Output**:
-   In development/test mode, generated OTP codes are logged to the local server terminal. Production does not log OTP material:
-   ```text
-   [OTP-LOG] Generated OTP for +919876543210 is: 482910
-   [SMS-MOCK] OTP for +919876543210 is: 482910
-   ```
-2. **Built-in Test Phone Numbers**:
-   The backend automatically bypasses external SMS dispatches for standard dummy numbers (`+911234567890`, `+911111111111`, `+912222222222`, `+913333333333`, `+919999999999`).
+`FAST2SMS_API_KEY`, `PHONE_OTP_HASH_SECRET` (at least 32 random characters), `SUPABASE_SERVICE_ROLE_KEY`, and the Supabase URL must be configured on the backend. Missing SMS/security configuration fails closed instead of generating a fake verification result. Existing pre-created development/E2E accounts remain usable for **sign-in testing only**; they do not create a signup bypass and new accounts must pass real phone verification.
 
 ---
 
@@ -294,11 +282,18 @@ pnpm --filter @acme/db security:apply
 pnpm --filter @acme/db payment-destination:preflight
 pnpm --filter @acme/db payment-destination:check
 pnpm --filter @acme/db payment-destination:apply
+
+# Add one-time consumption state for secure signup OTP verification.
+pnpm --filter @acme/db signup-otp:preflight
+pnpm --filter @acme/db signup-otp:check
+pnpm --filter @acme/db signup-otp:apply
 ```
 
 `security:preflight` is read-only and reports active-order counts, the legacy deliverer-role count, payment-table presence, and whether the migration can proceed. `security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
 
 The second migration is additive and stores the current receiving UPI destination plus an append-only ADMIN change history. The settings tables are backend-only under RLS. After it is applied, an ADMIN configures or changes the UPI ID and payee name from **Payments & Settlements**; buyer payment selection fails closed until a valid destination has been saved. When a buyer chooses a payment method, that order snapshots the current UPI destination so later ADMIN changes affect new payment selections without rerouting an in-progress payment.
+
+The third migration is also additive. It adds `phone_verifications.consumed_at` plus an active-code lookup index so a successfully verified signup code is atomically made one-time-use before the Supabase account is created. The table remains backend-only under RLS and direct `anon`/`authenticated` table access stays revoked.
 
 Configure a backend scheduler to call `GET /api/cron/orders` with `Authorization: Bearer <CRON_SECRET>` at a cadence appropriate for the configured TTLs (for example once per minute). Order queries also opportunistically expire stale pre-purchase orders, but the scheduler ensures ghosted orders are cleaned up even when no student has the app open.
 

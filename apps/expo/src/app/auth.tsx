@@ -21,12 +21,24 @@ import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
-function sanitizePhone(phone: string): string {
+function normalizeLegacySignInPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.length === 10) return `+91${digits}`;
   if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
   if (phone.trim().startsWith("+") && digits.length >= 10) return `+${digits}`;
   return phone.includes("+") ? phone : `+91${phone}`;
+}
+
+function normalizeSignupPhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  const subscriber =
+    digits.length === 10
+      ? digits
+      : digits.length === 12 && digits.startsWith("91")
+        ? digits.slice(2)
+        : null;
+  if (!subscriber || !/^[6-9]\d{9}$/.test(subscriber)) return null;
+  return `+91${subscriber}`;
 }
 
 export default function AuthScreen() {
@@ -103,7 +115,8 @@ export default function AuthScreen() {
     setAuthError(null);
     setAuthLoading(true);
     try {
-      const formattedEmail = `${sanitizePhone(phone)}@campus.edu`.toLowerCase();
+      const formattedEmail =
+        `${normalizeLegacySignInPhone(phone)}@campus.edu`.toLowerCase();
       const { error } = await supabase.auth.signInWithPassword({
         email: formattedEmail,
         password,
@@ -126,18 +139,31 @@ export default function AuthScreen() {
       setError("Complete all account details before continuing.");
       return;
     }
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
+    const signupPhone = normalizeSignupPhone(phone);
+    if (!signupPhone) {
+      setError(
+        "Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.",
+      );
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    if (password.length > 72) {
+      setError("Password must be at most 72 characters.");
       return;
     }
 
     setAuthError(null);
     setAuthLoading(true);
     try {
-      await sendOtpMutation.mutateAsync({ phoneNumber: sanitizePhone(phone) });
+      const result = await sendOtpMutation.mutateAsync({
+        phoneNumber: signupPhone,
+      });
       setStep(2);
       setOtpCode("");
-      setTimer(300);
+      setTimer(result.resendAfterSeconds);
     } catch (error) {
       setError(
         error instanceof Error
@@ -154,7 +180,10 @@ export default function AuthScreen() {
     setAuthError(null);
     setAuthLoading(true);
     try {
-      const sanitizedPhone = sanitizePhone(phone);
+      const sanitizedPhone = normalizeSignupPhone(phone);
+      if (!sanitizedPhone) {
+        throw new Error("Enter a valid Indian mobile number before verifying.");
+      }
       const result = await verifyOtpMutation.mutateAsync({
         name: name.trim(),
         hostelName: hostelName.trim(),
@@ -163,21 +192,13 @@ export default function AuthScreen() {
         otpCode: codeToVerify,
       });
 
-      if (result.session) {
-        const { error } = await supabase.auth.setSession({
-          access_token: result.session.access_token,
-          refresh_token: result.session.refresh_token,
-        });
-        if (error) throw error;
-      } else {
-        const virtualEmail =
-          result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
-        const { error } = await supabase.auth.signInWithPassword({
-          email: virtualEmail,
-          password,
-        });
-        if (error) throw error;
-      }
+      const virtualEmail =
+        result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
+      const { error } = await supabase.auth.signInWithPassword({
+        email: virtualEmail,
+        password,
+      });
+      if (error) throw error;
     } catch (error) {
       setOtpCode("");
       setError(
@@ -238,7 +259,7 @@ export default function AuthScreen() {
             </Text>
             <Text style={styles.subtitle}>
               {isSignUp
-                ? "One account lets you order food and take delivery quests."
+                ? "One account lets you order food and take delivery quests. New accounts verify a real Indian mobile number by SMS."
                 : "Sign in to order, deliver, chat, and track in one place."}
             </Text>
           </View>
@@ -268,7 +289,7 @@ export default function AuthScreen() {
                     setPhone(value.replace(/[^\d+\-\s()]/g, ""))
                   }
                   keyboardType="phone-pad"
-                  placeholder="99999 99999"
+                  placeholder="98765 43210"
                 />
                 <Field
                   label="Password"
@@ -279,7 +300,7 @@ export default function AuthScreen() {
                 />
                 {authError ? (
                   <InlineNotice
-                    tone="warning"
+                    tone="danger"
                     icon="alert-circle"
                     title="Sign in needs attention"
                     copy={authError}
@@ -312,18 +333,24 @@ export default function AuthScreen() {
                     setPhone(value.replace(/[^\d+\-\s()]/g, ""))
                   }
                   keyboardType="phone-pad"
-                  placeholder="99999 99999"
+                  placeholder="98765 43210"
                 />
                 <Field
                   label="Password"
                   value={password}
                   onChangeText={setPassword}
-                  placeholder="At least 6 characters"
+                  placeholder="At least 8 characters"
                   secureTextEntry
+                />
+                <InlineNotice
+                  tone="info"
+                  icon="shield"
+                  title="Real phone verification"
+                  copy="We will send a 6-digit SMS to this mobile number. New accounts cannot be created without the delivered code."
                 />
                 {authError ? (
                   <InlineNotice
-                    tone="warning"
+                    tone="danger"
                     icon="alert-circle"
                     title="Check your details"
                     copy={authError}
@@ -347,9 +374,17 @@ export default function AuthScreen() {
                   </View>
                   <Text style={styles.verifyTitle}>Verify your phone</Text>
                   <Text style={styles.verifyCopy}>
-                    Enter the 6-digit code sent for {sanitizePhone(phone)}.
+                    Enter the 6-digit code sent by SMS to{" "}
+                    {normalizeSignupPhone(phone) ?? phone}. It expires in 5
+                    minutes.
                   </Text>
                 </View>
+                <InlineNotice
+                  tone="success"
+                  icon="check-circle"
+                  title="Verification SMS sent"
+                  copy="Use only the code that arrived on your phone. CAmpDeliver will never ask you to share it elsewhere."
+                />
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Enter six digit verification code"
@@ -373,7 +408,6 @@ export default function AuthScreen() {
                     onChangeText={(value) => {
                       const clean = value.replace(/\D/g, "").slice(0, 6);
                       setOtpCode(clean);
-                      if (clean.length === 6) void handleVerifyOtp(clean);
                     }}
                     keyboardType="number-pad"
                     maxLength={6}
@@ -403,7 +437,7 @@ export default function AuthScreen() {
                 </View>
                 {authError ? (
                   <InlineNotice
-                    tone="warning"
+                    tone="danger"
                     icon="alert-circle"
                     title="Code not accepted"
                     copy={authError}

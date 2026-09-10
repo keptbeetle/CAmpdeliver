@@ -1,9 +1,8 @@
-import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { and, desc, eq, gte, sql } from "@acme/db";
+import { and, desc, eq, gte, isNull, sql } from "@acme/db";
 import { phoneVerifications, profiles } from "@acme/db/schema";
 
 import {
@@ -12,197 +11,239 @@ import {
   remainingLockSeconds,
   SIGNUP_OTP_LOCK_SECONDS,
 } from "../services/otp-security";
+import {
+  generateSignupOtp,
+  getFast2SmsApiKey,
+  getSignupOtpHashSecret,
+  hashSignupOtp,
+  normalizeIndianMobile,
+  sendFast2SmsOtp,
+  SIGNUP_OTP_EXPIRY_SECONDS,
+  SIGNUP_OTP_MAX_SENDS_PER_WINDOW,
+  SIGNUP_OTP_RATE_WINDOW_SECONDS,
+  SIGNUP_OTP_RESEND_SECONDS,
+  signupOtpMatches,
+} from "../services/signup-otp";
 import { createTRPCRouter, publicProcedure } from "../trpc";
 
-// Helper to sanitize/validate E.164 phone numbers (e.g., +91XXXXXXXXXX)
-function sanitizePhoneNumber(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) {
-    return `+91${digits}`;
+function requireIndianMobile(value: string) {
+  const phoneNumber = normalizeIndianMobile(value);
+  if (!phoneNumber) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.",
+    });
   }
-  if (digits.length === 12 && digits.startsWith("91")) {
-    return `+${digits}`;
-  }
-  if (phone.startsWith("+") && digits.length >= 10) {
-    return `+${digits}`;
-  }
-  throw new TRPCError({
-    code: "BAD_REQUEST",
-    message:
-      "Invalid phone number format. Please provide a valid 10-digit number.",
-  });
+  return phoneNumber;
 }
 
-function getOtpHashSecret() {
-  const secret = process.env.PHONE_OTP_HASH_SECRET?.trim();
-  if (secret) return secret;
-  if (process.env.NODE_ENV !== "production") {
-    return "campdeliver-development-only-otp-secret";
+function requireSignupSecrets() {
+  try {
+    return {
+      apiKey: getFast2SmsApiKey(),
+      hashSecret: getSignupOtpHashSecret(),
+    };
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Phone verification is temporarily unavailable.",
+    });
   }
-  throw new TRPCError({
-    code: "INTERNAL_SERVER_ERROR",
-    message: "Phone verification is not configured.",
-  });
 }
 
-function hashOtp(phoneNumber: string, otpCode: string) {
-  return createHmac("sha256", getOtpHashSecret())
-    .update(`${phoneNumber}:${otpCode}`)
-    .digest("hex");
+function requireSignupHashSecret() {
+  try {
+    return getSignupOtpHashSecret();
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Phone verification is temporarily unavailable.",
+    });
+  }
 }
 
-function otpMatches(storedHash: string, phoneNumber: string, otpCode: string) {
-  const candidate = hashOtp(phoneNumber, otpCode);
-  const stored = Buffer.from(storedHash, "utf8");
-  const attempted = Buffer.from(candidate, "utf8");
-  return (
-    stored.length === attempted.length && timingSafeEqual(stored, attempted)
-  );
+function requireSupabaseAdminConfig() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: "Account creation is temporarily unavailable.",
+    });
+  }
+  return { supabaseUrl, serviceRoleKey };
 }
+
+const sendOtpInput = z
+  .object({
+    phoneNumber: z.string().trim().min(10).max(20),
+  })
+  .strict();
+
+const verifySignupInput = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(2, "Name must be at least 2 characters")
+      .max(80),
+    hostelName: z.string().trim().min(1, "Hostel name is required").max(80),
+    phoneNumber: z.string().trim().min(10).max(20),
+    password: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(72, "Password must be at most 72 characters"),
+    otpCode: z.string().regex(/^\d{6}$/, "OTP must be exactly 6 digits"),
+  })
+  .strict();
 
 export const otpRouter = createTRPCRouter({
-  // Send OTP with anti-abuse rate limits
   sendOtp: publicProcedure
-    .input(
-      z.object({
-        phoneNumber: z.string(),
-      }),
-    )
+    .input(sendOtpInput)
     .mutation(async ({ ctx, input }) => {
       const { db } = ctx;
-      const phoneNumber = sanitizePhoneNumber(input.phoneNumber);
+      const phoneNumber = requireIndianMobile(input.phoneNumber);
+      const { apiKey, hashSecret } = requireSignupSecrets();
+      const now = new Date();
+      const otpCode = generateSignupOtp();
+      const expiresAt = new Date(
+        now.getTime() + SIGNUP_OTP_EXPIRY_SECONDS * 1000,
+      );
+      const windowStart = new Date(
+        now.getTime() - SIGNUP_OTP_RATE_WINDOW_SECONDS * 1000,
+      );
 
-      // Check if phone number is already registered
-      const existingProfile = await db.query.profiles.findFirst({
-        where: eq(profiles.phoneNumber, phoneNumber),
-      });
-      if (existingProfile) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "This phone number is already registered to an account.",
-        });
-      }
-
-      // Check anti-abuse: limit to 3 OTP requests in the last 15 minutes
-      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-
-      const [rateLimitCheck] = await db
-        .select({ count: sql<number>`count(*)` })
-        .from(phoneVerifications)
-        .where(
-          and(
-            eq(phoneVerifications.phoneNumber, phoneNumber),
-            gte(phoneVerifications.createdAt, fifteenMinutesAgo),
-          ),
+      const reservation = await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${phoneNumber}, 0))`,
         );
 
-      const requestCount = Number(rateLimitCheck?.count ?? 0);
-      if (requestCount >= 3) {
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message:
-            "Too many OTP requests. Please wait 15 minutes before trying again.",
-        });
-      }
-
-      const otpCode = randomInt(100000, 1_000_000).toString();
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-      // Store only an HMAC of the short-lived OTP. A database read alone must
-      // not reveal a valid signup code.
-      await db.insert(phoneVerifications).values({
-        phoneNumber,
-        otpCode: hashOtp(phoneNumber, otpCode),
-        expiresAt,
-      });
-
-      // List of dummy/test numbers that bypass real SMS sending in development.
-      const isTestNumber =
-        process.env.NODE_ENV !== "production" &&
-        [
-          "+911234567890",
-          "+911111111111",
-          "+912222222222",
-          "+913333333333",
-          "+914444444444",
-          "+915555555555",
-          "+916666666666",
-          "+917777777777",
-          "+918888888888",
-          "+919999999999",
-        ].includes(phoneNumber);
-
-      // Dispatch SMS. Development may expose the code in local logs; production
-      // never logs OTP material and fails closed when SMS is not configured.
-      if (isTestNumber || process.env.NODE_ENV === "development") {
-        console.log(`[SMS-MOCK] OTP for ${phoneNumber}: ${otpCode}`);
-      } else if (process.env.FAST2SMS_API_KEY) {
-        try {
-          const rawNumber = phoneNumber.replace("+91", "");
-          const response = await fetch("https://www.fast2sms.com/dev/bulkV2", {
-            method: "POST",
-            headers: {
-              authorization: process.env.FAST2SMS_API_KEY,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              route: "otp",
-              variables_values: otpCode,
-              numbers: rawNumber,
-            }),
-          });
-          if (!response.ok) {
-            throw new Error(`Fast2SMS returned HTTP ${response.status}`);
-          }
-        } catch (error) {
-          console.error("Fast2SMS API failed to send an OTP", error);
+        const [existingProfile] = await tx
+          .select({ id: profiles.id })
+          .from(profiles)
+          .where(eq(profiles.phoneNumber, phoneNumber))
+          .limit(1);
+        if (existingProfile) {
           throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
+            code: "CONFLICT",
             message:
-              "The verification SMS could not be sent. Please try again.",
+              "This phone number is already registered. Sign in instead.",
           });
         }
-      } else {
+
+        const [latest] = await tx
+          .select({ createdAt: phoneVerifications.createdAt })
+          .from(phoneVerifications)
+          .where(eq(phoneVerifications.phoneNumber, phoneNumber))
+          .orderBy(desc(phoneVerifications.createdAt))
+          .limit(1);
+
+        if (latest) {
+          const retryAt = new Date(
+            latest.createdAt.getTime() + SIGNUP_OTP_RESEND_SECONDS * 1000,
+          );
+          if (retryAt > now) {
+            const retryAfterSeconds = Math.max(
+              1,
+              Math.ceil((retryAt.getTime() - now.getTime()) / 1000),
+            );
+            throw new TRPCError({
+              code: "TOO_MANY_REQUESTS",
+              message: `Please wait ${retryAfterSeconds} seconds before requesting another code.`,
+            });
+          }
+        }
+
+        const [rateLimitCheck] = await tx
+          .select({ count: sql<number>`count(*)` })
+          .from(phoneVerifications)
+          .where(
+            and(
+              eq(phoneVerifications.phoneNumber, phoneNumber),
+              gte(phoneVerifications.createdAt, windowStart),
+            ),
+          );
+
+        if (
+          Number(rateLimitCheck?.count ?? 0) >= SIGNUP_OTP_MAX_SENDS_PER_WINDOW
+        ) {
+          throw new TRPCError({
+            code: "TOO_MANY_REQUESTS",
+            message:
+              "Too many verification codes were requested. Try again in 15 minutes.",
+          });
+        }
+
+        await tx
+          .update(phoneVerifications)
+          .set({ consumedAt: now })
+          .where(
+            and(
+              eq(phoneVerifications.phoneNumber, phoneNumber),
+              isNull(phoneVerifications.consumedAt),
+            ),
+          );
+
+        const [created] = await tx
+          .insert(phoneVerifications)
+          .values({
+            phoneNumber,
+            otpCode: hashSignupOtp(phoneNumber, otpCode, hashSecret),
+            expiresAt,
+            createdAt: now,
+          })
+          .returning({ id: phoneVerifications.id });
+
+        if (!created) throw new Error("Failed to reserve signup verification");
+        return created;
+      });
+
+      try {
+        await sendFast2SmsOtp({ phoneNumber, otpCode, apiKey });
+      } catch {
+        await db
+          .delete(phoneVerifications)
+          .where(eq(phoneVerifications.id, reservation.id));
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
-          message: "Phone verification is not configured.",
+          message: "The verification SMS could not be sent. Please try again.",
         });
       }
 
-      return { success: true };
+      return {
+        success: true,
+        expiresInSeconds: SIGNUP_OTP_EXPIRY_SECONDS,
+        resendAfterSeconds: SIGNUP_OTP_RESEND_SECONDS,
+      };
     }),
 
-  // Verify OTP and complete registration
   verifyOtpAndSignup: publicProcedure
-    .input(
-      z.object({
-        name: z.string().min(1, "Name is required"),
-        hostelName: z.string().min(1, "Hostel Name is required"),
-        phoneNumber: z.string(),
-        password: z.string().min(6, "Password must be at least 6 characters"),
-        otpCode: z.string().length(6, "OTP must be 6 digits"),
-      }),
-    )
+    .input(verifySignupInput)
     .mutation(async ({ ctx, input }) => {
-      const { db, supabase } = ctx;
-      const phoneNumber = sanitizePhoneNumber(input.phoneNumber);
-
-      // Check if phone number is already registered
-      const existingProfile = await db.query.profiles.findFirst({
-        where: eq(profiles.phoneNumber, phoneNumber),
-      });
-      if (existingProfile) {
-        throw new TRPCError({
-          code: "CONFLICT",
-          message:
-            "This phone number is already registered to another account.",
-        });
-      }
+      const { db } = ctx;
+      const phoneNumber = requireIndianMobile(input.phoneNumber);
+      const hashSecret = requireSignupHashSecret();
+      const { supabaseUrl, serviceRoleKey } = requireSupabaseAdminConfig();
 
       const verificationResult = await db.transaction(async (tx) => {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${phoneNumber}, 0))`,
         );
+
+        const [existingProfile] = await tx
+          .select({ id: profiles.id })
+          .from(profiles)
+          .where(eq(profiles.phoneNumber, phoneNumber))
+          .limit(1);
+        if (existingProfile) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This phone number is already registered. Sign in instead.",
+          });
+        }
+
         const [verification] = await tx
           .select()
           .from(phoneVerifications)
@@ -210,32 +251,44 @@ export const otpRouter = createTRPCRouter({
           .orderBy(desc(phoneVerifications.createdAt))
           .limit(1);
 
-        if (!verification) {
+        if (!verification || verification.consumedAt) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "No verification code has been requested for this number.",
+            message:
+              "Request a new verification code before creating your account.",
           });
         }
 
         const now = new Date();
         if (now > verification.expiresAt) {
+          await tx
+            .update(phoneVerifications)
+            .set({ consumedAt: now })
+            .where(eq(phoneVerifications.id, verification.id));
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message:
-              "The OTP verification code has expired. Please request a new one.",
+            message: "This verification code has expired. Request a new one.",
           });
         }
+
         if (
           verification.lockedUntil &&
           isOtpLocked(verification.lockedUntil, now)
         ) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
-            message: `Too many incorrect verification codes. Try again in ${remainingLockSeconds(verification.lockedUntil, now)} seconds.`,
+            message: `Too many incorrect codes. Try again in ${remainingLockSeconds(verification.lockedUntil, now)} seconds.`,
           });
         }
 
-        if (!otpMatches(verification.otpCode, phoneNumber, input.otpCode)) {
+        if (
+          !signupOtpMatches(
+            verification.otpCode,
+            phoneNumber,
+            input.otpCode,
+            hashSecret,
+          )
+        ) {
           const failureState = nextOtpFailureState(
             verification.lockedUntil ? 0 : verification.failedAttempts,
             SIGNUP_OTP_LOCK_SECONDS,
@@ -256,6 +309,24 @@ export const otpRouter = createTRPCRouter({
           };
         }
 
+        const [consumed] = await tx
+          .update(phoneVerifications)
+          .set({ consumedAt: now })
+          .where(
+            and(
+              eq(phoneVerifications.id, verification.id),
+              isNull(phoneVerifications.consumedAt),
+            ),
+          )
+          .returning({ id: phoneVerifications.id });
+        if (!consumed) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "This verification code was already used. Request a new one.",
+          });
+        }
+
         return { valid: true as const };
       });
 
@@ -263,101 +334,79 @@ export const otpRouter = createTRPCRouter({
         if (verificationResult.locked && verificationResult.lockedUntil) {
           throw new TRPCError({
             code: "TOO_MANY_REQUESTS",
-            message: `Too many incorrect verification codes. Try again in ${remainingLockSeconds(verificationResult.lockedUntil)} seconds.`,
+            message: `Too many incorrect codes. Try again in ${remainingLockSeconds(verificationResult.lockedUntil)} seconds.`,
           });
         }
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Invalid OTP verification code.",
+          message: "The verification code is incorrect.",
         });
       }
 
-      // Format unique email identifier for Supabase signup using phone number
       const virtualEmail = `${phoneNumber}@campus.edu`.toLowerCase();
+      const adminSupabase = createClient(supabaseUrl, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      });
 
-      // Check if we have service role key to auto-confirm user
-      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const { data, error } = await adminSupabase.auth.admin.createUser({
+        email: virtualEmail,
+        password: input.password,
+        email_confirm: true,
+        user_metadata: { name: input.name },
+      });
 
-      let authUser;
-      let authSession = null;
-
-      if (serviceRoleKey && supabaseUrl) {
-        // Use admin client to create and auto-confirm user
-        const adminSupabase = createClient(supabaseUrl, serviceRoleKey, {
-          auth: {
-            autoRefreshToken: false,
-            persistSession: false,
-          },
-        });
-
-        const { data, error } = await adminSupabase.auth.admin.createUser({
-          email: virtualEmail,
-          password: input.password,
-          email_confirm: true,
-          user_metadata: {
-            name: input.name,
-          },
-        });
-
-        if (error) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: error.message,
-          });
-        }
-        authUser = data.user;
-      } else {
-        // Fallback to anon client (requires "Confirm email" toggled off in Supabase)
-        const { data, error } = await supabase.auth.signUp({
-          email: virtualEmail,
-          password: input.password,
-          options: {
-            data: {
-              name: input.name,
-            },
-          },
-        });
-
-        if (error) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: error.message,
-          });
-        }
-        authUser = data.user;
-        authSession = data.session;
-      }
-
-      if (!authUser) {
+      if (error) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Sign-up was successful, but user object is missing.",
+          code: "BAD_REQUEST",
+          message:
+            "The account could not be created. If you already registered, sign in instead.",
         });
       }
 
-      // Create local user profile
-      const [newProfile] = await db
-        .insert(profiles)
-        .values({
-          id: authUser.id,
-          name: input.name,
-          email: virtualEmail,
-          phoneNumber,
-          hostelName: input.hostelName,
-          role: "STUDENT",
-        })
-        .returning();
+      const authUser = data.user;
+      try {
+        const newProfile = await db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(profiles)
+            .values({
+              id: authUser.id,
+              name: input.name,
+              email: virtualEmail,
+              phoneNumber,
+              hostelName: input.hostelName,
+              role: "STUDENT",
+            })
+            .returning();
+          if (!created) throw new Error("Failed to create signup profile");
 
-      // Clean up verification codes for this phone number
-      await db
-        .delete(phoneVerifications)
-        .where(eq(phoneVerifications.phoneNumber, phoneNumber));
+          await tx
+            .delete(phoneVerifications)
+            .where(eq(phoneVerifications.phoneNumber, phoneNumber));
+          return created;
+        });
 
-      return {
-        profile: newProfile,
-        session: authSession,
-        user: authUser,
-      };
+        return {
+          profile: newProfile,
+          session: null,
+          user: authUser,
+        };
+      } catch (error) {
+        try {
+          await adminSupabase.auth.admin.deleteUser(authUser.id);
+        } catch {
+          // Best-effort compensation. The original database failure is the
+          // actionable error and no secret or OTP material is logged here.
+        }
+        throw error instanceof TRPCError
+          ? error
+          : new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message:
+                "The account could not be completed. Request a new code and try again.",
+            });
+      }
     }),
 });

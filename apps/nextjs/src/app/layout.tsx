@@ -5,6 +5,7 @@ import { cn } from "@acme/ui";
 import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
+import { getUser } from "~/auth/server";
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -54,12 +55,19 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
 });
 
-export default function RootLayout(props: { children: React.ReactNode }) {
+export default async function RootLayout(props: { children: React.ReactNode }) {
+  const user = await getUser();
+
   return (
-    <html lang="en" suppressHydrationWarning className="dark">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={user ? "dark" : "light"}
+    >
       <body
         className={cn(
-          "min-h-screen bg-zinc-950 font-sans text-white antialiased selection:bg-purple-500 selection:text-white",
+          "min-h-screen font-sans antialiased selection:bg-blue-600 selection:text-white",
+          user ? "bg-zinc-950 text-white" : "bg-[#f4f9ff] text-slate-900",
           geistSans.variable,
           geistMono.variable,
         )}
@@ -67,11 +75,20 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         <ThemeProvider>
           <TRPCReactProvider>
             <CartProvider>
-              <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col bg-zinc-950 shadow-2xl">
-                <Header />
-                <main className="flex-1 pb-24">{props.children}</main>
-                <BottomNav />
-                <GlobalTracker />
+              <div
+                className={cn(
+                  "relative mx-auto flex min-h-screen w-full flex-col",
+                  user
+                    ? "max-w-6xl bg-zinc-950 shadow-2xl"
+                    : "max-w-none bg-[#f4f9ff]",
+                )}
+              >
+                {user ? <Header /> : null}
+                <main className={cn("flex-1", user && "pb-24")}>
+                  {props.children}
+                </main>
+                {user ? <BottomNav /> : null}
+                {user ? <GlobalTracker /> : null}
               </div>
               <Toaster />
             </CartProvider>
