@@ -154,7 +154,7 @@ For Realtime privacy, the order/chat channels are created as private channels an
 
 New account registration verifies the student's official IIITDMJ email through Supabase Auth email OTP. Student addresses use the student's unique roll number before `@iiitdmj.ac.in`. The phone number remains mandatory profile/contact information but is never used as an OTP identity. Production defaults to the exact `iiitdmj.ac.in` domain; `COLLEGE_EMAIL_DOMAINS` is retained only as an explicit server-side override for staging/test environments.
 
-Supabase must be configured to send a numeric email OTP (the email template should include the OTP token rather than relying only on a magic link). No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
+Supabase must be configured to send a numeric email OTP rather than a confirmation/magic link. In the hosted Supabase Dashboard, edit **Authentication → Email Templates → Confirm signup** and **Magic Link** so their content uses `{{ .Token }}` and does not use `{{ .ConfirmationURL }}`. The app verifies that 6-digit token with `verifyOtp({ type: "email" })`. A suitable subject is `Your CAmpDeliver verification code`, with content such as `Your CAmpDeliver verification code is: <strong>{{ .Token }}</strong>`. No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
 
 ---
 
