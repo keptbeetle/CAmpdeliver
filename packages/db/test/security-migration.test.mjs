@@ -41,6 +41,15 @@ test("database prevents duplicate simultaneous buyer and deliverer work", () => 
   );
 });
 
+test("legacy orders keep historical totals while new orders default to the platform fee", () => {
+  assert.match(
+    normalized,
+    /update public\.orders set platform_fee = 0 where platform_fee is null/,
+  );
+  assert.match(normalized, /alter column platform_fee set default 300/);
+  assert.match(normalized, /alter column platform_fee set not null/);
+});
+
 test("financial tables enforce one payment and one settlement per order", () => {
   assert.match(
     normalized,

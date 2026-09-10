@@ -15,7 +15,12 @@ import {
   shortId,
   statusLabels,
 } from "~/components/app/theme";
-import { AppButton, EmptyState, LoadingState } from "~/components/app/ui";
+import {
+  AppButton,
+  EmptyState,
+  InlineNotice,
+  LoadingState,
+} from "~/components/app/ui";
 import { DeliveryMap } from "~/components/maps/DeliveryMap";
 import { useOrderRealtime } from "~/hooks/use-order-realtime";
 import { locationService } from "~/platform/location";
@@ -112,6 +117,7 @@ export default function OrderTrackerScreen() {
   const [routeLoading, setRouteLoading] = useState(false);
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
   const {
     data: orders,
     isLoading,
@@ -128,24 +134,28 @@ export default function OrderTrackerScreen() {
   const order = orders?.find((candidate) => candidate.id === id);
   const isDeliverer = Boolean(order && order.delivererId === profile?.id);
   const isAssigned = Boolean(order?.delivererId);
+  const paymentDatabaseReady = paymentConfig?.databaseReady === true;
 
-  const { delivererLocation } = useOrderRealtime(id, {
-    onOrderUpdate: () => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.order.myOrders.queryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: trpc.auth.getMyProfile.queryKey(),
-      });
+  const { delivererLocation } = useOrderRealtime(
+    paymentDatabaseReady ? id : "",
+    {
+      onOrderUpdate: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.auth.getMyProfile.queryKey(),
+        });
+      },
     },
-  });
+  );
 
   const updateStatusMutation = useMutation(
     trpc.order.updateOrderStatus.mutationOptions(),
   );
 
   useEffect(() => {
-    if (!id || !isDeliverer) return;
+    if (!id || !isDeliverer || !paymentDatabaseReady) return;
     let active = true;
     void locationService.requestForegroundPermission().then((granted) => {
       if (active) setHasPermission(granted);
@@ -153,7 +163,7 @@ export default function OrderTrackerScreen() {
     return () => {
       active = false;
     };
-  }, [id, isDeliverer]);
+  }, [id, isDeliverer, paymentDatabaseReady]);
 
   const canteenCoords = useMemo<Coordinate | null>(
     () =>
@@ -320,6 +330,7 @@ export default function OrderTrackerScreen() {
 
   const sheetBottom = Math.max(12, insets.bottom + 8);
   const showBuyerOtp =
+    paymentDatabaseReady &&
     !isDeliverer &&
     Boolean(order.otp) &&
     order.payment?.status === "PAID" &&
@@ -405,6 +416,15 @@ export default function OrderTrackerScreen() {
           ) : null}
         </View>
 
+        {paymentConfig?.databaseReady === false ? (
+          <InlineNotice
+            icon="database"
+            tone="warning"
+            title="Read-only compatibility mode"
+            copy="Live payment and delivery updates are paused until the server database upgrade is complete. Existing route and order details remain available."
+          />
+        ) : null}
+
         <View style={styles.sheetActions}>
           {isAssigned ? (
             <Pressable
@@ -448,7 +468,7 @@ export default function OrderTrackerScreen() {
           </View>
         ) : null}
 
-        {isDeliverer ? (
+        {paymentDatabaseReady && isDeliverer ? (
           <View style={styles.actionArea}>
             {["ACCEPTED", "ITEM_AVAILABLE"].includes(order.status) ? (
               <AppButton

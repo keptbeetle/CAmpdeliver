@@ -18,7 +18,7 @@ alter table public.phone_verifications
   add column if not exists locked_until timestamptz;
 
 alter table public.orders
-  add column if not exists platform_fee integer not null default 300,
+  add column if not exists platform_fee integer,
   add column if not exists deliverer_allows_pay_at_delivery boolean not null default false,
   add column if not exists state_expires_at timestamptz,
   add column if not exists accepted_at timestamptz,
@@ -30,6 +30,13 @@ alter table public.orders
   add column if not exists cancelled_at timestamptz,
   add column if not exists cancelled_by text,
   add column if not exists cancellation_reason text;
+
+-- Legacy orders predate the platform fee. Preserve their historical totals,
+-- then make ₹3 the default only for orders created after this migration.
+update public.orders set platform_fee = 0 where platform_fee is null;
+alter table public.orders
+  alter column platform_fee set default 300,
+  alter column platform_fee set not null;
 
 create table if not exists public.order_payments (
   id uuid primary key default gen_random_uuid(),

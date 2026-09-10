@@ -21,12 +21,24 @@ import {
   canSubmitPaymentReference,
   settlementRequestDisposition,
 } from "../services/payment-policy";
+import { getPaymentSchemaReadiness } from "../services/payment-schema-readiness";
 import { sendExpoPushNotifications } from "../services/push-notification";
 import { adminProcedure, protectedProcedure } from "../trpc";
 
 const orderIdInput = z.object({ orderId: z.string().uuid() }).strict();
 const referenceSchema = z.string().trim().min(5).max(80);
 const REQUESTED_SETTLEMENT_STATUSES = ["PENDING", "ON_HOLD", "FAILED"] as const;
+
+async function requirePaymentSchemaReady() {
+  const database = await getPaymentSchemaReadiness();
+  if (!database.ready) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "CAmpDeliver payments are being upgraded on the server. Payment, refund, and settlement actions are temporarily unavailable.",
+    });
+  }
+}
 
 async function notifyProfile(
   profileId: string,
@@ -153,14 +165,17 @@ async function getAdminQueueContext() {
 }
 
 export const paymentRouter = {
-  config: protectedProcedure.query(() => {
+  config: protectedProcedure.query(async () => {
     const config = getPaymentConfig();
+    const database = await getPaymentSchemaReadiness();
     return {
       deliveryFeePaise: config.deliveryFeePaise,
       platformFeePaise: config.platformFeePaise,
       upiId: config.upiId,
       upiPayeeName: config.upiPayeeName,
       manualVerification: true as const,
+      databaseReady: database.ready,
+      schemaVersion: database.version,
     };
   }),
 
@@ -174,6 +189,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       if (!config.upiId) {
@@ -280,6 +296,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       const normalized = normalizeTransactionReference(input.utrNumber);
@@ -413,6 +430,24 @@ export const paymentRouter = {
     }),
 
   earnings: protectedProcedure.query(async ({ ctx }) => {
+    const database = await getPaymentSchemaReadiness();
+    if (!database.ready) {
+      return {
+        databaseReady: false,
+        lifetimeEarnings: 0,
+        paidEarnings: 0,
+        foodReimbursed: 0,
+        availableSettlementAmount: 0,
+        pendingSettlementAmount: 0,
+        paidSettlementAmount: 0,
+        availableSettlements: 0,
+        pendingSettlements: 0,
+        paidSettlements: 0,
+        completedDeliveries: 0,
+        recent: [],
+      };
+    }
+
     const settlements = await ctx.db
       .select()
       .from(orderSettlements)
@@ -420,6 +455,7 @@ export const paymentRouter = {
       .orderBy(desc(orderSettlements.createdAt));
 
     return {
+      databaseReady: true,
       lifetimeEarnings: settlements.reduce(
         (total, settlement) => total + settlement.deliveryEarning,
         0,
@@ -462,6 +498,7 @@ export const paymentRouter = {
   requestSettlement: protectedProcedure
     .input(z.object({ settlementId: z.string().uuid() }).strict())
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const now = new Date();
       const result = await ctx.db.transaction(async (tx) => {
         await tx.execute(
@@ -550,6 +587,23 @@ export const paymentRouter = {
     }),
 
   adminDashboard: adminProcedure.query(async () => {
+    const database = await getPaymentSchemaReadiness();
+    if (!database.ready) {
+      return {
+        databaseReady: false,
+        summary: {
+          pendingPaymentVerifications: 0,
+          refundsRequired: 0,
+          pendingSettlements: 0,
+          pendingSettlementAmount: 0,
+          platformFeesEarned: 0,
+        },
+        paymentVerifications: [],
+        refunds: [],
+        settlements: [],
+      };
+    }
+
     const queues = await getAdminQueueContext();
     const delivered = await db
       .select({
@@ -561,6 +615,7 @@ export const paymentRouter = {
       .where(eq(orders.status, "DELIVERED"));
 
     return {
+      databaseReady: true,
       summary: {
         pendingPaymentVerifications: queues.paymentVerifications.length,
         refundsRequired: queues.refunds.length,
@@ -580,6 +635,7 @@ export const paymentRouter = {
   adminConfirmPayment: adminProcedure
     .input(orderIdInput)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       const now = new Date();
@@ -732,6 +788,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       const now = new Date();
@@ -825,6 +882,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const normalized = normalizeTransactionReference(input.refundReference);
       const now = new Date();
 
@@ -912,6 +970,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const normalized = normalizeTransactionReference(input.payoutReference);
       const now = new Date();
       const [settlement] = await ctx.db
@@ -996,6 +1055,7 @@ export const paymentRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const [updated] = await ctx.db
         .update(orderSettlements)
         .set({

@@ -50,7 +50,8 @@ export default function CheckoutPage() {
   } = useCart();
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
-  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfigQuery = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfig = paymentConfigQuery.data;
 
   // Auto-detected location state
   const [userCoords, setUserCoords] = useState<{
@@ -172,9 +173,17 @@ export default function CheckoutPage() {
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const finalTotal = totalPrice + deliveryFee + platformFee;
+  const databaseReady = paymentConfig?.databaseReady === true;
 
   const handlePlaceOrder = () => {
     setErrorMsg(null);
+
+    if (!databaseReady) {
+      setErrorMsg(
+        "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
+      );
+      return;
+    }
 
     if (!canteenId) {
       setErrorMsg("Missing canteen information.");
@@ -215,6 +224,25 @@ export default function CheckoutPage() {
           <p className="text-xs text-zinc-400">{canteenName}</p>
         </div>
       </div>
+
+      {paymentConfigQuery.isError ? (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
+          <p className="font-black">Payment service unavailable</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+            CAmpDeliver could not confirm payment readiness. Check your
+            connection and try again; your cart is unchanged.
+          </p>
+        </div>
+      ) : paymentConfig?.databaseReady === false ? (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
+          <p className="font-black">New orders are temporarily paused</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+            Your connection is working. This build is waiting for the
+            payment/security database migration before payment-enabled orders
+            can be broadcast.
+          </p>
+        </div>
+      ) : null}
 
       {/* Itemized Cart Breakdown */}
       <div className="flex flex-col gap-3 rounded-3xl border border-zinc-800/80 bg-zinc-900/60 p-4">
@@ -394,15 +422,25 @@ export default function CheckoutPage() {
 
       {/* Place Order CTA Button */}
       <button
-        disabled={createOrderMutation.isPending || locationStatus !== "success"}
+        disabled={
+          createOrderMutation.isPending ||
+          locationStatus !== "success" ||
+          !databaseReady
+        }
         onClick={handlePlaceOrder}
         className="flex w-full items-center justify-center gap-2 rounded-2xl bg-purple-600 py-4 text-sm font-black text-white shadow-xl shadow-purple-600/30 transition-all hover:bg-purple-500 active:scale-95 disabled:opacity-50"
       >
         <CheckCircle2 className="h-5 w-5" />
         <span>
-          {createOrderMutation.isPending
-            ? "Broadcasting Order…"
-            : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
+          {paymentConfigQuery.isLoading
+            ? "Checking server…"
+            : paymentConfigQuery.isError
+              ? "Payment service unavailable"
+              : !databaseReady
+                ? "Server upgrade pending"
+                : createOrderMutation.isPending
+                  ? "Broadcasting Order…"
+                  : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
         </span>
       </button>
     </div>

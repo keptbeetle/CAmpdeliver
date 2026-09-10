@@ -18,12 +18,15 @@ export function GlobalTracker() {
   const trpc = useTRPC();
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: orders } = useQuery(trpc.order.myOrders.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
 
-  const activeOrder = orders?.find(
-    (order) =>
-      order.delivererId === profile?.id &&
-      TRACKED_STATUSES.some((status) => status === order.status),
-  );
+  const activeOrder = paymentConfig?.databaseReady
+    ? orders?.find(
+        (order) =>
+          order.delivererId === profile?.id &&
+          TRACKED_STATUSES.some((status) => status === order.status),
+      )
+    : undefined;
   const orderId = activeOrder?.id;
 
   const { broadcastLocation } = useOrderRealtime(orderId ?? "");

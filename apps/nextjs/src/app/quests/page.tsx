@@ -31,9 +31,10 @@ export default function QuestsPage() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
+  const paymentConfig = useQuery(trpc.payment.config.queryOptions());
   const { data: quests, isLoading } = useQuery({
     ...trpc.order.availableQuests.queryOptions(location ?? {}),
-    enabled: !!location,
+    enabled: !!location && paymentConfig.data?.databaseReady === true,
   });
 
   const acceptOrderMutation = useMutation(
@@ -68,15 +69,32 @@ export default function QuestsPage() {
         </div>
       </div>
 
+      {paymentConfig.data?.databaseReady === false && (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-amber-100">
+          <p className="text-sm font-black">
+            Quest delivery is temporarily paused
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
+            Your connection is working. Quest acceptance will resume after the
+            payment/security database migration is applied.
+          </p>
+        </div>
+      )}
+
       {/* Quests List */}
       <div className="flex flex-col gap-4">
-        {isLoading ? (
+        {paymentConfig.isLoading || isLoading ? (
           [1, 2, 3].map((n) => (
             <div
               key={n}
               className="h-28 w-full animate-pulse rounded-2xl border border-zinc-800 bg-zinc-900/50"
             />
           ))
+        ) : paymentConfig.data?.databaseReady === false ? (
+          <div className="rounded-3xl border border-amber-500/20 bg-amber-950/10 p-8 text-center text-sm text-amber-200">
+            New quests will appear here after the server database upgrade
+            completes.
+          </div>
         ) : quests && quests.length > 0 ? (
           quests.map(
             (quest: {

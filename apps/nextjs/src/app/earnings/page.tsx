@@ -56,6 +56,26 @@ export default function EarningsPage() {
     );
   }
 
+  if (!earnings.data.databaseReady) {
+    return (
+      <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-10 text-center">
+        <h1 className="text-xl font-black text-white">
+          Payment upgrade pending
+        </h1>
+        <p className="text-sm text-zinc-400">
+          The app and backend are connected. Earnings will become available
+          after the payment/security database migration is applied.
+        </p>
+        <button
+          onClick={() => void earnings.refetch()}
+          className="self-center rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
+        >
+          Check again
+        </button>
+      </div>
+    );
+  }
+
   const data = earnings.data;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6">

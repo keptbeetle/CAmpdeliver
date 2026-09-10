@@ -11,10 +11,13 @@ export const chatRouter = {
   getMessages: protectedProcedure
     .input(z.object({ orderId: z.string().uuid() }).strict())
     .query(async ({ ctx, input }) => {
-      // Validate user has access to order
-      const order = await ctx.db.query.orders.findFirst({
-        where: eq(orders.id, input.orderId),
-      });
+      // Select only participant IDs so legacy orders remain readable while a
+      // payment-schema rollout is pending.
+      const [order] = await ctx.db
+        .select({ buyerId: orders.buyerId, delivererId: orders.delivererId })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
 
       if (!order) {
         throw new TRPCError({
@@ -58,10 +61,13 @@ export const chatRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      // Validate user has access
-      const order = await ctx.db.query.orders.findFirst({
-        where: eq(orders.id, input.orderId),
-      });
+      // Select only participant IDs so chat remains compatible with legacy rows
+      // during a staged payment-schema rollout.
+      const [order] = await ctx.db
+        .select({ buyerId: orders.buyerId, delivererId: orders.delivererId })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
 
       if (!order) {
         throw new TRPCError({

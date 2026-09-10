@@ -215,6 +215,7 @@ export default function OrderStatusScreen() {
   const payment = order.payment;
   const paymentStatus = payment?.status ?? "NOT_STARTED";
   const paymentMethod = payment?.method ?? null;
+  const paymentDatabaseReady = paymentConfig?.databaseReady === true;
   const expectedAmount =
     payment?.expectedAmount ??
     order.foodPrice + order.deliveryFee + order.platformFee;
@@ -479,7 +480,7 @@ export default function OrderStatusScreen() {
           submitReference={submitReference}
         />
 
-        {isBuyer && order.status === "BROADCASTED" ? (
+        {paymentDatabaseReady && isBuyer && order.status === "BROADCASTED" ? (
           <MotionView style={styles.actionCard}>
             <InlineNotice
               icon="clock"
@@ -497,7 +498,7 @@ export default function OrderStatusScreen() {
           </MotionView>
         ) : null}
 
-        {isDeliverer && !isTerminal ? (
+        {paymentDatabaseReady && isDeliverer && !isTerminal ? (
           <MotionView style={styles.actionCard}>
             <Text style={styles.sectionEyebrow}>YOUR NEXT ACTION</Text>
             <Text style={styles.sectionTitle}>Deliverer controls</Text>
@@ -799,6 +800,19 @@ function PaymentCard({
   openUpi: () => void;
   submitReference: () => void;
 }) {
+  if (paymentConfig?.databaseReady === false) {
+    return (
+      <MotionView style={styles.paymentCard}>
+        <InlineNotice
+          icon="database"
+          tone="warning"
+          title="Payment upgrade pending"
+          copy="This order is available in read-only compatibility mode. Payment and delivery actions will resume after the server database migration is applied."
+        />
+      </MotionView>
+    );
+  }
+
   const canSelectMethod =
     isBuyer &&
     order.status === "ITEM_AVAILABLE" &&

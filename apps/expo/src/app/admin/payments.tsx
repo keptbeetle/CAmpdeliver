@@ -185,6 +185,14 @@ export default function AdminPaymentsScreen() {
             actionLabel="Retry"
             onAction={() => void refetch()}
           />
+        ) : !data.databaseReady ? (
+          <EmptyState
+            icon="database"
+            title="Payment database upgrade pending"
+            copy="The admin backend is online, but payment verification, refunds, and settlements stay paused until the security migration is applied."
+            actionLabel="Check again"
+            onAction={() => void refetch()}
+          />
         ) : (
           <>
             <Summary data={data} />

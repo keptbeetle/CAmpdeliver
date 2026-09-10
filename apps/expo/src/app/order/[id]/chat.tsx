@@ -42,12 +42,16 @@ export default function OrderChatScreen() {
   const [sendError, setSendError] = useState<string | null>(null);
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
   const {
     data: messages,
     isLoading: messagesLoading,
     isError: messagesError,
     refetch: refetchMessages,
-  } = useQuery(trpc.chat.getMessages.queryOptions({ orderId: id }));
+  } = useQuery({
+    ...trpc.chat.getMessages.queryOptions({ orderId: id }),
+    refetchInterval: paymentConfig?.databaseReady === false ? 3000 : false,
+  });
   const { data: orders, isLoading: ordersLoading } = useQuery(
     trpc.order.myOrders.queryOptions(),
   );
@@ -65,13 +69,16 @@ export default function OrderChatScreen() {
     enabled: false,
   });
 
-  const { broadcastChatEvent } = useOrderRealtime(id, {
-    onChatUpdate: () => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.chat.getMessages.queryKey({ orderId: id }),
-      });
+  const { broadcastChatEvent } = useOrderRealtime(
+    paymentConfig?.databaseReady === true ? id : "",
+    {
+      onChatUpdate: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.chat.getMessages.queryKey({ orderId: id }),
+        });
+      },
     },
-  });
+  );
 
   const sendMessageMutation = useMutation(
     trpc.chat.sendMessage.mutationOptions(),

@@ -73,6 +73,7 @@ export default function QuestsTab() {
           longitude: locationState.longitude,
         }
       : undefined;
+  const paymentConfig = useQuery(trpc.payment.config.queryOptions());
 
   const {
     data: quests,
@@ -81,8 +82,14 @@ export default function QuestsTab() {
     refetch,
   } = useQuery({
     ...trpc.order.availableQuests.queryOptions(locationInput ?? {}),
-    enabled: locationState.status === "ready",
-    refetchInterval: locationState.status === "ready" ? 8000 : false,
+    enabled:
+      locationState.status === "ready" &&
+      paymentConfig.data?.databaseReady === true,
+    refetchInterval:
+      locationState.status === "ready" &&
+      paymentConfig.data?.databaseReady === true
+        ? 8000
+        : false,
   });
 
   const acceptOrderMutation = useMutation(
@@ -162,6 +169,15 @@ export default function QuestsTab() {
 
             <DeliveryAvailabilityCard />
 
+            {paymentConfig.data?.databaseReady === false ? (
+              <InlineNotice
+                icon="database"
+                tone="warning"
+                title="Payment upgrade pending"
+                copy="You are connected to CAmpDeliver, but quest acceptance is paused until the server database migration is applied."
+              />
+            ) : null}
+
             {locationState.status === "loading" ? (
               <InlineNotice
                 icon="crosshair"
@@ -193,7 +209,15 @@ export default function QuestsTab() {
           </>
         }
         ListEmptyComponent={
-          locationState.status === "loading" ? (
+          paymentConfig.isLoading ? (
+            <QuestSkeleton />
+          ) : paymentConfig.data?.databaseReady === false ? (
+            <EmptyState
+              icon="database"
+              title="Quest delivery is temporarily paused"
+              copy="The app and backend are online. This build is waiting for the payment/security database migration before students can accept new quests."
+            />
+          ) : locationState.status === "loading" ? (
             <QuestSkeleton />
           ) : locationState.status === "error" ? (
             <EmptyState

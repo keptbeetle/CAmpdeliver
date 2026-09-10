@@ -3,6 +3,7 @@ import { db } from "@acme/db/client";
 import { orderPayments, orders } from "@acme/db/schema";
 
 import { prePurchaseCancellationDisposition } from "./payment-policy";
+import { getPaymentSchemaReadiness } from "./payment-schema-readiness";
 
 const EXPIRABLE_ORDER_STATUSES = [
   "BROADCASTED",
@@ -17,6 +18,11 @@ const EXPIRABLE_ORDER_STATUSES = [
  * than an automatic cancellation.
  */
 export async function expireStaleOrders(now = new Date()) {
+  const database = await getPaymentSchemaReadiness();
+  if (!database.ready) {
+    return { expired: 0, refundsRequired: 0, databaseReady: false as const };
+  }
+
   const candidates = await db
     .select({ id: orders.id })
     .from(orders)
@@ -109,5 +115,5 @@ export async function expireStaleOrders(now = new Date()) {
     if (result.refundRequired) refundsRequired += 1;
   }
 
-  return { expired, refundsRequired };
+  return { expired, refundsRequired, databaseReady: true as const };
 }

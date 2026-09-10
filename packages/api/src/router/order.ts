@@ -3,6 +3,8 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
+import type { db } from "@acme/db/client";
+import type { OrderItem, OrderStatus } from "@acme/db/schema";
 import {
   and,
   desc,
@@ -39,6 +41,7 @@ import {
   delivererPrePurchaseCancellationMode,
   prePurchaseCancellationDisposition,
 } from "../services/payment-policy";
+import { getPaymentSchemaReadiness } from "../services/payment-schema-readiness";
 import { sendExpoPushNotifications } from "../services/push-notification";
 import { protectedProcedure } from "../trpc";
 import {
@@ -61,6 +64,115 @@ const ACTIVE_ORDER_STATUSES = [
   ...ACTIVE_LOCATION_STATUSES,
 ] as const;
 
+async function requirePaymentSchemaReady() {
+  const database = await getPaymentSchemaReadiness();
+  if (!database.ready) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "CAmpDeliver payments are being upgraded on the server. New orders and delivery actions are temporarily unavailable.",
+    });
+  }
+}
+
+interface LegacyOrderRow {
+  id: string;
+  buyerId: string;
+  delivererId: string | null;
+  canteenId: string | null;
+  status: OrderStatus;
+  items: unknown;
+  foodPrice: number;
+  deliveryFee: number;
+  canteenName: string;
+  canteenLatitude: number;
+  canteenLongitude: number;
+  deliveryLocationName: string;
+  deliveryLatitude: number;
+  deliveryLongitude: number;
+  delivererLatitude: number | null;
+  delivererLongitude: number | null;
+  buyerLatitude: number | null;
+  buyerLongitude: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function normalizeLegacyItems(value: unknown): OrderItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw, index) => {
+    if (!raw || typeof raw !== "object") return [];
+    const item = raw as Record<string, unknown>;
+    if (
+      typeof item.name !== "string" ||
+      typeof item.quantity !== "number" ||
+      typeof item.price !== "number"
+    ) {
+      return [];
+    }
+    return [
+      {
+        menuItemId:
+          typeof item.menuItemId === "string"
+            ? item.menuItemId
+            : `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        name: item.name,
+        quantity: item.quantity,
+        price: item.price,
+      },
+    ];
+  });
+}
+
+async function readLegacyOrders(database: typeof db, userId: string) {
+  const rows = (await database.execute(sql`
+    select
+      id,
+      buyer_id as "buyerId",
+      deliverer_id as "delivererId",
+      canteen_id as "canteenId",
+      status,
+      items,
+      food_price as "foodPrice",
+      delivery_fee as "deliveryFee",
+      canteen_name as "canteenName",
+      canteen_latitude as "canteenLatitude",
+      canteen_longitude as "canteenLongitude",
+      delivery_location_name as "deliveryLocationName",
+      delivery_latitude as "deliveryLatitude",
+      delivery_longitude as "deliveryLongitude",
+      deliverer_latitude as "delivererLatitude",
+      deliverer_longitude as "delivererLongitude",
+      buyer_latitude as "buyerLatitude",
+      buyer_longitude as "buyerLongitude",
+      created_at as "createdAt",
+      updated_at as "updatedAt"
+    from public.orders
+    where buyer_id = ${userId}::uuid or deliverer_id = ${userId}::uuid
+    order by created_at desc
+    limit 50
+  `)) as unknown as LegacyOrderRow[];
+
+  return rows.map((order) => ({
+    ...order,
+    items: normalizeLegacyItems(order.items),
+    platformFee: 0,
+    delivererAllowsPayAtDelivery: false,
+    otp: null,
+    stateExpiresAt: null,
+    acceptedAt: null,
+    itemsAvailableAt: null,
+    purchasedAt: null,
+    deliveredAt: null,
+    deliveryOtpFailedAttempts: 0,
+    deliveryOtpLockedUntil: null,
+    cancelledAt: null,
+    cancelledBy: null,
+    cancellationReason: null,
+    payment: null,
+  }));
+}
+
 function distanceMetres(
   latitudeA: number,
   longitudeA: number,
@@ -81,6 +193,11 @@ function distanceMetres(
 
 export const orderRouter = {
   myOrders: protectedProcedure.query(async ({ ctx }) => {
+    const database = await getPaymentSchemaReadiness();
+    if (!database.ready) {
+      return readLegacyOrders(ctx.db, ctx.user.id);
+    }
+
     await expireStaleOrders();
 
     const rows = await ctx.db
@@ -137,6 +254,9 @@ export const orderRouter = {
         .strict(),
     )
     .query(async ({ ctx, input }) => {
+      const database = await getPaymentSchemaReadiness();
+      if (!database.ready) return [];
+
       await expireStaleOrders();
 
       if (input.latitude === undefined || input.longitude === undefined) {
@@ -217,6 +337,7 @@ export const orderRouter = {
   createOrder: protectedProcedure
     .input(createOrderInputSchema)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
 
       const uniqueIds = new Set(input.items.map((item) => item.menuItemId));
@@ -389,6 +510,7 @@ export const orderRouter = {
   cancelOrder: protectedProcedure
     .input(orderIdInput)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const now = new Date();
       const [cancelled] = await ctx.db
@@ -430,6 +552,7 @@ export const orderRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       const now = new Date();
@@ -524,6 +647,7 @@ export const orderRouter = {
   confirmAvailability: protectedProcedure
     .input(orderIdInput)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const config = getPaymentConfig();
       const now = new Date();
@@ -628,6 +752,7 @@ export const orderRouter = {
   rejectOrder: protectedProcedure
     .input(orderIdInput)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const now = new Date();
 
@@ -723,6 +848,7 @@ export const orderRouter = {
   markPurchased: protectedProcedure
     .input(orderIdInput)
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       await expireStaleOrders();
       const now = new Date();
 
@@ -809,9 +935,17 @@ export const orderRouter = {
   updateLocation: protectedProcedure
     .input(updateDelivererLocationInputSchema)
     .mutation(async ({ ctx, input }) => {
-      const order = await ctx.db.query.orders.findFirst({
-        where: eq(orders.id, input.orderId),
-      });
+      await requirePaymentSchemaReady();
+      const [order] = await ctx.db
+        .select({
+          id: orders.id,
+          buyerId: orders.buyerId,
+          delivererId: orders.delivererId,
+          status: orders.status,
+        })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
       if (!order) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       }
@@ -846,9 +980,15 @@ export const orderRouter = {
   getOrderContactPhoneNumber: protectedProcedure
     .input(orderIdInput)
     .query(async ({ ctx, input }) => {
-      const order = await ctx.db.query.orders.findFirst({
-        where: eq(orders.id, input.orderId),
-      });
+      const [order] = await ctx.db
+        .select({
+          buyerId: orders.buyerId,
+          delivererId: orders.delivererId,
+          status: orders.status,
+        })
+        .from(orders)
+        .where(eq(orders.id, input.orderId))
+        .limit(1);
       if (!order) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Order not found" });
       }
@@ -905,6 +1045,7 @@ export const orderRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const order = await ctx.db.query.orders.findFirst({
         where: eq(orders.id, input.orderId),
       });
@@ -981,6 +1122,7 @@ export const orderRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
       const now = new Date();
 
       const result = await ctx.db.transaction(async (tx) => {

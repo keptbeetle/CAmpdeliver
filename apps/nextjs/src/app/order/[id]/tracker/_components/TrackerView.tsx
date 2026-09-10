@@ -135,23 +135,28 @@ export default function TrackerView({ orderId }: { orderId: string }) {
   const queryClient = useQueryClient();
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
   const { data: orders, isLoading } = useQuery(
     trpc.order.myOrders.queryOptions(),
   );
 
   const order = orders?.find((o) => o.id === orderId);
+  const paymentDatabaseReady = paymentConfig?.databaseReady === true;
   const isDeliverer = order?.delivererId === profile?.id;
 
-  const { delivererLocation } = useOrderRealtime(orderId, {
-    onOrderUpdate: () => {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.order.myOrders.queryKey(),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: trpc.auth.getMyProfile.queryKey(),
-      });
+  const { delivererLocation } = useOrderRealtime(
+    paymentDatabaseReady ? orderId : "",
+    {
+      onOrderUpdate: () => {
+        void queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: trpc.auth.getMyProfile.queryKey(),
+        });
+      },
     },
-  });
+  );
   const [myWebLocation, setMyWebLocation] = useState<[number, number] | null>(
     null,
   );
@@ -445,8 +450,16 @@ export default function TrackerView({ orderId }: { orderId: string }) {
           </button>
         </div>
 
+        {paymentConfig?.databaseReady === false && (
+          <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
+            Read-only compatibility mode: live payment and delivery updates are
+            paused until the server database upgrade completes.
+          </div>
+        )}
+
         {/* OTP Display for Buyer */}
-        {!isDeliverer &&
+        {paymentDatabaseReady &&
+          !isDeliverer &&
           order.otp &&
           order.payment?.status === "PAID" &&
           ["PURCHASED", "ON_THE_WAY", "NEAR_YOU"].includes(order.status) && (

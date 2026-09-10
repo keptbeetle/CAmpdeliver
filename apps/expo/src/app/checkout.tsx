@@ -54,7 +54,8 @@ export default function CheckoutScreen() {
   const [stage, setStage] = useState<CheckoutStage>("idle");
 
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
-  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfigQuery = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfig = paymentConfigQuery.data;
   const createOrderMutation = useMutation(
     trpc.order.createOrder.mutationOptions(),
   );
@@ -62,10 +63,18 @@ export default function CheckoutScreen() {
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? fallbackDeliveryFee;
   const platformFee = paymentConfig?.platformFeePaise ?? fallbackPlatformFee;
   const finalAmount = totalPrice + deliveryFee + platformFee;
+  const databaseReady = paymentConfig?.databaseReady === true;
   const busy = stage !== "idle" || createOrderMutation.isPending;
 
   const placeOrder = async () => {
     if (busy) return;
+    if (!databaseReady) {
+      showAppAlert(
+        "Payment upgrade pending",
+        "CAmpDeliver is connected, but new orders are paused until the server database migration is applied.",
+      );
+      return;
+    }
     if (!canteenId || items.length === 0) {
       showAppAlert("Cart is empty", "Add dishes before placing an order.");
       return;
@@ -223,6 +232,22 @@ export default function CheckoutScreen() {
             />
           </MotionView>
 
+          {paymentConfigQuery.isError ? (
+            <InlineNotice
+              icon="wifi-off"
+              tone="warning"
+              title="Payment service unavailable"
+              copy="CAmpDeliver could not confirm payment readiness. Check your connection and try again; your cart is safe."
+            />
+          ) : paymentConfig?.databaseReady === false ? (
+            <InlineNotice
+              icon="database"
+              tone="warning"
+              title="New orders are temporarily paused"
+              copy="This build is connected correctly, but the payment/security database migration has not been applied yet. Your cart is safe; place the order after the server upgrade is complete."
+            />
+          ) : null}
+
           <Section title="Order summary" icon="shopping-bag">
             <View style={styles.itemsList}>
               {items.map((item) => (
@@ -338,22 +363,32 @@ export default function CheckoutScreen() {
           ) : null}
           <Pressable
             accessibilityRole="button"
-            disabled={busy}
+            disabled={busy || !databaseReady}
             onPress={() => void placeOrder()}
             style={({ pressed }) => [
               styles.placeButton,
-              pressed && !busy && styles.pressed,
-              busy && styles.disabled,
+              pressed && !busy && databaseReady && styles.pressed,
+              (busy || !databaseReady) && styles.disabled,
             ]}
           >
             <View>
               <Text style={styles.placeText}>
-                {busy ? "Working…" : "Place Order"}
+                {busy
+                  ? "Working…"
+                  : paymentConfigQuery.isLoading
+                    ? "Checking server…"
+                    : paymentConfigQuery.isError
+                      ? "Payment service unavailable"
+                      : databaseReady
+                        ? "Place Order"
+                        : "Server upgrade pending"}
               </Text>
               <Text style={styles.placeSubtext}>
                 {busy
                   ? "Please keep this screen open"
-                  : "Location is checked next"}
+                  : databaseReady
+                    ? "Location is checked next"
+                    : "Your cart stays unchanged"}
               </Text>
             </View>
             <View style={styles.placeAmountWrap}>

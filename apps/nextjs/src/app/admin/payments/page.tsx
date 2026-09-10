@@ -122,6 +122,27 @@ export default function AdminPaymentsPage() {
     );
   }
 
+  if (!dashboard.data.databaseReady) {
+    return (
+      <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-16 text-center">
+        <h1 className="text-xl font-black text-white">
+          Payment database upgrade pending
+        </h1>
+        <p className="text-sm text-zinc-400">
+          The admin backend is online. Payment verification, refunds and
+          settlements will become available after the security migration is
+          applied.
+        </p>
+        <button
+          onClick={() => void dashboard.refetch()}
+          className="self-center rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
+        >
+          Check again
+        </button>
+      </div>
+    );
+  }
+
   const data = dashboard.data;
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6">

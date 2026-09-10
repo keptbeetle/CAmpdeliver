@@ -161,6 +161,7 @@ export default function OrderStatusPage({
   const total =
     payment?.expectedAmount ??
     order.foodPrice + order.deliveryFee + order.platformFee;
+  const paymentDatabaseReady = paymentConfig?.databaseReady === true;
   const terminal = !ACTIVE_STATUSES.includes(order.status);
   const currentStep = STEP_INDEX[order.status] ?? 0;
   const busy =
@@ -271,158 +272,171 @@ export default function OrderStatusPage({
         </div>
       )}
 
-      <section className="flex flex-col gap-3 rounded-3xl border border-zinc-800 bg-zinc-900/60 p-5">
-        <div className="flex items-center gap-2">
-          <ShieldCheck className="h-5 w-5 text-purple-400" />
-          <div>
-            <p className="text-[10px] font-black tracking-wider text-purple-400 uppercase">
-              Payment
-            </p>
-            <h2 className="text-base font-black text-white">
-              {paymentStatus.replaceAll("_", " ")}
-            </h2>
-          </div>
-        </div>
-        <Info label="Buyer total" value={formatCurrency(total)} />
-        {paymentMethod && (
-          <Info
-            label="Method"
-            value={
-              paymentMethod === "ADVANCE"
-                ? "Advance payment"
-                : "Pay at Delivery"
-            }
-          />
-        )}
+      {paymentConfig?.databaseReady === false && (
+        <Notice warning>
+          This order is available in read-only compatibility mode. The app is
+          connected, but payment and delivery actions are paused until the
+          server database migration is applied.
+        </Notice>
+      )}
 
-        {isBuyer &&
-          order.status === "ITEM_AVAILABLE" &&
-          paymentMethod === null &&
-          ["AWAITING_SELECTION", "REJECTED"].includes(paymentStatus) && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <button
-                disabled={busy}
-                onClick={() =>
-                  chooseMethod.mutate({ orderId: order.id, method: "ADVANCE" })
-                }
-                className="rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
-              >
-                Pay Now — Advance
-              </button>
-              {order.delivererAllowsPayAtDelivery ? (
+      {paymentDatabaseReady && (
+        <section className="flex flex-col gap-3 rounded-3xl border border-zinc-800 bg-zinc-900/60 p-5">
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-purple-400" />
+            <div>
+              <p className="text-[10px] font-black tracking-wider text-purple-400 uppercase">
+                Payment
+              </p>
+              <h2 className="text-base font-black text-white">
+                {paymentStatus.replaceAll("_", " ")}
+              </h2>
+            </div>
+          </div>
+          <Info label="Buyer total" value={formatCurrency(total)} />
+          {paymentMethod && (
+            <Info
+              label="Method"
+              value={
+                paymentMethod === "ADVANCE"
+                  ? "Advance payment"
+                  : "Pay at Delivery"
+              }
+            />
+          )}
+
+          {isBuyer &&
+            order.status === "ITEM_AVAILABLE" &&
+            paymentMethod === null &&
+            ["AWAITING_SELECTION", "REJECTED"].includes(paymentStatus) && (
+              <div className="grid gap-2 sm:grid-cols-2">
                 <button
                   disabled={busy}
                   onClick={() =>
                     chooseMethod.mutate({
                       orderId: order.id,
-                      method: "PAY_AT_DELIVERY",
+                      method: "ADVANCE",
                     })
                   }
-                  className="rounded-xl border border-indigo-500/40 bg-indigo-950/40 px-4 py-3 text-xs font-black text-indigo-200 disabled:opacity-50"
+                  className="rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
                 >
-                  Pay at Delivery
+                  Pay Now — Advance
                 </button>
-              ) : (
-                <p className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-500">
-                  This deliverer accepts advance payment only.
-                </p>
-              )}
-            </div>
-          )}
+                {order.delivererAllowsPayAtDelivery ? (
+                  <button
+                    disabled={busy}
+                    onClick={() =>
+                      chooseMethod.mutate({
+                        orderId: order.id,
+                        method: "PAY_AT_DELIVERY",
+                      })
+                    }
+                    className="rounded-xl border border-indigo-500/40 bg-indigo-950/40 px-4 py-3 text-xs font-black text-indigo-200 disabled:opacity-50"
+                  >
+                    Pay at Delivery
+                  </button>
+                ) : (
+                  <p className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 text-xs text-zinc-500">
+                    This deliverer accepts advance payment only.
+                  </p>
+                )}
+              </div>
+            )}
 
-        {isBuyer &&
-          paymentMethod === "PAY_AT_DELIVERY" &&
-          paymentStatus === "AWAITING_PAYMENT" &&
-          !podPaymentDue && (
-            <Notice>
-              Payment happens at handover. The deliverer is voluntarily fronting
-              the canteen cost. When they reach you, pay digitally to
-              CAmpDeliver and wait for admin verification before sharing the
-              OTP.
-            </Notice>
-          )}
-
-        {buyerCanSubmit && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-purple-500/20 bg-purple-950/20 p-4">
-            {paymentStatus === "REJECTED" && (
-              <Notice warning>
-                {payment?.rejectionReason ??
-                  "The submitted reference was rejected. Check it and resubmit the correct transaction."}
+          {isBuyer &&
+            paymentMethod === "PAY_AT_DELIVERY" &&
+            paymentStatus === "AWAITING_PAYMENT" &&
+            !podPaymentDue && (
+              <Notice>
+                Payment happens at handover. The deliverer is voluntarily
+                fronting the canteen cost. When they reach you, pay digitally to
+                CAmpDeliver and wait for admin verification before sharing the
+                OTP.
               </Notice>
             )}
-            <div className="text-center">
-              <p className="text-[10px] font-bold text-zinc-500 uppercase">
-                Pay exact amount to
-              </p>
-              <p className="mt-1 text-base font-black text-white select-all">
-                {paymentConfig?.upiId ?? "UPI not configured"}
-              </p>
-              <p className="mt-2 text-2xl font-black text-emerald-400">
-                {formatCurrency(total)}
-              </p>
-              <p className="mt-1 text-[10px] text-zinc-500">
-                Reference CD-{order.id.slice(0, 8).toUpperCase()}
+
+          {buyerCanSubmit && (
+            <div className="flex flex-col gap-3 rounded-2xl border border-purple-500/20 bg-purple-950/20 p-4">
+              {paymentStatus === "REJECTED" && (
+                <Notice warning>
+                  {payment?.rejectionReason ??
+                    "The submitted reference was rejected. Check it and resubmit the correct transaction."}
+                </Notice>
+              )}
+              <div className="text-center">
+                <p className="text-[10px] font-bold text-zinc-500 uppercase">
+                  Pay exact amount to
+                </p>
+                <p className="mt-1 text-base font-black text-white select-all">
+                  {paymentConfig.upiId ?? "UPI not configured"}
+                </p>
+                <p className="mt-2 text-2xl font-black text-emerald-400">
+                  {formatCurrency(total)}
+                </p>
+                <p className="mt-1 text-[10px] text-zinc-500">
+                  Reference CD-{order.id.slice(0, 8).toUpperCase()}
+                </p>
+              </div>
+              <button
+                disabled={!paymentConfig.upiId || busy}
+                onClick={openUpi}
+                className="flex items-center justify-center gap-2 rounded-xl border border-purple-500/40 px-4 py-2.5 text-xs font-bold text-purple-300 disabled:opacity-50"
+              >
+                <ExternalLink className="h-4 w-4" /> Open UPI app
+              </button>
+              <input
+                value={utrInput}
+                onChange={(event) => setUtrInput(event.target.value)}
+                placeholder="UPI transaction reference / UTR"
+                maxLength={80}
+                className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-purple-500"
+              />
+              <button
+                disabled={busy || utrInput.trim().length < 5}
+                onClick={() =>
+                  submitReference.mutate({
+                    orderId: order.id,
+                    utrNumber: utrInput.trim(),
+                  })
+                }
+                className="rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
+              >
+                Submit for admin verification
+              </button>
+              <p className="text-[10px] leading-relaxed text-zinc-500">
+                A UPI app success screen is not proof. The backend marks payment
+                Paid only after an admin matches your UTR with the actual bank
+                credit.
               </p>
             </div>
-            <button
-              disabled={!paymentConfig?.upiId || busy}
-              onClick={openUpi}
-              className="flex items-center justify-center gap-2 rounded-xl border border-purple-500/40 px-4 py-2.5 text-xs font-bold text-purple-300 disabled:opacity-50"
-            >
-              <ExternalLink className="h-4 w-4" /> Open UPI app
-            </button>
-            <input
-              value={utrInput}
-              onChange={(event) => setUtrInput(event.target.value)}
-              placeholder="UPI transaction reference / UTR"
-              maxLength={80}
-              className="rounded-xl border border-zinc-700 bg-zinc-950 px-4 py-3 text-sm text-white outline-none focus:border-purple-500"
-            />
-            <button
-              disabled={busy || utrInput.trim().length < 5}
-              onClick={() =>
-                submitReference.mutate({
-                  orderId: order.id,
-                  utrNumber: utrInput.trim(),
-                })
-              }
-              className="rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
-            >
-              Submit for admin verification
-            </button>
-            <p className="text-[10px] leading-relaxed text-zinc-500">
-              A UPI app success screen is not proof. The backend marks payment
-              Paid only after an admin matches your UTR with the actual bank
-              credit.
-            </p>
-          </div>
-        )}
+          )}
 
-        {paymentStatus === "PENDING_VERIFICATION" && (
-          <Notice>
-            Payment reference submitted. It is not secured until an admin
-            verifies the actual bank credit.
-          </Notice>
-        )}
-        {paymentStatus === "PAID" && (
-          <Notice success>
-            CAmpDeliver has verified the incoming payment.
-          </Notice>
-        )}
-        {paymentStatus === "REFUND_REQUIRED" && (
-          <Notice warning>
-            The verified payment is in the admin refund queue because the order
-            ended before purchase.
-          </Notice>
-        )}
-        {paymentStatus === "REFUNDED" && (
-          <Notice success>
-            The admin has recorded the outgoing refund transfer.
-          </Notice>
-        )}
-      </section>
+          {paymentStatus === "PENDING_VERIFICATION" && (
+            <Notice>
+              Payment reference submitted. It is not secured until an admin
+              verifies the actual bank credit.
+            </Notice>
+          )}
+          {paymentStatus === "PAID" && (
+            <Notice success>
+              CAmpDeliver has verified the incoming payment.
+            </Notice>
+          )}
+          {paymentStatus === "REFUND_REQUIRED" && (
+            <Notice warning>
+              The verified payment is in the admin refund queue because the
+              order ended before purchase.
+            </Notice>
+          )}
+          {paymentStatus === "REFUNDED" && (
+            <Notice success>
+              The admin has recorded the outgoing refund transfer.
+            </Notice>
+          )}
+        </section>
+      )}
 
-      {isBuyer && order.status === "BROADCASTED" && (
+      {paymentDatabaseReady && isBuyer && order.status === "BROADCASTED" && (
         <section className="rounded-3xl border border-zinc-800 bg-zinc-900/60 p-5">
           <p className="mb-3 text-xs leading-relaxed text-zinc-400">
             Buyer cancellation is available only while this order is still being
@@ -438,7 +452,7 @@ export default function OrderStatusPage({
         </section>
       )}
 
-      {isDeliverer && !terminal && (
+      {paymentDatabaseReady && isDeliverer && !terminal && (
         <section className="flex flex-col gap-3 rounded-3xl border border-zinc-800 bg-zinc-900/60 p-5">
           <p className="text-[10px] font-black tracking-wider text-purple-400 uppercase">
             Deliverer controls

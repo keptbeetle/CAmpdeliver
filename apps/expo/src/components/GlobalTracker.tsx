@@ -30,14 +30,19 @@ export function GlobalTracker() {
     ...trpc.order.myOrders.queryOptions(),
     enabled: hasSession,
   });
+  const { data: paymentConfig } = useQuery({
+    ...trpc.payment.config.queryOptions(),
+    enabled: hasSession,
+  });
 
-  const activeOrder = hasSession
-    ? orders?.find(
-        (order) =>
-          order.delivererId === profile?.id &&
-          TRACKED_STATUSES.some((status) => status === order.status),
-      )
-    : undefined;
+  const activeOrder =
+    hasSession && paymentConfig?.databaseReady === true
+      ? orders?.find(
+          (order) =>
+            order.delivererId === profile?.id &&
+            TRACKED_STATUSES.some((status) => status === order.status),
+        )
+      : undefined;
   const orderId = activeOrder?.id;
 
   const { broadcastLocation } = useOrderRealtime(orderId ?? "");

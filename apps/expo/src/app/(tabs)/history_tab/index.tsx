@@ -25,6 +25,7 @@ import {
 } from "~/components/app/theme";
 import {
   EmptyState,
+  InlineNotice,
   MotionView,
   SkeletonBlock,
   StatusBadge,
@@ -40,6 +41,7 @@ export default function OrdersTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
+  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
   const {
     data: orders,
     isLoading,
@@ -71,9 +73,14 @@ export default function OrdersTab() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await queryClient.invalidateQueries({
-        queryKey: trpc.order.myOrders.queryKey(),
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: trpc.order.myOrders.queryKey(),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: trpc.payment.config.queryKey(),
+        }),
+      ]);
     } finally {
       setRefreshing(false);
     }
@@ -112,6 +119,15 @@ export default function OrdersTab() {
               </View>
             </MotionView>
 
+            {paymentConfig?.databaseReady === false ? (
+              <InlineNotice
+                icon="database"
+                tone="warning"
+                title="Payment upgrade pending"
+                copy="The app is connected to CAmpDeliver, but the server database has not been upgraded to the new payment schema yet. Existing orders remain visible; new payment and delivery actions are paused until the migration is applied."
+              />
+            ) : null}
+
             <View style={styles.filterRow}>
               <FilterChip
                 label="Active"
@@ -142,6 +158,12 @@ export default function OrdersTab() {
               copy="Check your connection and retry."
               actionLabel="Retry"
               onAction={() => void refetch()}
+            />
+          ) : paymentConfig?.databaseReady === false ? (
+            <EmptyState
+              icon="database"
+              title="Payment upgrade is not active yet"
+              copy="Your connection is working. CAmpDeliver is waiting for the server database migration before new payment-enabled deliveries can run."
             />
           ) : filter === "active" ? (
             <EmptyState

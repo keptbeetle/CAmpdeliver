@@ -76,6 +76,14 @@ export default function EarningsTab() {
             actionLabel="Retry"
             onAction={() => void earnings.refetch()}
           />
+        ) : !earnings.data.databaseReady ? (
+          <EmptyState
+            icon="database"
+            title="Payment upgrade pending"
+            copy="Your connection is working. Earnings will appear after the CAmpDeliver server database is upgraded to the new payment and settlement schema."
+            actionLabel="Check again"
+            onAction={() => void earnings.refetch()}
+          />
         ) : (
           <>
             <MotionView style={styles.heroCard}>

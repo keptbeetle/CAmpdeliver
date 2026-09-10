@@ -24,7 +24,8 @@ export function CanteenMenu({
     trpc.canteen.listActiveWithMenu.queryOptions(),
   );
   const { data: landmarks } = useQuery(trpc.landmark.list.queryOptions());
-  const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfigQuery = useQuery(trpc.payment.config.queryOptions());
+  const paymentConfig = paymentConfigQuery.data;
 
   const [selectedCanteenId, setSelectedCanteenId] = useState<string>();
   const [cart, setCart] = useState<
@@ -173,8 +174,15 @@ export function CanteenMenu({
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const totalCost = totalFoodPrice + deliveryFee + platformFee;
+  const databaseReady = paymentConfig?.databaseReady === true;
 
   const handlePlaceOrder = async () => {
+    if (!databaseReady) {
+      setError(
+        "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
+      );
+      return;
+    }
     if (cart.length === 0) {
       setError("Cart is empty");
       return;
@@ -398,18 +406,36 @@ export function CanteenMenu({
                 </p>
               )}
 
+              {paymentConfigQuery.isError ? (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
+                  CAmpDeliver could not confirm payment readiness. Check your
+                  connection and try again; your cart is unchanged.
+                </div>
+              ) : paymentConfig?.databaseReady === false ? (
+                <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
+                  New orders are paused until the payment/security database
+                  upgrade is complete.
+                </div>
+              ) : null}
               <Button
                 onClick={() => void handlePlaceOrder()}
                 disabled={
+                  !databaseReady ||
                   placingOrder ||
                   locatingDestination ||
                   createOrderMutation.isPending
                 }
                 className="mt-2 w-full rounded-xl bg-indigo-600 py-2 font-bold text-white transition-colors hover:bg-indigo-500"
               >
-                {placingOrder || createOrderMutation.isPending
-                  ? "Broadcasting..."
-                  : "Broadcast Order"}
+                {paymentConfigQuery.isLoading
+                  ? "Checking server..."
+                  : paymentConfigQuery.isError
+                    ? "Payment service unavailable"
+                    : !databaseReady
+                      ? "Server upgrade pending"
+                      : placingOrder || createOrderMutation.isPending
+                        ? "Broadcasting..."
+                        : "Broadcast Order"}
               </Button>
             </div>
           )}
