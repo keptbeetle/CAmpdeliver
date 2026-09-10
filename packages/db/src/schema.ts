@@ -636,32 +636,3 @@ export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
     references: [orders.id],
   }),
 }));
-
-export const phoneVerifications = pgTable(
-  "phone_verifications",
-  {
-    id: uuid("id").defaultRandom().primaryKey().notNull(),
-    phoneNumber: text("phone_number").notNull(),
-    otpCode: text("otp_code").notNull(),
-    failedAttempts: integer("failed_attempts").default(0).notNull(),
-    lockedUntil: timestamp("locked_until", { withTimezone: true }),
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .defaultNow()
-      .notNull(),
-  },
-  (table) => [
-    check(
-      "phone_verifications_failed_attempts_nonnegative",
-      sql`${table.failedAttempts} >= 0`,
-    ),
-    index("idx_phone_verifications_lookup").on(
-      table.phoneNumber,
-      table.createdAt.desc(),
-    ),
-    index("idx_phone_verifications_active_lookup")
-      .on(table.phoneNumber, table.createdAt.desc())
-      .where(sql`${table.consumedAt} is null`),
-  ],
-);

@@ -1,11 +1,22 @@
-import { getUser } from "~/auth/server";
+import { eq } from "@acme/db";
+import { db } from "@acme/db/client";
+import { profiles } from "@acme/db/schema";
+
+import { getRegisteredUser } from "~/auth/server";
 import { AuthForm } from "./_components/auth-form";
 import { Dashboard } from "./_components/dashboard";
 
 export default async function HomePage() {
-  const user = await getUser();
+  const user = await getRegisteredUser();
+  const [profile] = user
+    ? await db
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(eq(profiles.id, user.id))
+        .limit(1)
+    : [];
 
-  if (user) {
+  if (user && profile) {
     return (
       <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-zinc-950 py-12 text-white">
         <div className="absolute top-0 left-0 -z-10 h-full w-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-blue-950/20 via-zinc-950 to-black" />
@@ -35,8 +46,8 @@ export default async function HomePage() {
         </div>
         <AuthForm />
         <p className="text-center text-xs leading-relaxed text-slate-500">
-          Existing test accounts can still sign in. Every new account requires a
-          real SMS verification code.
+          New accounts verify their official college email. Phone numbers are
+          required for delivery contact, but are not OTP-verified.
         </p>
       </div>
     </main>

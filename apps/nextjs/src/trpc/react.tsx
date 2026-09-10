@@ -37,8 +37,9 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
       links: [
         loggerLink({
           enabled: (op) =>
-            env.NODE_ENV === "development" ||
-            (op.direction === "down" && op.result instanceof Error),
+            op.direction === "up" &&
+            env.NODE_ENV === "development" &&
+            op.path !== "auth.signInWithIdentifier",
           console: {
             log: console.log,
             error: console.warn,

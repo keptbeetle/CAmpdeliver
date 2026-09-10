@@ -63,7 +63,7 @@ Ordinary TypeScript, UI, and business-logic changes do not require rebuilding th
 
 The core delivery tracking and verification engine was completed and merged directly into `main`:
 
-- **Phone-First Auth**: E.164 phone sanitization, virtual email mapping (`+91XXXXXXXXXX@campus.edu`), and 6-digit signup OTP verification.
+- **College Email Auth**: New accounts verify an allowed official college email with a 6-digit Supabase email OTP. A valid Indian phone number is still mandatory profile/contact information but is not OTP-verified, and login accepts either the registered email or phone number.
 - **Interactive Dual-Marker Map Tracker**: Real-time live map rendering buyer & deliverer positions, OSRM road routing, and dynamic distance calculations.
 - **Geofence Proximity Detection (`GeofenceManager.tsx`)**: Automatic proximity checks against canteen & hostel GPS radii triggering status progression (`ON_THE_WAY` → `NEAR_YOU`).
 - **Real-Time P2P Chat**: WebSocket streaming via Supabase Realtime for instant messaging between buyer and deliverer per active order.
@@ -142,7 +142,7 @@ This branch replaces the mock wallet with a small-pilot payment workflow designe
 - **Server-Authoritative Pricing**: Order creation accepts only menu-item IDs and quantities. The API fetches current menu prices from PostgreSQL so a modified client cannot submit a fake food price.
 - **Backend TTLs**: Broadcast, accepted, payment-selection, payment-verification, and paid-before-purchase states carry server deadlines. Expired pre-purchase orders are cancelled by the backend; purchased orders never auto-cancel and require fulfilment/admin resolution.
 - **Database & Realtime Hardening**: The additive SQL migration adds payment/settlement tables, financial and coordinate constraints, indexes, update triggers, least-privilege grants, RLS, backend-only access to sensitive order/payment/chat/OTP data, and participant-only authorization for private `order:<uuid>` Realtime Broadcast channels. Legacy wallet columns/table remain physically present only for safe rollback and are not used by the application.
-- **OTP & Auth Hardening**: Signup OTPs are stored as HMACs, production requires a server-only OTP hash secret, and protected/admin tRPC calls authorize against Supabase's verified user lookup rather than trusting local session material. Signup and 4-digit handover verification both persist failed-attempt counters; five incorrect attempts trigger a 15-minute server-side lock, and handover attempts are serialized per order.
+- **Email Auth & Session Hardening**: New signup uses Supabase email OTP for allowed college domains and creates the application profile only after the authenticated Supabase user has a confirmed email. Phone numbers are mandatory contact data only. Protected/admin tRPC calls authorize against Supabase's verified user lookup rather than trusting local session material. The separate 4-digit order handover OTP retains its persisted failure counters and serialized verification protections.
 
 The manual settlement layer is intentionally isolated from the order state machine. A future regulated payment provider can replace manual UPI verification/payout operations without redesigning fulfilment states.
 
@@ -150,11 +150,11 @@ For Realtime privacy, the order/chat channels are created as private channels an
 
 ---
 
-## 📱 Production Phone Verification
+## 📧 Production College Email Verification
 
-New account registration always requires a real 6-digit SMS delivered through Fast2SMS to a valid Indian mobile number. There is no development console OTP, built-in dummy signup number, or client-side verification bypass. The backend stores only an HMAC of the short-lived code, enforces a 60-second resend cooldown and a maximum of three sends per 15-minute window, expires codes after five minutes, and locks verification for 15 minutes after five incorrect attempts.
+New account registration verifies the student's official college email through Supabase Auth email OTP. The phone number remains mandatory profile/contact information but is never used as an OTP identity. Signup domains are controlled by the server-only `COLLEGE_EMAIL_DOMAINS` allowlist; production signup fails closed when that allowlist is missing or the submitted email is outside it.
 
-`FAST2SMS_API_KEY`, `PHONE_OTP_HASH_SECRET` (at least 32 random characters), `SUPABASE_SERVICE_ROLE_KEY`, and the Supabase URL must be configured on the backend. Missing SMS/security configuration fails closed instead of generating a fake verification result. Existing pre-created development/E2E accounts remain usable for **sign-in testing only**; they do not create a signup bypass and new accounts must pass real phone verification.
+Supabase must be configured to send a numeric email OTP (the email template should include the OTP token rather than relying only on a magic link). No Fast2SMS/Firebase SMS key or phone-OTP secret is used. Login accepts either the registered college email or the registered Indian phone number in the same identifier field, while Supabase password authentication remains the session authority.
 
 ---
 
@@ -232,10 +232,9 @@ EXPO_PUBLIC_SUPABASE_URL="https://[YOUR-PROJECT-REF].supabase.co"
 EXPO_PUBLIC_SUPABASE_ANON_KEY="your-anon-key"
 EXPO_API_URL_OVERRIDE=""
 
-# Server-only auth/SMS
-PHONE_OTP_HASH_SECRET="replace-with-at-least-32-random-characters"
+# Auth policy / maintenance
+COLLEGE_EMAIL_DOMAINS="college.ac.in"
 SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-FAST2SMS_API_KEY="your-fast2sms-api-key"
 
 # Pilot payment configuration (amounts are paise)
 # Receiving UPI ID/payee name are managed dynamically by ADMIN in the app.
@@ -283,17 +282,18 @@ pnpm --filter @acme/db payment-destination:preflight
 pnpm --filter @acme/db payment-destination:check
 pnpm --filter @acme/db payment-destination:apply
 
-# Add one-time consumption state for secure signup OTP verification.
-pnpm --filter @acme/db signup-otp:preflight
-pnpm --filter @acme/db signup-otp:check
-pnpm --filter @acme/db signup-otp:apply
+# Remove the now-unused legacy phone-signup OTP table after confirming it is empty.
+pnpm --filter @acme/db email-auth-cleanup:preflight
+pnpm --filter @acme/db email-auth-cleanup:check
+pnpm --filter @acme/db email-auth-cleanup:apply
+
 ```
 
 `security:preflight` is read-only and reports active-order counts, the legacy deliverer-role count, payment-table presence, and whether the migration can proceed. `security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
 
 The second migration is additive and stores the current receiving UPI destination plus an append-only ADMIN change history. The settings tables are backend-only under RLS. After it is applied, an ADMIN configures or changes the UPI ID and payee name from **Payments & Settlements**; buyer payment selection fails closed until a valid destination has been saved. When a buyer chooses a payment method, that order snapshots the current UPI destination so later ADMIN changes affect new payment selections without rerouting an in-progress payment.
 
-The third migration is also additive. It adds `phone_verifications.consumed_at` plus an active-code lookup index so a successfully verified signup code is atomically made one-time-use before the Supabase account is created. The table remains backend-only under RLS and direct `anon`/`authenticated` table access stays revoked.
+The email-auth cleanup migration removes the legacy `phone_verifications` table after its preflight confirms that no pending rows remain. New signup OTP state belongs to Supabase Auth rather than PostgreSQL.
 
 Configure a backend scheduler to call `GET /api/cron/orders` with `Authorization: Bearer <CRON_SECRET>` at a cadence appropriate for the configured TTLs (for example once per minute). Order queries also opportunistically expire stale pre-purchase orders, but the scheduler ensures ghosted orders are cleaned up even when no student has the app open.
 

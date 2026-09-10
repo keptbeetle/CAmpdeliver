@@ -17,6 +17,7 @@ export const env = createEnv({
    */
   server: {
     POSTGRES_URL: z.url(),
+    COLLEGE_EMAIL_DOMAINS: z.string().min(3).optional(),
     CRON_SECRET: z.string().min(32).optional(),
   },
 

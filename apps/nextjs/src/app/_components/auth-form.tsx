@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 
 import { Button } from "@acme/ui/button";
@@ -10,14 +9,6 @@ import { Label } from "@acme/ui/label";
 
 import { supabaseClient } from "~/auth/client";
 import { useTRPC } from "~/trpc/react";
-
-function normalizeLegacySignInPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
-  if (phone.trim().startsWith("+") && digits.length >= 10) return `+${digits}`;
-  return phone.includes("+") ? phone : `+91${phone}`;
-}
 
 function normalizeSignupPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -31,6 +22,11 @@ function normalizeSignupPhone(phone: string): string | null {
   return `+91${subscriber}`;
 }
 
+function normalizeEmail(email: string): string | null {
+  const normalized = email.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
 function ErrorNotice({ message }: { message: string }) {
   return (
     <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -41,8 +37,9 @@ function ErrorNotice({ message }: { message: string }) {
 }
 
 export function AuthForm() {
-  const router = useRouter();
   const trpc = useTRPC();
+  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -56,34 +53,45 @@ export function AuthForm() {
   const [timer, setTimer] = useState(0);
   const otpInputRef = useRef<HTMLInputElement>(null);
 
-  const sendOtpMutation = useMutation(trpc.otp.sendOtp.mutationOptions());
-  const verifyOtpMutation = useMutation(
-    trpc.otp.verifyOtpAndSignup.mutationOptions(),
+  const requestOtpMutation = useMutation(
+    trpc.auth.requestSignupEmailOtp.mutationOptions(),
+  );
+  const completeSignupMutation = useMutation(
+    trpc.auth.completeSignup.mutationOptions(),
+  );
+  const signInMutation = useMutation(
+    trpc.auth.signInWithIdentifier.mutationOptions(),
   );
 
   useEffect(() => {
     if (timer <= 0) return;
-    const interval = setInterval(
-      () => setTimer((previous) => previous - 1),
+    const interval = window.setInterval(
+      () => setTimer((previous) => Math.max(0, previous - 1)),
       1000,
     );
-    return () => clearInterval(interval);
+    return () => window.clearInterval(interval);
   }, [timer]);
 
   useEffect(() => {
     if (step !== 2) return;
-    const timeout = setTimeout(() => otpInputRef.current?.focus(), 150);
-    return () => clearTimeout(timeout);
+    const timeout = window.setTimeout(() => otpInputRef.current?.focus(), 150);
+    return () => window.clearTimeout(timeout);
   }, [step]);
 
   const handleSendOtp = async () => {
     if (
       !name.trim() ||
       !hostelName.trim() ||
+      !email.trim() ||
       !phoneNumber.trim() ||
       !password
     ) {
       setError("Complete all account details before continuing.");
+      return;
+    }
+    const signupEmail = normalizeEmail(email);
+    if (!signupEmail) {
+      setError("Enter a valid college email address.");
       return;
     }
     const signupPhone = normalizeSignupPhone(phoneNumber);
@@ -93,12 +101,8 @@ export function AuthForm() {
       );
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    if (password.length > 72) {
-      setError("Password must be at most 72 characters.");
+    if (password.length < 8 || password.length > 72) {
+      setError("Password must be between 8 and 72 characters.");
       return;
     }
 
@@ -106,18 +110,20 @@ export function AuthForm() {
     setMessage(null);
     setLoading(true);
     try {
-      const result = await sendOtpMutation.mutateAsync({
+      const result = await requestOtpMutation.mutateAsync({
+        email: signupEmail,
         phoneNumber: signupPhone,
       });
+      setEmail(result.email);
       setStep(2);
       setOtpCode("");
       setTimer(result.resendAfterSeconds);
-      setMessage("A real verification SMS was sent to your phone.");
+      setMessage("A verification code was sent to your college email.");
     } catch (err: unknown) {
       setError(
         err instanceof Error
           ? err.message
-          : "The verification SMS could not be sent.",
+          : "The verification email could not be sent.",
       );
     } finally {
       setLoading(false);
@@ -126,42 +132,50 @@ export function AuthForm() {
 
   const handleVerifyOtp = async () => {
     if (loading || otpCode.length !== 6) return;
+    const signupEmail = normalizeEmail(email);
     const signupPhone = normalizeSignupPhone(phoneNumber);
-    if (!signupPhone) {
+    if (!signupEmail || !signupPhone) {
       setError(
-        "Return to account details and enter a valid Indian mobile number.",
+        "Return to account details and check your email and phone number.",
       );
       return;
     }
 
     setError(null);
     setLoading(true);
+    let emailVerified = false;
     try {
-      const result = await verifyOtpMutation.mutateAsync({
+      const { error: verifyError } = await supabaseClient.auth.verifyOtp({
+        email: signupEmail,
+        token: otpCode,
+        type: "email",
+      });
+      if (verifyError) throw verifyError;
+      emailVerified = true;
+
+      const { error: passwordError } = await supabaseClient.auth.updateUser({
+        password,
+        data: { name: name.trim() },
+      });
+      if (passwordError) throw passwordError;
+
+      await completeSignupMutation.mutateAsync({
         name: name.trim(),
         hostelName: hostelName.trim(),
         phoneNumber: signupPhone,
-        password,
-        otpCode,
       });
 
-      const virtualEmail =
-        result.user.email ?? `${signupPhone}@campus.edu`.toLowerCase();
-      const { error: signInError } =
-        await supabaseClient.auth.signInWithPassword({
-          email: virtualEmail,
-          password,
-        });
-      if (signInError) throw signInError;
-
-      setMessage("Phone verified. Your account is ready.");
-      router.refresh();
+      setMessage("College email verified. Your account is ready.");
+      window.location.replace("/");
     } catch (err: unknown) {
+      if (emailVerified) {
+        await supabaseClient.auth.signOut({ scope: "local" });
+      }
       setOtpCode("");
       setError(
         err instanceof Error
           ? err.message
-          : "Verification failed. Check the code and try again.",
+          : "Verification failed. Check the email code and try again.",
       );
     } finally {
       setLoading(false);
@@ -170,8 +184,8 @@ export function AuthForm() {
 
   const handleSignIn = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!phoneNumber.trim() || !password) {
-      setError("Enter your phone number and password.");
+    if (!identifier.trim() || !password) {
+      setError("Enter your college email or phone number and password.");
       return;
     }
 
@@ -179,16 +193,17 @@ export function AuthForm() {
     setMessage(null);
     setLoading(true);
     try {
-      const formattedEmail =
-        `${normalizeLegacySignInPhone(phoneNumber)}@campus.edu`.toLowerCase();
-      const { error: signInError } =
-        await supabaseClient.auth.signInWithPassword({
-          email: formattedEmail,
-          password,
-        });
-      if (signInError) throw signInError;
+      const result = await signInMutation.mutateAsync({
+        identifier: identifier.trim(),
+        password,
+      });
+      const { error: sessionError } = await supabaseClient.auth.setSession({
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+      });
+      if (sessionError) throw sessionError;
       setMessage("Signed in successfully.");
-      router.refresh();
+      window.location.replace("/");
     } catch (err: unknown) {
       setError(
         err instanceof Error
@@ -214,8 +229,8 @@ export function AuthForm() {
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-slate-500">
           {isSignUp
-            ? "New accounts are verified using a real SMS sent to an Indian mobile number."
-            : "Sign in with your existing CAmpDeliver phone number and password."}
+            ? "Verify your official college email. Your phone number is required for delivery contact, not OTP verification."
+            : "Sign in with your college email or registered phone number."}
         </p>
       </div>
 
@@ -238,239 +253,196 @@ export function AuthForm() {
       ) : null}
 
       {!isSignUp ? (
-        <form onSubmit={handleSignIn} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="phoneNumber" className="text-slate-700">
-              Phone number
-            </Label>
+        <form className="space-y-4" onSubmit={handleSignIn}>
+          <div className="space-y-1.5">
+            <Label htmlFor="identifier">College email or phone number</Label>
             <Input
-              id="phoneNumber"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="98765 43210"
-              value={phoneNumber}
-              onChange={(event) =>
-                setPhoneNumber(event.target.value.replace(/[^\d+\-\s()]/g, ""))
-              }
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
-              maxLength={20}
-              required
+              id="identifier"
+              autoComplete="username"
+              value={identifier}
+              onChange={(event) => setIdentifier(event.target.value)}
+              placeholder="you@college.ac.in or 98765 43210"
             />
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="password" className="text-slate-700">
-              Password
-            </Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"
               autoComplete="current-password"
-              placeholder="Your password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
-              required
+              placeholder="Your password"
             />
           </div>
-
           {error ? <ErrorNotice message={error} /> : null}
           {message ? (
-            <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-700">
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm font-medium text-green-700">
               {message}
             </div>
           ) : null}
-
           <Button
             type="submit"
             disabled={loading}
-            className="mt-1 w-full bg-blue-700 font-bold text-white shadow-lg shadow-blue-200 hover:bg-blue-800"
+            className="w-full bg-blue-700 font-bold text-white hover:bg-blue-800"
           >
             {loading ? "Signing in…" : "Sign In"}
           </Button>
         </form>
       ) : step === 1 ? (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="name" className="text-slate-700">
-              Name
-            </Label>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="name">Name</Label>
             <Input
               id="name"
-              type="text"
               autoComplete="name"
-              placeholder="Your name"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
+              placeholder="Your name"
             />
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="hostelName" className="text-slate-700">
-              Hostel name
-            </Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="hostelName">Hostel name</Label>
             <Input
               id="hostelName"
-              type="text"
-              placeholder="e.g. Block A"
               value={hostelName}
               onChange={(event) => setHostelName(event.target.value)}
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
+              placeholder="e.g. Block A"
             />
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signupPhoneNumber" className="text-slate-700">
-              Indian mobile number
-            </Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="email">College email</Label>
             <Input
-              id="signupPhoneNumber"
-              type="tel"
-              inputMode="tel"
-              autoComplete="tel"
-              placeholder="98765 43210"
-              value={phoneNumber}
-              onChange={(event) =>
-                setPhoneNumber(event.target.value.replace(/[^\d+\-\s()]/g, ""))
-              }
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
-              maxLength={20}
+              id="email"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@college.ac.in"
             />
           </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signupPassword" className="text-slate-700">
-              Password
-            </Label>
+          <div className="space-y-1.5">
+            <Label htmlFor="phoneNumber">Phone number</Label>
+            <Input
+              id="phoneNumber"
+              type="tel"
+              autoComplete="tel"
+              value={phoneNumber}
+              onChange={(event) => setPhoneNumber(event.target.value)}
+              placeholder="98765 43210"
+            />
+            <p className="text-xs text-slate-500">
+              Required for delivery contact. We do not send an OTP to this
+              number.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="signupPassword">Password</Label>
             <Input
               id="signupPassword"
               type="password"
               autoComplete="new-password"
-              placeholder="At least 8 characters"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="border-blue-100 bg-blue-50/60 text-slate-900 placeholder:text-slate-400 focus-visible:border-blue-500 focus-visible:ring-blue-200"
+              placeholder="8–72 characters"
             />
           </div>
-
-          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-800">
-            <span className="font-bold">Real phone verification:</span> we will
-            send a 6-digit SMS to this number. There is no dummy-code signup
-            path.
+          <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-relaxed text-blue-700">
+            <span className="font-semibold">College email verification:</span>{" "}
+            we will send a 6-digit one-time code to your official college inbox.
           </div>
           {error ? <ErrorNotice message={error} /> : null}
-
           <Button
             type="button"
-            onClick={() => void handleSendOtp()}
             disabled={loading}
-            className="mt-1 w-full bg-blue-700 font-bold text-white shadow-lg shadow-blue-200 hover:bg-blue-800"
+            onClick={() => void handleSendOtp()}
+            className="w-full bg-blue-700 font-bold text-white hover:bg-blue-800"
           >
-            {loading ? "Sending SMS…" : "Send Verification Code"}
+            {loading ? "Sending…" : "Send Email Verification Code"}
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-4">
-          <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-sm text-green-800">
-            <p className="font-bold">Verification SMS sent</p>
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-center">
+            <p className="font-bold text-green-800">Verification email sent</p>
             <p className="mt-1 text-xs leading-relaxed text-green-700">
-              Enter the code sent to{" "}
-              {normalizeSignupPhone(phoneNumber) ?? phoneNumber}. The code
-              expires in 5 minutes.
+              Enter the 6-digit code sent to {email}. Check spam/junk if it does
+              not appear in your inbox.
             </p>
           </div>
-
-          <button
-            type="button"
-            onClick={() => otpInputRef.current?.focus()}
-            className="relative flex justify-between gap-2 rounded-2xl bg-blue-50/70 p-3"
-            aria-label="Enter six digit verification code"
-          >
-            {[0, 1, 2, 3, 4, 5].map((index) => {
-              const value = otpCode[index] ?? "";
-              return (
-                <span
-                  key={index}
-                  className={`flex h-12 flex-1 items-center justify-center rounded-xl border-2 text-xl font-black text-slate-900 ${value ? "border-blue-500 bg-white" : "border-blue-100 bg-white/70"}`}
-                >
-                  {value}
-                </span>
-              );
-            })}
-            <input
+          <div className="space-y-2">
+            <Label htmlFor="emailOtp">Email verification code</Label>
+            <Input
               ref={otpInputRef}
+              id="emailOtp"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
               value={otpCode}
               onChange={(event) =>
                 setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))
               }
-              type="text"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              maxLength={6}
-              className="absolute inset-0 h-full w-full cursor-text opacity-0"
-              aria-hidden="true"
+              placeholder="000000"
+              className="text-center text-xl font-black tracking-[0.45em]"
             />
-          </button>
-
-          <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-            <span className="text-xs font-medium text-amber-800">
+          </div>
+          {message ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 p-3 text-xs text-green-700">
+              {message}
+            </div>
+          ) : null}
+          {error ? <ErrorNotice message={error} /> : null}
+          <Button
+            type="button"
+            disabled={loading || otpCode.length !== 6}
+            onClick={() => void handleVerifyOtp()}
+            className="w-full bg-blue-700 font-bold text-white hover:bg-blue-800"
+          >
+            {loading ? "Verifying…" : "Verify Email & Create Account"}
+          </Button>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-500">
               {timer > 0
                 ? `Resend available in ${formatTimer(timer)}`
-                : "You can request a fresh code now."}
+                : "Didn't get it?"}
             </span>
             <button
               type="button"
               disabled={timer > 0 || loading}
               onClick={() => void handleSendOtp()}
-              className="rounded-lg px-3 py-1.5 text-xs font-black text-orange-700 hover:bg-orange-100 disabled:cursor-not-allowed disabled:text-amber-400"
+              className="font-bold text-blue-700 disabled:text-slate-400"
             >
-              Resend
+              Resend code
             </button>
           </div>
-
-          {error ? <ErrorNotice message={error} /> : null}
-
-          <Button
+          <button
             type="button"
-            onClick={() => void handleVerifyOtp()}
-            disabled={loading || otpCode.length !== 6}
-            className="w-full bg-blue-700 font-bold text-white shadow-lg shadow-blue-200 hover:bg-blue-800"
-          >
-            {loading ? "Verifying…" : "Verify & Create Account"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
             onClick={() => {
               setStep(1);
-              setError(null);
-              setMessage(null);
               setOtpCode("");
+              setError(null);
             }}
-            disabled={loading}
-            className="w-full border-blue-200 bg-white text-blue-800 hover:bg-blue-50"
+            className="w-full text-sm font-semibold text-slate-600 hover:text-blue-700"
           >
-            Back to details
-          </Button>
+            Back to account details
+          </button>
         </div>
       )}
 
-      <div className="mt-6 text-center text-sm">
+      <div className="mt-6 flex items-center justify-center gap-2 text-sm">
         <span className="text-slate-500">
-          {isSignUp ? "Already have an account? " : "New to CAmpDeliver? "}
+          {isSignUp ? "Already have an account?" : "New to CAmpDeliver?"}
         </span>
         <button
           type="button"
+          className="font-bold text-blue-700 hover:text-blue-800"
           onClick={() => {
-            setIsSignUp((current) => !current);
+            setIsSignUp((value) => !value);
             setStep(1);
+            setOtpCode("");
             setError(null);
             setMessage(null);
-            setOtpCode("");
           }}
-          className="font-bold text-blue-700 hover:text-blue-900 hover:underline focus:outline-none"
         >
           {isSignUp ? "Sign In" : "Create Account"}
         </button>

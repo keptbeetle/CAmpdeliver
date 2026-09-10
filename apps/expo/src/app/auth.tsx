@@ -13,21 +13,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { colors, radius, shadow } from "~/components/app/theme";
 import { AppButton, InlineNotice, LoadingState } from "~/components/app/ui";
 import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
-
-function normalizeLegacySignInPhone(phone: string): string {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.length === 12 && digits.startsWith("91")) return `+${digits}`;
-  if (phone.trim().startsWith("+") && digits.length >= 10) return `+${digits}`;
-  return phone.includes("+") ? phone : `+91${phone}`;
-}
 
 function normalizeSignupPhone(phone: string): string | null {
   const digits = phone.replace(/\D/g, "");
@@ -41,9 +33,16 @@ function normalizeSignupPhone(phone: string): string | null {
   return `+91${subscriber}`;
 }
 
+function normalizeEmail(email: string): string | null {
+  const normalized = email.trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? normalized : null;
+}
+
 export default function AuthScreen() {
   const router = useRouter();
   const { isLoading: checkingSession, session } = useAuthSession();
+  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -58,19 +57,38 @@ export default function AuthScreen() {
   const otpInputRef = useRef<TextInput>(null);
   const shakeAnimation = useRef(new Animated.Value(0)).current;
 
-  const sendOtpMutation = useMutation(trpc.otp.sendOtp.mutationOptions());
-  const verifyOtpMutation = useMutation(
-    trpc.otp.verifyOtpAndSignup.mutationOptions(),
+  const requestOtpMutation = useMutation(
+    trpc.auth.requestSignupEmailOtp.mutationOptions(),
   );
+  const completeSignupMutation = useMutation(
+    trpc.auth.completeSignup.mutationOptions(),
+  );
+  const signInMutation = useMutation(
+    trpc.auth.signInWithIdentifier.mutationOptions(),
+  );
+  const profileState = useQuery({
+    ...trpc.auth.hasProfile.queryOptions(),
+    enabled: Boolean(session),
+    retry: false,
+  });
 
   useEffect(() => {
-    if (session) router.replace("/" as never);
-  }, [router, session]);
+    if (!session || profileState.isPending) return;
+    if (profileState.data?.hasProfile) {
+      router.replace("/" as never);
+      return;
+    }
+    if (profileState.data && !profileState.data.hasProfile) {
+      setIsSignUp(true);
+      setStep(1);
+      void supabase.auth.signOut({ scope: "local" });
+    }
+  }, [profileState.data, profileState.isPending, router, session]);
 
   useEffect(() => {
     if (timer <= 0 || session) return;
     const interval = setInterval(
-      () => setTimer((previous) => previous - 1),
+      () => setTimer((previous) => Math.max(0, previous - 1)),
       1000,
     );
     return () => clearInterval(interval);
@@ -108,20 +126,23 @@ export default function AuthScreen() {
   };
 
   const handleSignIn = async () => {
-    if (!phone.trim() || !password) {
-      setError("Enter your phone number and password.");
+    if (!identifier.trim() || !password) {
+      setError("Enter your college email or phone number and password.");
       return;
     }
     setAuthError(null);
     setAuthLoading(true);
     try {
-      const formattedEmail =
-        `${normalizeLegacySignInPhone(phone)}@campus.edu`.toLowerCase();
-      const { error } = await supabase.auth.signInWithPassword({
-        email: formattedEmail,
+      const result = await signInMutation.mutateAsync({
+        identifier: identifier.trim(),
         password,
       });
+      const { error } = await supabase.auth.setSession({
+        access_token: result.accessToken,
+        refresh_token: result.refreshToken,
+      });
       if (error) throw error;
+      router.replace("/" as never);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in.");
     } finally {
@@ -133,10 +154,16 @@ export default function AuthScreen() {
     if (
       !name.trim() ||
       !hostelName.trim() ||
+      !email.trim() ||
       !phone.trim() ||
-      !password.trim()
+      !password
     ) {
       setError("Complete all account details before continuing.");
+      return;
+    }
+    const signupEmail = normalizeEmail(email);
+    if (!signupEmail) {
+      setError("Enter a valid college email address.");
       return;
     }
     const signupPhone = normalizeSignupPhone(phone);
@@ -146,21 +173,19 @@ export default function AuthScreen() {
       );
       return;
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    if (password.length > 72) {
-      setError("Password must be at most 72 characters.");
+    if (password.length < 8 || password.length > 72) {
+      setError("Password must be between 8 and 72 characters.");
       return;
     }
 
     setAuthError(null);
     setAuthLoading(true);
     try {
-      const result = await sendOtpMutation.mutateAsync({
+      const result = await requestOtpMutation.mutateAsync({
+        email: signupEmail,
         phoneNumber: signupPhone,
       });
+      setEmail(result.email);
       setStep(2);
       setOtpCode("");
       setTimer(result.resendAfterSeconds);
@@ -168,7 +193,7 @@ export default function AuthScreen() {
       setError(
         error instanceof Error
           ? error.message
-          : "Failed to send the verification code.",
+          : "Failed to send the verification email.",
       );
     } finally {
       setAuthLoading(false);
@@ -176,35 +201,49 @@ export default function AuthScreen() {
   };
 
   const handleVerifyOtp = async (codeToVerify: string) => {
-    if (authLoading) return;
+    if (authLoading || codeToVerify.length !== 6) return;
+    const signupEmail = normalizeEmail(email);
+    const signupPhone = normalizeSignupPhone(phone);
+    if (!signupEmail || !signupPhone) {
+      setError(
+        "Return to account details and check your email and phone number.",
+      );
+      return;
+    }
+
     setAuthError(null);
     setAuthLoading(true);
+    let emailVerified = false;
     try {
-      const sanitizedPhone = normalizeSignupPhone(phone);
-      if (!sanitizedPhone) {
-        throw new Error("Enter a valid Indian mobile number before verifying.");
-      }
-      const result = await verifyOtpMutation.mutateAsync({
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: signupEmail,
+        token: codeToVerify,
+        type: "email",
+      });
+      if (verifyError) throw verifyError;
+      emailVerified = true;
+
+      const { error: passwordError } = await supabase.auth.updateUser({
+        password,
+        data: { name: name.trim() },
+      });
+      if (passwordError) throw passwordError;
+
+      await completeSignupMutation.mutateAsync({
         name: name.trim(),
         hostelName: hostelName.trim(),
-        phoneNumber: sanitizedPhone,
-        password,
-        otpCode: codeToVerify,
+        phoneNumber: signupPhone,
       });
-
-      const virtualEmail =
-        result.user.email ?? `${sanitizedPhone}@campus.edu`.toLowerCase();
-      const { error } = await supabase.auth.signInWithPassword({
-        email: virtualEmail,
-        password,
-      });
-      if (error) throw error;
+      router.replace("/" as never);
     } catch (error) {
+      if (emailVerified) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
       setOtpCode("");
       setError(
         error instanceof Error
           ? error.message
-          : "Verification failed. Check the code and try again.",
+          : "Verification failed. Check the email code and try again.",
       );
     } finally {
       setAuthLoading(false);
@@ -219,7 +258,11 @@ export default function AuthScreen() {
       .padStart(2, "0")}`;
   };
 
-  if (checkingSession || session) {
+  if (
+    checkingSession ||
+    (session && profileState.isPending) ||
+    profileState.data?.hasProfile
+  ) {
     return (
       <View style={styles.loadingRoot}>
         <LoadingState
@@ -259,8 +302,8 @@ export default function AuthScreen() {
             </Text>
             <Text style={styles.subtitle}>
               {isSignUp
-                ? "One account lets you order food and take delivery quests. New accounts verify a real Indian mobile number by SMS."
-                : "Sign in to order, deliver, chat, and track in one place."}
+                ? "Verify your official college email. Your phone number is required for delivery contact, not OTP verification."
+                : "Sign in with your college email or registered phone number."}
             </Text>
           </View>
 
@@ -276,20 +319,17 @@ export default function AuthScreen() {
                 <View
                   style={[styles.stepLine, step === 2 && styles.stepLineDone]}
                 />
-                <AuthStep active={step === 2} label="Verify" number="2" />
+                <AuthStep active={step === 2} label="Email" number="2" />
               </View>
             ) : null}
 
             {!isSignUp ? (
               <>
                 <Field
-                  label="Phone number"
-                  value={phone}
-                  onChangeText={(value) =>
-                    setPhone(value.replace(/[^\d+\-\s()]/g, ""))
-                  }
-                  keyboardType="phone-pad"
-                  placeholder="98765 43210"
+                  label="College email or phone number"
+                  value={identifier}
+                  onChangeText={setIdentifier}
+                  placeholder="you@college.ac.in or 98765 43210"
                 />
                 <Field
                   label="Password"
@@ -319,12 +359,21 @@ export default function AuthScreen() {
                   value={name}
                   onChangeText={setName}
                   placeholder="Your name"
+                  autoCapitalize="words"
                 />
                 <Field
                   label="Hostel Name"
                   value={hostelName}
                   onChangeText={setHostelName}
                   placeholder="Hostel block"
+                  autoCapitalize="words"
+                />
+                <Field
+                  label="College email"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  placeholder="you@college.ac.in"
                 />
                 <Field
                   label="Phone number"
@@ -335,18 +384,22 @@ export default function AuthScreen() {
                   keyboardType="phone-pad"
                   placeholder="98765 43210"
                 />
+                <Text style={styles.fieldHint}>
+                  Required for delivery contact. We do not send an OTP to this
+                  number.
+                </Text>
                 <Field
                   label="Password"
                   value={password}
                   onChangeText={setPassword}
-                  placeholder="At least 8 characters"
+                  placeholder="8–72 characters"
                   secureTextEntry
                 />
                 <InlineNotice
                   tone="info"
-                  icon="shield"
-                  title="Real phone verification"
-                  copy="We will send a 6-digit SMS to this mobile number. New accounts cannot be created without the delivered code."
+                  icon="mail"
+                  title="College email verification"
+                  copy="We will send a 6-digit one-time code to your official college inbox."
                 />
                 {authError ? (
                   <InlineNotice
@@ -357,7 +410,7 @@ export default function AuthScreen() {
                   />
                 ) : null}
                 <AppButton
-                  label="Send Verification Code"
+                  label="Send Email Verification Code"
                   loading={authLoading}
                   onPress={() => void handleSendOtp()}
                 />
@@ -366,28 +419,25 @@ export default function AuthScreen() {
               <>
                 <View style={styles.verifyIntro}>
                   <View style={styles.verifyIcon}>
-                    <Feather
-                      name="smartphone"
-                      size={20}
-                      color={colors.primary}
-                    />
+                    <Feather name="mail" size={20} color={colors.primary} />
                   </View>
-                  <Text style={styles.verifyTitle}>Verify your phone</Text>
+                  <Text style={styles.verifyTitle}>
+                    Verify your college email
+                  </Text>
                   <Text style={styles.verifyCopy}>
-                    Enter the 6-digit code sent by SMS to{" "}
-                    {normalizeSignupPhone(phone) ?? phone}. It expires in 5
-                    minutes.
+                    Enter the 6-digit code sent to {email}. Check spam or junk
+                    if it does not appear in your inbox.
                   </Text>
                 </View>
                 <InlineNotice
                   tone="success"
                   icon="check-circle"
-                  title="Verification SMS sent"
-                  copy="Use only the code that arrived on your phone. CAmpDeliver will never ask you to share it elsewhere."
+                  title="Verification email sent"
+                  copy="Only this email code is required. Your phone number is not OTP-verified."
                 />
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Enter six digit verification code"
+                  accessibilityLabel="Enter six digit email verification code"
                   onPress={() => otpInputRef.current?.focus()}
                   style={styles.otpRow}
                 >
@@ -405,11 +455,11 @@ export default function AuthScreen() {
                   <TextInput
                     ref={otpInputRef}
                     value={otpCode}
-                    onChangeText={(value) => {
-                      const clean = value.replace(/\D/g, "").slice(0, 6);
-                      setOtpCode(clean);
-                    }}
+                    onChangeText={(value) =>
+                      setOtpCode(value.replace(/\D/g, "").slice(0, 6))
+                    }
                     keyboardType="number-pad"
+                    textContentType="oneTimeCode"
                     maxLength={6}
                     style={styles.hiddenInput}
                   />
@@ -444,7 +494,7 @@ export default function AuthScreen() {
                   />
                 ) : null}
                 <AppButton
-                  label={authLoading ? "Verifying…" : "Verify Account"}
+                  label="Verify Email & Create Account"
                   loading={authLoading}
                   disabled={otpCode.length !== 6}
                   onPress={() => void handleVerifyOtp(otpCode)}
@@ -455,6 +505,7 @@ export default function AuthScreen() {
                   tone="quiet"
                   onPress={() => {
                     setStep(1);
+                    setOtpCode("");
                     setAuthError(null);
                   }}
                 />
@@ -469,6 +520,7 @@ export default function AuthScreen() {
                 onPress={() => {
                   setIsSignUp((value) => !value);
                   setStep(1);
+                  setOtpCode("");
                   setAuthError(null);
                 }}
               >
@@ -525,13 +577,15 @@ function Field({
   placeholder,
   secureTextEntry,
   keyboardType,
+  autoCapitalize = "none",
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder: string;
   secureTextEntry?: boolean;
-  keyboardType?: "default" | "phone-pad";
+  keyboardType?: "default" | "phone-pad" | "email-address";
+  autoCapitalize?: "none" | "sentences" | "words" | "characters";
 }) {
   const [visible, setVisible] = useState(false);
   const hidden = Boolean(secureTextEntry && !visible);
@@ -548,7 +602,8 @@ function Field({
           placeholderTextColor={colors.faint}
           secureTextEntry={hidden}
           keyboardType={keyboardType}
-          autoCapitalize="none"
+          autoCapitalize={autoCapitalize}
+          autoCorrect={false}
           style={styles.input}
         />
         {secureTextEntry ? (
@@ -570,24 +625,15 @@ function Field({
 }
 
 const styles = StyleSheet.create({
-  authStep: {
-    alignItems: "center",
-    gap: 5,
-  },
-  brandCopy: {
-    flex: 1,
-  },
+  authStep: { alignItems: "center", gap: 5 },
+  brandCopy: { flex: 1 },
   brandEyebrow: {
     color: colors.primary,
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 1,
   },
-  brandRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 11,
-  },
+  brandRow: { alignItems: "center", flexDirection: "row", gap: 11 },
   card: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
@@ -597,9 +643,7 @@ const styles = StyleSheet.create({
     padding: 20,
     ...shadow,
   },
-  disabledText: {
-    color: colors.faint,
-  },
+  disabledText: { color: colors.faint },
   eyeButton: {
     alignItems: "center",
     height: 48,
@@ -609,8 +653,12 @@ const styles = StyleSheet.create({
     top: 0,
     width: 44,
   },
-  field: {
-    gap: 7,
+  field: { gap: 7 },
+  fieldHint: {
+    color: colors.faint,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: -7,
   },
   footerCopy: {
     color: colors.faint,
@@ -627,10 +675,7 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
   },
-  heroCopyWrap: {
-    marginBottom: 18,
-    marginTop: 28,
-  },
+  heroCopyWrap: { marginBottom: 18, marginTop: 28 },
   heroTitle: {
     color: colors.text,
     fontSize: 25,
@@ -654,14 +699,8 @@ const styles = StyleSheet.create({
     minHeight: 50,
     position: "relative",
   },
-  keyboardRoot: {
-    flex: 1,
-  },
-  label: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "800",
-  },
+  keyboardRoot: { flex: 1 },
+  label: { color: colors.muted, fontSize: 11, fontWeight: "800" },
   loadingRoot: {
     backgroundColor: colors.bg,
     flex: 1,
@@ -695,33 +734,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     position: "relative",
   },
-  otpText: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  resendButton: {
-    padding: 6,
-  },
+  otpText: { color: colors.text, fontSize: 20, fontWeight: "900" },
+  resendButton: { padding: 6 },
   resendRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  resendText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: "900",
-  },
-  root: {
-    backgroundColor: colors.bg,
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    padding: 22,
-  },
+  resendText: { color: colors.primary, fontSize: 12, fontWeight: "900" },
+  root: { backgroundColor: colors.bg, flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: "center", padding: 22 },
   stepDot: {
     alignItems: "center",
     backgroundColor: colors.panelStrong,
@@ -736,14 +758,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  stepLabel: {
-    color: colors.faint,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  stepLabelActive: {
-    color: colors.primaryStrong,
-  },
+  stepLabel: { color: colors.faint, fontSize: 10, fontWeight: "800" },
+  stepLabelActive: { color: colors.primaryStrong },
   stepLine: {
     backgroundColor: colors.border,
     flex: 1,
@@ -751,17 +767,9 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     marginHorizontal: 8,
   },
-  stepLineDone: {
-    backgroundColor: colors.primary,
-  },
-  stepNumber: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: "900",
-  },
-  stepNumberActive: {
-    color: colors.white,
-  },
+  stepLineDone: { backgroundColor: colors.success },
+  stepNumber: { color: colors.muted, fontSize: 11, fontWeight: "900" },
+  stepNumberActive: { color: colors.white },
   stepRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -774,15 +782,8 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginTop: 5,
   },
-  switchAction: {
-    color: colors.primary,
-    fontSize: 13,
-    fontWeight: "900",
-  },
-  switchCopy: {
-    color: colors.muted,
-    fontSize: 13,
-  },
+  switchAction: { color: colors.primary, fontSize: 13, fontWeight: "900" },
+  switchCopy: { color: colors.muted, fontSize: 13 },
   switchRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -790,15 +791,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 2,
   },
-  timerText: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  title: {
-    color: colors.text,
-    fontSize: 22,
-    fontWeight: "900",
-  },
+  timerText: { color: colors.muted, fontSize: 12 },
+  title: { color: colors.text, fontSize: 22, fontWeight: "900" },
   verifyCopy: {
     color: colors.muted,
     fontSize: 12,
@@ -815,12 +809,6 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     width: 42,
   },
-  verifyIntro: {
-    alignItems: "center",
-  },
-  verifyTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "900",
-  },
+  verifyIntro: { alignItems: "center" },
+  verifyTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
 });

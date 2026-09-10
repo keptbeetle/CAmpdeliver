@@ -2,11 +2,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import postgres from "postgres";
 
-const migrationUrl = new URL(
-  "../migrations/0003_secure_signup_otp.sql",
-  import.meta.url,
+const migrationPath = fileURLToPath(
+  new URL("../migrations/0004_remove_phone_signup_otp.sql", import.meta.url),
 );
-const migrationPath = fileURLToPath(migrationUrl);
 const checkOnly = process.argv.includes("--check");
 const apply = process.argv.includes("--apply");
 const preflight = process.argv.includes("--preflight");
@@ -19,44 +17,43 @@ if (!process.env.POSTGRES_URL) throw new Error("POSTGRES_URL is required");
 const sql = postgres(process.env.POSTGRES_URL, { max: 1, prepare: false });
 
 async function readiness() {
-  const [row] = await sql.unsafe(`
-    select
-      to_regclass('public.phone_verifications') is not null as phone_verifications,
-      exists (
-        select 1 from information_schema.columns
-        where table_schema = 'public' and table_name = 'phone_verifications'
-          and column_name = 'consumed_at'
-      ) as consumed_at
+  const [tableState] = await sql.unsafe(`
+    select to_regclass('public.phone_verifications') is not null as exists
   `);
+  const phoneVerificationsTable = Boolean(tableState?.exists);
+  if (!phoneVerificationsTable) {
+    return { phoneVerificationsTable: false, rowCount: 0 };
+  }
 
+  const [row] = await sql.unsafe(
+    "select count(*)::int as row_count from public.phone_verifications",
+  );
   return {
-    phoneVerificationsTable: Boolean(row?.phone_verifications),
-    consumedAtColumn: Boolean(row?.consumed_at),
+    phoneVerificationsTable: true,
+    rowCount: Number(row?.row_count ?? 0),
   };
 }
 
 try {
+  const before = await readiness();
   if (preflight) {
-    const state = await readiness();
     console.log(
       JSON.stringify(
         {
-          migrationCanApply: state.phoneVerificationsTable,
-          ...state,
+          migrationCanApply: before.rowCount === 0,
+          ...before,
         },
         null,
         2,
       ),
     );
-    if (!state.phoneVerificationsTable) process.exitCode = 2;
+    if (before.rowCount !== 0) process.exitCode = 2;
   } else {
-    const before = await readiness();
-    if (!before.phoneVerificationsTable) {
+    if (before.rowCount !== 0) {
       throw new Error(
-        "Refusing secure signup OTP migration before phone_verifications exists.",
+        "Refusing to remove legacy phone verification storage while rows remain.",
       );
     }
-
     const migration = await readFile(migrationPath, "utf8");
     const executable = checkOnly
       ? migration.replace(/commit;\s*$/i, "rollback;")
@@ -64,12 +61,11 @@ try {
     if (checkOnly && !/rollback;\s*$/i.test(executable)) {
       throw new Error("Could not prepare migration for rolled-back check mode");
     }
-
     await sql.unsafe(executable);
     console.log(
       checkOnly
-        ? "Secure signup OTP migration validated and rolled back."
-        : "Secure signup OTP migration applied successfully.",
+        ? "Email-auth cleanup migration validated and rolled back."
+        : "Email-auth cleanup migration applied successfully.",
     );
   }
 } finally {

@@ -1033,12 +1033,9 @@ export const orderRouter = {
       }
       const contact = await ctx.db.query.profiles.findFirst({
         where: eq(profiles.id, targetId),
-        columns: { phoneNumber: true, email: true },
+        columns: { phoneNumber: true },
       });
-      let phoneNumber = contact?.phoneNumber;
-      if (!phoneNumber && contact?.email.endsWith("@campus.edu")) {
-        phoneNumber = contact.email.replace("@campus.edu", "");
-      }
+      const phoneNumber = contact?.phoneNumber;
       if (!phoneNumber) {
         throw new TRPCError({
           code: "NOT_FOUND",

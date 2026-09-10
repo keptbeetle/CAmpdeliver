@@ -1,11 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { eq } from "@acme/db";
+import { db } from "@acme/db/client";
+import { profiles } from "@acme/db/schema";
 import { cn } from "@acme/ui";
 import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
-import { getUser } from "~/auth/server";
+import { getRegisteredUser } from "~/auth/server";
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -41,7 +44,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#09090b" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f9ff" },
     { media: "(prefers-color-scheme: dark)", color: "#09090b" },
   ],
 };
@@ -56,18 +59,28 @@ const geistMono = Geist_Mono({
 });
 
 export default async function RootLayout(props: { children: React.ReactNode }) {
-  const user = await getUser();
+  const user = await getRegisteredUser();
+  const [profile] = user
+    ? await db
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(eq(profiles.id, user.id))
+        .limit(1)
+    : [];
+  const hasAppProfile = Boolean(user && profile);
 
   return (
     <html
       lang="en"
       suppressHydrationWarning
-      className={user ? "dark" : "light"}
+      className={hasAppProfile ? "dark" : "light"}
     >
       <body
         className={cn(
           "min-h-screen font-sans antialiased selection:bg-blue-600 selection:text-white",
-          user ? "bg-zinc-950 text-white" : "bg-[#f4f9ff] text-slate-900",
+          hasAppProfile
+            ? "bg-zinc-950 text-white"
+            : "bg-[#f4f9ff] text-slate-900",
           geistSans.variable,
           geistMono.variable,
         )}
@@ -78,17 +91,17 @@ export default async function RootLayout(props: { children: React.ReactNode }) {
               <div
                 className={cn(
                   "relative mx-auto flex min-h-screen w-full flex-col",
-                  user
+                  hasAppProfile
                     ? "max-w-6xl bg-zinc-950 shadow-2xl"
                     : "max-w-none bg-[#f4f9ff]",
                 )}
               >
-                {user ? <Header /> : null}
-                <main className={cn("flex-1", user && "pb-24")}>
+                {hasAppProfile ? <Header /> : null}
+                <main className={cn("flex-1", hasAppProfile && "pb-24")}>
                   {props.children}
                 </main>
-                {user ? <BottomNav /> : null}
-                {user ? <GlobalTracker /> : null}
+                {hasAppProfile ? <BottomNav /> : null}
+                {hasAppProfile ? <GlobalTracker /> : null}
               </div>
               <Toaster />
             </CartProvider>

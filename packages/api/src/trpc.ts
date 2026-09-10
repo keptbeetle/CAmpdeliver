@@ -160,7 +160,7 @@ export const publicProcedure = t.procedure.use(timingMiddleware);
  *
  * @see https://trpc.io/docs/procedures
  */
-export const protectedProcedure = t.procedure
+export const authenticatedProcedure = t.procedure
   .use(timingMiddleware)
   .use(({ ctx, next }) => {
     if (!ctx.user) {
@@ -174,18 +174,38 @@ export const protectedProcedure = t.procedure
   });
 
 /**
+ * Protected (registered-account) procedure.
+ *
+ * A confirmed Supabase identity alone is not enough to use CAmpDeliver. This
+ * second boundary blocks interrupted/abandoned email signups until the
+ * application profile has been created.
+ */
+export const protectedProcedure = authenticatedProcedure.use(
+  async ({ ctx, next }) => {
+    const [profile] = await ctx.db
+      .select()
+      .from(profiles)
+      .where(eq(profiles.id, ctx.user.id))
+      .limit(1);
+
+    if (!profile) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Finish creating your CAmpDeliver profile before continuing.",
+      });
+    }
+
+    return next({ ctx: { profile } });
+  },
+);
+
+/**
  * Admin procedure
  *
  * Only accessible to users with the ADMIN role.
  */
-export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-  const [profile] = await ctx.db
-    .select()
-    .from(profiles)
-    .where(eq(profiles.id, ctx.user.id))
-    .limit(1);
-
-  if (profile?.role !== "ADMIN") {
+export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.profile.role !== "ADMIN") {
     throw new TRPCError({
       code: "FORBIDDEN",
       message: "Only administrators can perform this action",
@@ -194,7 +214,7 @@ export const adminProcedure = protectedProcedure.use(async ({ ctx, next }) => {
 
   return next({
     ctx: {
-      profile,
+      profile: ctx.profile,
     },
   });
 });
