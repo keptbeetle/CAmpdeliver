@@ -15,7 +15,7 @@ The current goal is a controlled, low-volume pilot rather than a claim of paymen
 | Expo Android / Expo web | Canonical student experience: auth, canteens, cart, checkout, quests, orders, earnings, tracking, chat and notifications. | Never decides prices, payment truth, authorization, or settlement truth.   |
 | Next.js                 | tRPC/API host, web student surface, health endpoints and admin tools.                                                     | All privileged mutations must pass server-side authorization.              |
 | Supabase Auth           | Account identity and session issuance/refresh.                                                                            | A client session is authenticated before protected tRPC work is allowed.   |
-| PostgreSQL / Drizzle    | Profiles, catalog, orders, payments, settlements, chat and verification state.                                            | Database constraints and RLS are the final persistence boundary.           |
+| PostgreSQL / Drizzle    | Profiles, catalog, orders, payments, settlements, chat and delivery-verification state.                                   | Database constraints and RLS are the final persistence boundary.           |
 | Supabase Realtime       | Private order-scoped update signals and live deliverer-location broadcasts.                                               | Order channels are private and participant/admin authorized.               |
 | Expo Push / FCM         | Best-effort Android notification delivery.                                                                                | Push is never the source of truth; opening the app must refresh API state. |
 
@@ -41,16 +41,17 @@ An unauthenticated visitor may use only explicitly public catalog/auth entry poi
 
 ## 4. Identity, authentication and sessions
 
-1. Signup collects the required student/profile data and phone number.
-2. Phone numbers are normalized and signup verification codes are rate limited.
-3. Signup OTP material is stored as a server-side HMAC rather than plaintext when the production secret is configured.
-4. Failed signup verification attempts are persisted. Five incorrect attempts produce a 15-minute server lockout.
-5. Successful verification creates the Supabase identity and the application profile with role `STUDENT`.
-6. Android persists the Supabase session in secure storage. Expo web uses browser storage. Next.js uses its browser/cookie integration.
-7. The shared Expo session provider restores sessions, avoids clearing a still-valid session on transient failures, and pauses/resumes token refresh with app lifecycle state.
-8. Explicit sign-out clears the session and unregisters the current push token.
+1. Signup collects name, hostel, official college email, a mandatory Indian phone number, and a password.
+2. The backend accepts new signup only for the official `iiitdmj.ac.in` student domain by default. The local part is the student's unique roll number. `COLLEGE_EMAIL_DOMAINS` exists only as an explicit server-side override for staging/test environments.
+3. Supabase Auth sends an 8-digit numeric OTP to the college email. The phone number is profile/contact information only and receives no OTP.
+4. The client verifies the email OTP with Supabase, sets the password on that verified identity, and only then calls the protected profile-completion mutation.
+5. Profile completion re-checks the confirmed Supabase email, college-domain policy, and unique normalized phone number, and always creates the ordinary role as `STUDENT`.
+6. Login uses one identifier field: college email authenticates directly, while a registered phone number is resolved server-side to its profile email before Supabase password authentication.
+7. Android persists the Supabase session in secure storage. Expo web uses browser storage. Next.js uses its browser/cookie integration.
+8. The shared Expo session provider restores sessions, avoids clearing a still-valid session on transient failures, and pauses/resumes token refresh with app lifecycle state.
+9. Explicit sign-out clears the session and unregisters the current push token.
 
-Production requires a server-only `PHONE_OTP_HASH_SECRET`. Secrets are never shipped in Expo client configuration.
+No SMS provider, phone-verification secret, or client-controlled role is part of signup. Supabase email delivery must be configured to include the numeric OTP token, and no server secret is shipped in Expo public configuration.
 
 ## 5. Student surfaces
 
@@ -285,7 +286,7 @@ Backend-only or deployment configuration includes:
 - `ORDER_PAYMENT_SELECTION_TTL_SECONDS`
 - `ORDER_PAYMENT_VERIFICATION_TTL_SECONDS`
 - `ORDER_PAID_PURCHASE_TTL_SECONDS`
-- `PHONE_OTP_HASH_SECRET`
+- `COLLEGE_EMAIL_DOMAINS`
 - `CRON_SECRET`
 
 No bank credential, private key or server secret belongs in Expo public environment variables.

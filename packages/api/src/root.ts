@@ -4,7 +4,6 @@ import { chatRouter } from "./router/chat";
 import { landmarkRouter } from "./router/landmark";
 import { menuRouter } from "./router/menu";
 import { orderRouter } from "./router/order";
-import { otpRouter } from "./router/otp";
 import { paymentRouter } from "./router/payment";
 import { createTRPCRouter } from "./trpc";
 
@@ -13,7 +12,6 @@ export const appRouter = createTRPCRouter({
   order: orderRouter,
   payment: paymentRouter,
   chat: chatRouter,
-  otp: otpRouter,
   canteen: canteenRouter,
   menu: menuRouter,
   landmark: landmarkRouter,

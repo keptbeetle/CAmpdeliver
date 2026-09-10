@@ -28,8 +28,9 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
     links: [
       loggerLink({
         enabled: (opts) =>
-          process.env.NODE_ENV === "development" ||
-          (opts.direction === "down" && opts.result instanceof Error),
+          opts.direction === "up" &&
+          process.env.NODE_ENV === "development" &&
+          opts.path !== "auth.signInWithIdentifier",
         colorMode: "ansi",
       }),
       httpBatchLink({

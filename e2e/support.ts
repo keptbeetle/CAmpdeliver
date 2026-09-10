@@ -14,12 +14,14 @@ export class Actor {
   constructor(
     readonly context: BrowserContext,
     readonly page: Page,
-    readonly phone: string,
+    readonly identifier: string,
   ) {}
 
   async login(): Promise<void> {
     await this.page.goto("/");
-    await this.page.getByLabel("Phone Number").fill(this.phone);
+    await this.page
+      .getByLabel("College email or phone number")
+      .fill(this.identifier);
     await this.page.getByLabel("Password").fill(TEST_PASSWORD);
     await this.page.getByRole("button", { name: "Sign In" }).click();
     await expect(this.page.getByText("Campus Canteens")).toBeVisible();

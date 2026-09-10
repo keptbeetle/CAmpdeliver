@@ -2,16 +2,23 @@ import { StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Redirect, Tabs } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import { useQuery } from "@tanstack/react-query";
 
 import { colors } from "~/components/app/theme";
 import { LoadingState } from "~/components/app/ui";
 import { useAuthSession } from "~/providers/AuthSessionProvider";
+import { trpc } from "~/utils/api";
 
 export default function TabsLayout() {
   const { isLoading: loading, session } = useAuthSession();
   const insets = useSafeAreaInsets();
+  const profileState = useQuery({
+    ...trpc.auth.hasProfile.queryOptions(),
+    enabled: Boolean(session),
+    retry: false,
+  });
 
-  if (loading) {
+  if (loading || (session && profileState.isPending)) {
     return (
       <View style={styles.loading}>
         <LoadingState
@@ -22,7 +29,11 @@ export default function TabsLayout() {
     );
   }
 
-  if (!session) {
+  if (
+    !session ||
+    profileState.isError ||
+    profileState.data?.hasProfile === false
+  ) {
     return <Redirect href="/auth" />;
   }
 

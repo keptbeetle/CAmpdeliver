@@ -1,10 +1,14 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 
+import { eq } from "@acme/db";
+import { db } from "@acme/db/client";
+import { profiles } from "@acme/db/schema";
 import { cn } from "@acme/ui";
 import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
+import { getRegisteredUser } from "~/auth/server";
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
 
@@ -40,7 +44,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#09090b" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f9ff" },
     { media: "(prefers-color-scheme: dark)", color: "#09090b" },
   ],
 };
@@ -54,12 +58,29 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
 });
 
-export default function RootLayout(props: { children: React.ReactNode }) {
+export default async function RootLayout(props: { children: React.ReactNode }) {
+  const user = await getRegisteredUser();
+  const [profile] = user
+    ? await db
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(eq(profiles.id, user.id))
+        .limit(1)
+    : [];
+  const hasAppProfile = Boolean(user && profile);
+
   return (
-    <html lang="en" suppressHydrationWarning className="dark">
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={hasAppProfile ? "dark" : "light"}
+    >
       <body
         className={cn(
-          "min-h-screen bg-zinc-950 font-sans text-white antialiased selection:bg-purple-500 selection:text-white",
+          "min-h-screen font-sans antialiased selection:bg-blue-600 selection:text-white",
+          hasAppProfile
+            ? "bg-zinc-950 text-white"
+            : "bg-[#f4f9ff] text-slate-900",
           geistSans.variable,
           geistMono.variable,
         )}
@@ -67,11 +88,20 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         <ThemeProvider>
           <TRPCReactProvider>
             <CartProvider>
-              <div className="relative mx-auto flex min-h-screen w-full max-w-6xl flex-col bg-zinc-950 shadow-2xl">
-                <Header />
-                <main className="flex-1 pb-24">{props.children}</main>
-                <BottomNav />
-                <GlobalTracker />
+              <div
+                className={cn(
+                  "relative mx-auto flex min-h-screen w-full flex-col",
+                  hasAppProfile
+                    ? "max-w-6xl bg-zinc-950 shadow-2xl"
+                    : "max-w-none bg-[#f4f9ff]",
+                )}
+              >
+                {hasAppProfile ? <Header /> : null}
+                <main className={cn("flex-1", hasAppProfile && "pb-24")}>
+                  {props.children}
+                </main>
+                {hasAppProfile ? <BottomNav /> : null}
+                {hasAppProfile ? <GlobalTracker /> : null}
               </div>
               <Toaster />
             </CartProvider>

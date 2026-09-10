@@ -73,7 +73,7 @@ test("buyer, deliverer, and admin complete a paid tracked delivery and settlemen
   const deliverer = new Actor(
     delivererContext,
     await delivererContext.newPage(),
-    TEST_USERS.deliverer.phone,
+    TEST_USERS.deliverer.email,
   );
   const admin = new Actor(
     adminContext,
