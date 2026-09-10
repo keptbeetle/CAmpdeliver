@@ -283,15 +283,16 @@ For a fresh database, sync the Drizzle schema first. For an existing deployment,
 # Fresh database only / normal schema development
 pnpm db:push
 
-# Existing payment branch rollout: validate the migration inside a transaction
-# and roll it back. This targets the POSTGRES_URL in .env.
+# Existing payment branch rollout: inspect first, then validate the migration inside
+# a transaction and roll it back. These commands target POSTGRES_URL in .env.
+pnpm --filter @acme/db security:preflight
 pnpm --filter @acme/db security:check
 
 # Apply only after the check succeeds and active legacy orders are finished/cancelled.
 pnpm --filter @acme/db security:apply
 ```
 
-`security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
+`security:preflight` is read-only and reports active-order counts, the legacy deliverer-role count, payment-table presence, and whether the migration can proceed. `security:apply` is intentionally explicit because it changes database grants/RLS, invalidates legacy signup-OTP rows, and converts legacy `DELIVERER` roles to `STUDENT`. It refuses to run while a legacy active order exists. The old wallet columns/table are retained only for rollback compatibility; the application no longer reads or writes them.
 
 Configure a backend scheduler to call `GET /api/cron/orders` with `Authorization: Bearer <CRON_SECRET>` at a cadence appropriate for the configured TTLs (for example once per minute). Order queries also opportunistically expire stale pre-purchase orders, but the scheduler ensures ghosted orders are cleaned up even when no student has the app open.
 

@@ -255,7 +255,7 @@ It provides:
 
 The API/service role remains the mutation path for protected business operations. RLS is a second boundary, not a replacement for tRPC authorization.
 
-The migration refuses to apply while legacy active orders exist. `security:check` executes it inside a transaction and rolls it back, allowing production compatibility to be tested before privileges change.
+The migration refuses to apply while legacy active orders exist. `security:preflight` reports active-order/status counts, legacy deliverer roles and payment-schema presence without changing data. `security:check` then executes the migration inside a transaction and rolls it back, allowing production compatibility to be tested before privileges change.
 
 ## 14. Staged deployment compatibility
 
