@@ -51,6 +51,16 @@ export default function QuestsPage() {
     }),
   );
 
+  const acceptQuest = (orderId: string, allowPayAtDelivery: boolean) => {
+    if (!location) return;
+    acceptOrderMutation.mutate({
+      orderId,
+      allowPayAtDelivery,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    });
+  };
+
   return (
     <div className="flex flex-col gap-6 px-4 py-6 pb-28">
       {/* Top Header */}
@@ -142,24 +152,14 @@ export default function QuestsPage() {
                   <div className="flex flex-wrap justify-end gap-2">
                     <button
                       disabled={acceptOrderMutation.isPending}
-                      onClick={() =>
-                        acceptOrderMutation.mutate({
-                          orderId: quest.id,
-                          allowPayAtDelivery: false,
-                        })
-                      }
+                      onClick={() => acceptQuest(quest.id, false)}
                       className="rounded-xl border border-indigo-500/40 bg-indigo-950/50 px-3 py-2 text-[11px] font-extrabold text-indigo-200 transition-all hover:bg-indigo-900/60 disabled:opacity-50"
                     >
                       Advance only
                     </button>
                     <button
                       disabled={acceptOrderMutation.isPending}
-                      onClick={() =>
-                        acceptOrderMutation.mutate({
-                          orderId: quest.id,
-                          allowPayAtDelivery: true,
-                        })
-                      }
+                      onClick={() => acceptQuest(quest.id, true)}
                       className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-extrabold text-white shadow-lg shadow-indigo-600/30 transition-all hover:bg-indigo-500 active:scale-95 disabled:opacity-50"
                     >
                       <Sparkles className="h-3.5 w-3.5" />

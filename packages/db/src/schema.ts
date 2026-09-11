@@ -41,6 +41,11 @@ export const profiles = pgTable(
     nearbyQuestAlertsEnabled: boolean("nearby_quest_alerts_enabled")
       .default(false)
       .notNull(),
+    deliveryPresenceLatitude: doublePrecision("delivery_presence_latitude"),
+    deliveryPresenceLongitude: doublePrecision("delivery_presence_longitude"),
+    deliveryPresenceUpdatedAt: timestamp("delivery_presence_updated_at", {
+      withTimezone: true,
+    }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -58,6 +63,21 @@ export const profiles = pgTable(
     check(
       "profiles_frozen_balance_nonnegative",
       sql`${table.frozenBalance} >= 0`,
+    ),
+    check(
+      "profiles_delivery_presence_pair_check",
+      sql`(${table.deliveryPresenceLatitude} is null and ${table.deliveryPresenceLongitude} is null and ${table.deliveryPresenceUpdatedAt} is null) or (${table.deliveryPresenceLatitude} is not null and ${table.deliveryPresenceLongitude} is not null and ${table.deliveryPresenceUpdatedAt} is not null)`,
+    ),
+    check(
+      "profiles_delivery_presence_latitude_check",
+      sql`${table.deliveryPresenceLatitude} is null or ${table.deliveryPresenceLatitude} between -90 and 90`,
+    ),
+    check(
+      "profiles_delivery_presence_longitude_check",
+      sql`${table.deliveryPresenceLongitude} is null or ${table.deliveryPresenceLongitude} between -180 and 180`,
+    ),
+    index("idx_profiles_delivery_presence_updated").on(
+      table.deliveryPresenceUpdatedAt,
     ),
   ],
 );

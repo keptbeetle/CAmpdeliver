@@ -49,7 +49,9 @@ export default function QuestsTab() {
         });
         return;
       }
-      const current = await locationService.getCurrentPosition();
+      const current = await locationService.getCurrentPosition({
+        highAccuracy: true,
+      });
       setLocationState({ status: "ready", ...current });
     } catch (error) {
       console.warn("Could not read quest location:", error);
@@ -65,6 +67,36 @@ export default function QuestsTab() {
     const timeout = setTimeout(() => void loadLocation(), 0);
     return () => clearTimeout(timeout);
   }, [loadLocation]);
+
+  useEffect(() => {
+    if (locationState.status !== "ready") return;
+    let cancelled = false;
+    let subscription: { remove(): void } | null = null;
+
+    void locationService
+      .watchPosition(
+        {
+          highAccuracy: true,
+          timeInterval: 3000,
+          distanceInterval: 3,
+        },
+        (current) => {
+          if (!cancelled) setLocationState({ status: "ready", ...current });
+        },
+      )
+      .then((created) => {
+        if (cancelled) created.remove();
+        else subscription = created;
+      })
+      .catch((error: unknown) =>
+        console.warn("Could not watch quest location:", error),
+      );
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [locationState.status]);
 
   const locationInput =
     locationState.status === "ready"
@@ -88,8 +120,11 @@ export default function QuestsTab() {
     refetchInterval:
       locationState.status === "ready" &&
       paymentConfig.data?.databaseReady === true
-        ? 8000
+        ? 2500
         : false,
+    refetchIntervalInBackground: false,
+    refetchOnMount: "always",
+    staleTime: 0,
   });
 
   const acceptOrderMutation = useMutation(
@@ -100,9 +135,16 @@ export default function QuestsTab() {
     if (acceptingOrderId) return;
     setAcceptingOrderId(quest.id);
     try {
+      if (locationState.status !== "ready") {
+        throw new Error(
+          "Current location is required before accepting a quest.",
+        );
+      }
       const updatedOrder = await acceptOrderMutation.mutateAsync({
         orderId: quest.id,
         allowPayAtDelivery,
+        latitude: locationState.latitude,
+        longitude: locationState.longitude,
       });
       await Promise.all([
         queryClient.invalidateQueries({
