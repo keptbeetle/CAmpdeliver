@@ -34,7 +34,11 @@ import {
   nextOtpFailureState,
   remainingLockSeconds,
 } from "../services/otp-security";
-import { expiresFromNow, getPaymentConfig } from "../services/payment-config";
+import {
+  expiresFromNow,
+  getPaymentConfig,
+  maskTransactionReference,
+} from "../services/payment-config";
 import { getPaymentDestination } from "../services/payment-destination";
 import {
   canConfirmCanteenPurchase,
@@ -228,6 +232,12 @@ export const orderRouter = {
       const isBuyer = row.order.buyerId === ctx.user.id;
       const canRevealOtp =
         isBuyer && canRevealHandoverOtp(row.order.status, row.paymentStatus);
+      const canRevealPaymentDestination =
+        isBuyer &&
+        row.paymentStatus !== null &&
+        ["AWAITING_PAYMENT", "PENDING_VERIFICATION", "REJECTED"].includes(
+          row.paymentStatus,
+        );
       return {
         ...row.order,
         // The handover code is withheld until the buyer is at the actual
@@ -239,9 +249,15 @@ export const orderRouter = {
               method: row.paymentMethod,
               status: row.paymentStatus,
               expectedAmount: row.expectedAmount,
-              destinationUpiId: row.paymentDestinationUpiId,
-              destinationUpiPayeeName: row.paymentDestinationUpiPayeeName,
-              submittedUtr: isBuyer ? row.submittedUtr : null,
+              destinationUpiId: canRevealPaymentDestination
+                ? row.paymentDestinationUpiId
+                : null,
+              destinationUpiPayeeName: canRevealPaymentDestination
+                ? row.paymentDestinationUpiPayeeName
+                : null,
+              submittedReferenceDisplay: isBuyer
+                ? maskTransactionReference(row.submittedUtr)
+                : null,
               rejectionReason: isBuyer ? row.paymentRejectionReason : null,
             }
           : null,

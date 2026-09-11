@@ -141,7 +141,7 @@ This branch replaces the mock wallet with a small-pilot payment workflow designe
 - **No Wallet Balance**: The user-facing wallet/top-up system and wallet tRPC router are removed. Earnings distinguish actual delivery earnings from food reimbursement and show paid/pending settlement totals.
 - **Server-Authoritative Pricing**: Order creation accepts only menu-item IDs and quantities. The API fetches current menu prices from PostgreSQL so a modified client cannot submit a fake food price.
 - **Backend TTLs**: Broadcast, accepted, payment-selection, payment-verification, and paid-before-purchase states carry server deadlines. Expired pre-purchase orders are cancelled by the backend; purchased orders never auto-cancel and require fulfilment/admin resolution.
-- **Database & Realtime Hardening**: The additive SQL migration adds payment/settlement tables, financial and coordinate constraints, indexes, update triggers, least-privilege grants, RLS, backend-only access to sensitive order/payment/chat/OTP data, and participant-only authorization for private `order:<uuid>` Realtime Broadcast channels. Legacy wallet columns/table remain physically present only for safe rollback and are not used by the application.
+- **Database & Realtime Hardening**: The additive SQL migrations add payment/settlement tables, financial and coordinate constraints, strict transaction-reference validation, indexes, update triggers, least-privilege grants, RLS, backend-only access to sensitive order/payment/chat/OTP data, append-only financial admin audit records, and participant-only authorization for private `order:<uuid>` Realtime Broadcast channels. Privileged financial actions enforce separation of duties: an ADMIN cannot reconcile an order where that same account is the buyer or deliverer. Legacy wallet columns/table remain physically present only for safe rollback and are not used by the application.
 - **Email Auth & Session Hardening**: New signup uses Supabase email OTP for allowed college domains and creates the application profile only after the authenticated Supabase user has a confirmed email. Phone numbers are mandatory contact data only. Protected/admin tRPC calls authorize against Supabase's verified user lookup rather than trusting local session material. The separate 4-digit order handover OTP retains its persisted failure counters and serialized verification protections.
 
 The manual settlement layer is intentionally isolated from the order state machine. A future regulated payment provider can replace manual UPI verification/payout operations without redesigning fulfilment states.
@@ -281,6 +281,11 @@ pnpm --filter @acme/db security:apply
 pnpm --filter @acme/db payment-destination:preflight
 pnpm --filter @acme/db payment-destination:check
 pnpm --filter @acme/db payment-destination:apply
+
+# Add strict payment-reference constraints and append-only financial admin auditing.
+pnpm --filter @acme/db payment-hardening:preflight
+pnpm --filter @acme/db payment-hardening:check
+pnpm --filter @acme/db payment-hardening:apply
 
 # Remove the now-unused legacy phone-signup OTP table after confirming it is empty.
 pnpm --filter @acme/db email-auth-cleanup:preflight

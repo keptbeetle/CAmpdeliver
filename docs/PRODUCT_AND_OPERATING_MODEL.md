@@ -252,7 +252,10 @@ It provides:
 - RLS on sensitive profile/order/payment/settlement/chat/OTP/legacy-wallet tables;
 - least-privilege grants that prevent authenticated clients from directly mutating backend-owned financial/order tables;
 - private Realtime authorization for order channels;
-- persisted OTP failure/lockout state.
+- persisted OTP failure/lockout state;
+- strict server/database validation for UPI transaction, refund and payout references;
+- backend-only, append-only audit records for privileged payment verification, rejection, refund and settlement actions;
+- separation of duties that blocks an ADMIN from financially approving an order where that same account is the buyer or deliverer.
 
 The API/service role remains the mutation path for protected business operations. RLS is a second boundary, not a replacement for tRPC authorization.
 
@@ -275,7 +278,7 @@ This compatibility mode is only a rollout safety mechanism. It does not activate
 
 ## 15. Production/pilot configuration
 
-ADMIN-managed payment configuration includes the receiving UPI ID and payee name in **Payments & Settlements**. Each change is stored with an audit record and takes effect for new buyer payment selections without a redeploy. The selected destination is then snapshotted onto that order's payment record, so changing the platform UPI does not reroute an in-progress payment or make later bank reconciliation ambiguous.
+ADMIN-managed payment configuration includes the receiving UPI ID and payee name in **Payments & Settlements**. Each change is stored with an append-only audit record and takes effect for new buyer payment selections without a redeploy. The selected destination is then snapshotted onto that order's payment record, so changing the platform UPI does not reroute an in-progress payment or make later bank reconciliation ambiguous. The generic authenticated payment-config API exposes only whether a destination is configured; the actual snapshotted UPI destination is returned only to the buyer while payment is operationally pending. Transaction references are masked outside the admin reconciliation queue, and an ADMIN who is a buyer or deliverer on an order cannot perform that order's privileged financial reconciliation actions.
 
 Backend-only or deployment configuration includes:
 
@@ -314,6 +317,6 @@ A successful payment-model order is complete only when:
 
 The pilot deliberately keeps payment operations manual. If usage grows, the first major replacement should be the money adapter rather than the fulfilment state machine: provider-created payment intents, signed webhooks, idempotent reconciliation, marketplace/split settlement or payouts, automated refunds and auditable provider references.
 
-Additional scale work should include multi-device push-token storage, session/device management, account recovery, dispute/support tooling, immutable admin/action audit logs, operational analytics, load testing and a formal privacy/retention policy.
+Additional scale work should include multi-device push-token storage, session/device management, account recovery, dispute/support tooling, operational analytics, load testing and a formal privacy/retention policy. The current manual payment layer already keeps backend-only, append-only financial admin action logs; a future payment provider should preserve or strengthen that audit boundary.
 
 The project should describe the current manual system accurately rather than claiming those provider/compliance features exist before they are funded and implemented.

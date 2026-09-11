@@ -655,16 +655,28 @@ function VerificationCard({
           copy="If this UTR matches a real bank credit, Verify will send it directly to the refund queue rather than reopening the order."
         />
       ) : null}
+      {payment.conflictOfInterest ? (
+        <InlineNotice
+          tone="danger"
+          icon="shield"
+          title="Independent admin required"
+          copy="You are the buyer or deliverer on this order. Another administrator must verify or reject its payment."
+        />
+      ) : null}
       <AppButton
         label="Verify Bank Credit"
         icon="check"
         loading={busyKey === `verify:${payment.id}`}
-        disabled={busyKey !== null && busyKey !== `verify:${payment.id}`}
+        disabled={
+          payment.conflictOfInterest ||
+          (busyKey !== null && busyKey !== `verify:${payment.id}`)
+        }
         onPress={onConfirm}
       />
       <TextInput
         value={reason}
         onChangeText={setReason}
+        editable={!payment.conflictOfInterest}
         placeholder="Reason if rejecting reference"
         placeholderTextColor={colors.faint}
         style={styles.input}
@@ -675,7 +687,11 @@ function VerificationCard({
         icon="x"
         tone="warning"
         loading={busyKey === `reject:${payment.id}`}
-        disabled={reason.trim().length < 3 || busyKey !== null}
+        disabled={
+          payment.conflictOfInterest ||
+          reason.trim().length < 3 ||
+          busyKey !== null
+        }
         onPress={onReject}
       />
     </MotionView>
@@ -713,9 +729,18 @@ function RefundCard({
         title="Send money before marking complete"
         copy="The app does not move bank funds. Transfer the exact refund manually, then record the outgoing reference below."
       />
+      {payment.conflictOfInterest ? (
+        <InlineNotice
+          tone="danger"
+          icon="shield"
+          title="Independent admin required"
+          copy="Another administrator must complete this refund because you participated in the order."
+        />
+      ) : null}
       <TextInput
         value={reference}
         onChangeText={setReference}
+        editable={!payment.conflictOfInterest}
         autoCapitalize="characters"
         placeholder="Outgoing refund UTR / reference"
         placeholderTextColor={colors.faint}
@@ -726,7 +751,11 @@ function RefundCard({
         label="Mark Refund Sent"
         icon="check"
         loading={busyKey === `refund:${payment.id}`}
-        disabled={reference.trim().length < 5 || busyKey !== null}
+        disabled={
+          payment.conflictOfInterest ||
+          reference.trim().length < 5 ||
+          busyKey !== null
+        }
         onPress={onComplete}
       />
     </MotionView>
@@ -779,9 +808,18 @@ function SettlementCard({
           }
         />
       ) : null}
+      {settlement.conflictOfInterest ? (
+        <InlineNotice
+          tone="danger"
+          icon="shield"
+          title="Independent admin required"
+          copy="Another administrator must hold or pay this settlement because you participated in the order."
+        />
+      ) : null}
       <TextInput
         value={holdReason}
         onChangeText={setHoldReason}
+        editable={!settlement.conflictOfInterest}
         placeholder={
           settlement.status === "ON_HOLD"
             ? "Update hold reason"
@@ -798,12 +836,17 @@ function SettlementCard({
         icon="pause-circle"
         tone="warning"
         loading={busyKey === `hold:${settlement.id}`}
-        disabled={holdReason.trim().length < 3 || busyKey !== null}
+        disabled={
+          settlement.conflictOfInterest ||
+          holdReason.trim().length < 3 ||
+          busyKey !== null
+        }
         onPress={onHold}
       />
       <TextInput
         value={reference}
         onChangeText={setReference}
+        editable={!settlement.conflictOfInterest}
         autoCapitalize="characters"
         placeholder="Outgoing payout UTR / reference"
         placeholderTextColor={colors.faint}
@@ -814,7 +857,11 @@ function SettlementCard({
         label="Mark Settlement Paid"
         icon="check"
         loading={busyKey === `settlement:${settlement.id}`}
-        disabled={reference.trim().length < 5 || busyKey !== null}
+        disabled={
+          settlement.conflictOfInterest ||
+          reference.trim().length < 5 ||
+          busyKey !== null
+        }
         onPress={onComplete}
       />
     </MotionView>

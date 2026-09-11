@@ -965,7 +965,7 @@ function PaymentCard({
           title="Payment submitted for verification"
           copy={
             isBuyer
-              ? `Submitted reference: ${order.payment?.submittedUtr ?? "received"}. Keep the order open while an admin checks the bank credit.`
+              ? `Submitted reference: ${order.payment?.submittedReferenceDisplay ?? "received"}. Keep the order open while an admin checks the bank credit.`
               : "The buyer submitted a transaction reference. Do not treat it as secured until the status becomes Paid."
           }
         />

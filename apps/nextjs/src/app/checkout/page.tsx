@@ -174,7 +174,8 @@ export default function CheckoutPage() {
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const finalTotal = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const paymentDestinationReady =
+    paymentConfig?.paymentDestinationReady === true;
   const orderReady = databaseReady && paymentDestinationReady;
 
   const handlePlaceOrder = () => {
