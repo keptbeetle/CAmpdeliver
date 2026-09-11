@@ -175,7 +175,8 @@ export function CanteenMenu({
   const platformFee = paymentConfig?.platformFeePaise ?? 300;
   const totalCost = totalFoodPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const paymentDestinationReady =
+    paymentConfig?.paymentDestinationReady === true;
   const orderReady = databaseReady && paymentDestinationReady;
 
   const handlePlaceOrder = async () => {

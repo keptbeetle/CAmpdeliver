@@ -4,7 +4,9 @@ import test from "node:test";
 import {
   expiresFromNow,
   getPaymentConfig,
+  isValidTransactionReference,
   isValidUpiId,
+  maskTransactionReference,
   normalizeTransactionReference,
   normalizeUpiId,
   normalizeUpiPayeeName,
@@ -91,8 +93,14 @@ test("normalizes and validates UPI destinations", () => {
   assert.equal(isValidUpiId("name with space@ybl"), false);
 });
 
-test("normalizes transaction references consistently", () => {
+test("normalizes and validates transaction references consistently", () => {
   assert.equal(normalizeTransactionReference("  utr 12 ab 34  "), "UTR12AB34");
+  assert.equal(isValidTransactionReference("123456789012"), true);
+  assert.equal(isValidTransactionReference("upi-abcd/1234"), true);
+  assert.equal(isValidTransactionReference("abc<script>"), false);
+  assert.equal(isValidTransactionReference("abc\n123"), true);
+  assert.equal(maskTransactionReference("  utr 12 ab 34  "), "****AB34");
+  assert.equal(maskTransactionReference(null), null);
 });
 
 test("computes server deadlines from the supplied clock", () => {

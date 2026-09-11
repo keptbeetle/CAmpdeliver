@@ -392,8 +392,14 @@ export default function AdminPaymentsPage() {
                   it directly to the refund queue.
                 </p>
               )}
+              {payment.conflictOfInterest && (
+                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
+                  Independent admin required. You are the buyer or deliverer on
+                  this order, so another administrator must reconcile it.
+                </p>
+              )}
               <button
-                disabled={busy !== null}
+                disabled={payment.conflictOfInterest || busy !== null}
                 onClick={() =>
                   void run(
                     key,
@@ -415,10 +421,15 @@ export default function AdminPaymentsPage() {
                 }
                 placeholder="Reason if rejecting reference"
                 maxLength={300}
+                disabled={payment.conflictOfInterest}
                 className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
               />
               <button
-                disabled={busy !== null || reason.trim().length < 3}
+                disabled={
+                  payment.conflictOfInterest ||
+                  busy !== null ||
+                  reason.trim().length < 3
+                }
                 onClick={() =>
                   void run(
                     `reject:${payment.id}`,
@@ -459,6 +470,12 @@ export default function AdminPaymentsPage() {
                 Send the exact refund manually first, then record the outgoing
                 transfer reference.
               </p>
+              {payment.conflictOfInterest && (
+                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
+                  Another administrator must complete this refund because you
+                  participated in the order.
+                </p>
+              )}
               <input
                 value={reference}
                 onChange={(event) =>
@@ -469,10 +486,15 @@ export default function AdminPaymentsPage() {
                 }
                 placeholder="Outgoing refund UTR / reference"
                 maxLength={80}
+                disabled={payment.conflictOfInterest}
                 className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
               />
               <button
-                disabled={busy !== null || reference.trim().length < 5}
+                disabled={
+                  payment.conflictOfInterest ||
+                  busy !== null ||
+                  reference.trim().length < 5
+                }
                 onClick={() =>
                   void run(
                     key,
@@ -522,6 +544,12 @@ export default function AdminPaymentsPage() {
                     `Settlement is ${settlement.status.toLowerCase().replace("_", " ")}. Review it before sending funds.`}
                 </p>
               )}
+              {settlement.conflictOfInterest && (
+                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
+                  Another administrator must hold or pay this settlement because
+                  you participated in the order.
+                </p>
+              )}
               <input
                 value={holdReason}
                 onChange={(event) =>
@@ -536,10 +564,15 @@ export default function AdminPaymentsPage() {
                     : "Reason to put settlement on hold"
                 }
                 maxLength={300}
+                disabled={settlement.conflictOfInterest}
                 className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
               />
               <button
-                disabled={busy !== null || holdReason.trim().length < 3}
+                disabled={
+                  settlement.conflictOfInterest ||
+                  busy !== null ||
+                  holdReason.trim().length < 3
+                }
                 onClick={() =>
                   void run(
                     `hold:${settlement.id}`,
@@ -569,10 +602,15 @@ export default function AdminPaymentsPage() {
                 }
                 placeholder="Outgoing payout UTR / reference"
                 maxLength={80}
+                disabled={settlement.conflictOfInterest}
                 className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
               />
               <button
-                disabled={busy !== null || reference.trim().length < 5}
+                disabled={
+                  settlement.conflictOfInterest ||
+                  busy !== null ||
+                  reference.trim().length < 5
+                }
                 onClick={() =>
                   void run(
                     key,

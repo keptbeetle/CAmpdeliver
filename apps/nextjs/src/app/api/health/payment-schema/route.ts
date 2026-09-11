@@ -22,7 +22,7 @@ export async function GET() {
       {
         ok: false,
         databaseReady: false,
-        schemaVersion: "payment-settlement-security-v2",
+        schemaVersion: "payment-settlement-security-v3",
       },
       {
         status: 503,

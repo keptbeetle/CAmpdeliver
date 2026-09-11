@@ -64,7 +64,8 @@ export default function CheckoutScreen() {
   const platformFee = paymentConfig?.platformFeePaise ?? fallbackPlatformFee;
   const finalAmount = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady = Boolean(paymentConfig?.upiId);
+  const paymentDestinationReady =
+    paymentConfig?.paymentDestinationReady === true;
   const orderReady = databaseReady && paymentDestinationReady;
   const busy = stage !== "idle" || createOrderMutation.isPending;
 

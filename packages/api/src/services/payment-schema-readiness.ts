@@ -21,7 +21,7 @@ const READINESS_CACHE_MS = 10_000;
 export interface PaymentSchemaReadiness {
   ready: boolean;
   missing: string[];
-  version: "payment-settlement-security-v2";
+  version: "payment-settlement-security-v3";
 }
 
 let cachedReadiness:
@@ -36,6 +36,66 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
       to_regclass('public.order_settlements') is not null as order_settlements,
       to_regclass('public.platform_payment_settings') is not null as platform_payment_settings,
       to_regclass('public.platform_payment_settings_history') is not null as platform_payment_settings_history,
+      to_regclass('public.payment_admin_action_logs') is not null as payment_admin_action_logs,
+      exists (
+        select 1 from pg_constraint
+        where conname = 'order_payments_submitted_utr_format'
+          and conrelid = to_regclass('public.order_payments')
+      ) as payment_utr_constraint,
+      exists (
+        select 1 from pg_constraint
+        where conname = 'order_payments_refund_reference_format'
+          and conrelid = to_regclass('public.order_payments')
+      ) as refund_reference_constraint,
+      exists (
+        select 1 from pg_constraint
+        where conname = 'order_settlements_payout_reference_format'
+          and conrelid = to_regclass('public.order_settlements')
+      ) as payout_reference_constraint,
+      exists (
+        select 1 from pg_indexes
+        where schemaname = 'public'
+          and tablename = 'order_payments'
+          and indexname = 'order_payments_utr_unique'
+          and indexdef ilike '%PENDING_VERIFICATION%'
+          and indexdef ilike '%PAID%'
+          and indexdef ilike '%REFUND_REQUIRED%'
+          and indexdef ilike '%REFUNDED%'
+          and indexdef not ilike '%REJECTED%'
+      ) as payment_utr_unique_active_only,
+      coalesce((
+        select relrowsecurity
+        from pg_class
+        where oid = to_regclass('public.payment_admin_action_logs')
+      ), false) as payment_admin_action_logs_rls,
+      exists (
+        select 1 from pg_trigger
+        where not tgisinternal
+          and tgname = 'payment_admin_action_logs_append_only'
+          and tgrelid = to_regclass('public.payment_admin_action_logs')
+      ) as payment_admin_action_logs_append_only,
+      exists (
+        select 1 from pg_trigger
+        where not tgisinternal
+          and tgname = 'platform_payment_settings_history_append_only'
+          and tgrelid = to_regclass('public.platform_payment_settings_history')
+      ) as payment_settings_history_append_only,
+      case
+        when to_regclass('public.payment_admin_action_logs') is null then false
+        else not has_table_privilege(
+          'authenticated',
+          to_regclass('public.payment_admin_action_logs'),
+          'SELECT'
+        )
+      end as payment_admin_action_logs_authenticated_select_revoked,
+      case
+        when to_regclass('public.payment_admin_action_logs') is null then false
+        else not has_table_privilege(
+          'anon',
+          to_regclass('public.payment_admin_action_logs'),
+          'SELECT'
+        )
+      end as payment_admin_action_logs_anon_select_revoked,
       exists (
         select 1 from information_schema.columns
         where table_schema = 'public' and table_name = 'order_payments'
@@ -68,6 +128,16 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
         order_settlements?: boolean;
         platform_payment_settings?: boolean;
         platform_payment_settings_history?: boolean;
+        payment_admin_action_logs?: boolean;
+        payment_utr_constraint?: boolean;
+        refund_reference_constraint?: boolean;
+        payout_reference_constraint?: boolean;
+        payment_utr_unique_active_only?: boolean;
+        payment_admin_action_logs_rls?: boolean;
+        payment_admin_action_logs_append_only?: boolean;
+        payment_settings_history_append_only?: boolean;
+        payment_admin_action_logs_authenticated_select_revoked?: boolean;
+        payment_admin_action_logs_anon_select_revoked?: boolean;
         payment_destination_upi_id?: boolean;
         payment_destination_upi_payee_name?: boolean;
         missing_order_columns?: string[];
@@ -83,6 +153,26 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
     missing.push("platform_payment_settings");
   if (!row?.platform_payment_settings_history)
     missing.push("platform_payment_settings_history");
+  if (!row?.payment_admin_action_logs)
+    missing.push("payment_admin_action_logs");
+  if (!row?.payment_utr_constraint)
+    missing.push("order_payments.submitted_utr constraint");
+  if (!row?.refund_reference_constraint)
+    missing.push("order_payments.refund_reference constraint");
+  if (!row?.payout_reference_constraint)
+    missing.push("order_settlements.payout_reference constraint");
+  if (!row?.payment_utr_unique_active_only)
+    missing.push("order_payments active UTR uniqueness index");
+  if (!row?.payment_admin_action_logs_rls)
+    missing.push("payment_admin_action_logs RLS");
+  if (!row?.payment_admin_action_logs_append_only)
+    missing.push("payment_admin_action_logs append-only trigger");
+  if (!row?.payment_settings_history_append_only)
+    missing.push("platform_payment_settings_history append-only trigger");
+  if (!row?.payment_admin_action_logs_authenticated_select_revoked)
+    missing.push("payment_admin_action_logs authenticated SELECT revoke");
+  if (!row?.payment_admin_action_logs_anon_select_revoked)
+    missing.push("payment_admin_action_logs anon SELECT revoke");
   if (!row?.payment_destination_upi_id)
     missing.push("order_payments.destination_upi_id");
   if (!row?.payment_destination_upi_payee_name)
@@ -91,7 +181,7 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
   return {
     ready: missing.length === 0,
     missing,
-    version: "payment-settlement-security-v2",
+    version: "payment-settlement-security-v3",
   };
 }
 

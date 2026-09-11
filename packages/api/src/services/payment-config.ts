@@ -10,6 +10,7 @@ const DEFAULT_TTLS_SECONDS = {
 } as const;
 
 const UPI_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}@[a-z0-9][a-z0-9.-]{1,63}$/i;
+const TRANSACTION_REFERENCE_PATTERN = /^[A-Z0-9][A-Z0-9._/-]{4,79}$/;
 
 function readNonNegativeInt(name: string, fallback: number) {
   const raw = process.env[name]?.trim();
@@ -77,4 +78,17 @@ export function expiresFromNow(seconds: number, now = new Date()) {
 
 export function normalizeTransactionReference(value: string) {
   return value.trim().replace(/\s+/g, "").toUpperCase();
+}
+
+export function isValidTransactionReference(value: string) {
+  return TRANSACTION_REFERENCE_PATTERN.test(
+    normalizeTransactionReference(value),
+  );
+}
+
+export function maskTransactionReference(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = normalizeTransactionReference(value);
+  if (normalized.length <= 4) return "****";
+  return `****${normalized.slice(-4)}`;
 }

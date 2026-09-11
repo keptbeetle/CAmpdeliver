@@ -8,6 +8,7 @@ import {
   orderPayments,
   orders,
   orderSettlements,
+  paymentAdminActionLogs,
   platformPaymentSettings,
   platformPaymentSettingsHistory,
   profiles,
@@ -17,7 +18,9 @@ import { expireStaleOrders } from "../services/order-expiry";
 import {
   expiresFromNow,
   getPaymentConfig,
+  isValidTransactionReference,
   isValidUpiId,
+  maskTransactionReference,
   normalizeTransactionReference,
   normalizeUpiId,
   normalizeUpiPayeeName,
@@ -33,11 +36,21 @@ import {
   settlementRequestDisposition,
 } from "../services/payment-policy";
 import { getPaymentSchemaReadiness } from "../services/payment-schema-readiness";
+import { hasAdminFinancialConflict } from "../services/payment-security";
 import { sendExpoPushNotifications } from "../services/push-notification";
 import { adminProcedure, protectedProcedure } from "../trpc";
 
 const orderIdInput = z.object({ orderId: z.string().uuid() }).strict();
-const referenceSchema = z.string().trim().min(5).max(80);
+const referenceSchema = z
+  .string()
+  .trim()
+  .min(5)
+  .max(80)
+  .transform(normalizeTransactionReference)
+  .refine(
+    isValidTransactionReference,
+    "Use only letters, numbers, dots, dashes, underscores, or slashes in the transaction reference.",
+  );
 const paymentDestinationInput = z
   .object({
     upiId: z
@@ -56,6 +69,28 @@ const paymentDestinationInput = z
   })
   .strict();
 const REQUESTED_SETTLEMENT_STATUSES = ["PENDING", "ON_HOLD", "FAILED"] as const;
+
+function assertAdminCanReconcileOrder(
+  adminId: string,
+  order: { buyerId: string; delivererId: string | null },
+) {
+  if (hasAdminFinancialConflict(adminId, order.buyerId, order.delivererId)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Another administrator must handle financial actions for an order where you are the buyer or deliverer.",
+    });
+  }
+}
+
+function isUniqueConstraintViolation(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "23505"
+  );
+}
 
 async function requirePaymentSchemaReady() {
   const database = await getPaymentSchemaReadiness();
@@ -102,7 +137,7 @@ async function notifyAdmins(
   }
 }
 
-async function getAdminQueueContext() {
+async function getAdminQueueContext(adminId: string) {
   const [pendingPayments, refunds, pendingSettlements] = await Promise.all([
     db
       .select()
@@ -142,6 +177,11 @@ async function getAdminQueueContext() {
     ]);
     return {
       ...payment,
+      conflictOfInterest: hasAdminFinancialConflict(
+        adminId,
+        order.buyerId,
+        order.delivererId,
+      ),
       order: {
         id: order.id,
         status: order.status,
@@ -170,6 +210,11 @@ async function getAdminQueueContext() {
     if (!order) return null;
     return {
       ...settlement,
+      conflictOfInterest: hasAdminFinancialConflict(
+        adminId,
+        order.buyerId,
+        settlement.delivererId,
+      ),
       deliverer,
       order: {
         id: order.id,
@@ -202,9 +247,7 @@ export const paymentRouter = {
     return {
       deliveryFeePaise: config.deliveryFeePaise,
       platformFeePaise: config.platformFeePaise,
-      upiId: destination.upiId,
-      upiPayeeName: destination.upiPayeeName,
-      paymentDestinationUpdatedAt: destination.updatedAt,
+      paymentDestinationReady: Boolean(destination.upiId),
       manualVerification: true as const,
       databaseReady: database.ready,
       schemaVersion: database.version,
@@ -489,6 +532,16 @@ export const paymentRouter = {
         ) {
           return { success: true, alreadySubmitted: true };
         }
+        if (
+          payment.status === "REJECTED" &&
+          payment.submittedUtr === normalized
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Submit a different transaction reference after rejection.",
+          });
+        }
         if (!["AWAITING_PAYMENT", "REJECTED"].includes(payment.status)) {
           throw new TRPCError({
             code: "BAD_REQUEST",
@@ -499,7 +552,17 @@ export const paymentRouter = {
         const [duplicate] = await tx
           .select({ id: orderPayments.id })
           .from(orderPayments)
-          .where(eq(orderPayments.submittedUtr, normalized))
+          .where(
+            and(
+              eq(orderPayments.submittedUtr, normalized),
+              inArray(orderPayments.status, [
+                "PENDING_VERIFICATION",
+                "PAID",
+                "REFUND_REQUIRED",
+                "REFUNDED",
+              ]),
+            ),
+          )
           .limit(1);
         if (duplicate && duplicate.id !== payment.id) {
           throw new TRPCError({
@@ -508,16 +571,26 @@ export const paymentRouter = {
           });
         }
 
-        await tx
-          .update(orderPayments)
-          .set({
-            status: "PENDING_VERIFICATION",
-            submittedUtr: normalized,
-            submittedAt: now,
-            rejectionReason: null,
-            updatedAt: now,
-          })
-          .where(eq(orderPayments.id, payment.id));
+        try {
+          await tx
+            .update(orderPayments)
+            .set({
+              status: "PENDING_VERIFICATION",
+              submittedUtr: normalized,
+              submittedAt: now,
+              rejectionReason: null,
+              updatedAt: now,
+            })
+            .where(eq(orderPayments.id, payment.id));
+        } catch (error) {
+          if (isUniqueConstraintViolation(error)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "This transaction reference has already been submitted.",
+            });
+          }
+          throw error;
+        }
 
         if (!order.purchasedAt) {
           await tx
@@ -614,7 +687,20 @@ export const paymentRouter = {
         (settlement) => settlement.status === "PAID",
       ).length,
       completedDeliveries: settlements.length,
-      recent: settlements.slice(0, 20),
+      recent: settlements.slice(0, 20).map((settlement) => ({
+        id: settlement.id,
+        orderId: settlement.orderId,
+        foodReimbursement: settlement.foodReimbursement,
+        deliveryEarning: settlement.deliveryEarning,
+        amountDue: settlement.amountDue,
+        status: settlement.status,
+        requestedAt: settlement.requestedAt,
+        paidAt: settlement.paidAt,
+        payoutReference: maskTransactionReference(settlement.payoutReference),
+        holdReason: settlement.holdReason,
+        createdAt: settlement.createdAt,
+        updatedAt: settlement.updatedAt,
+      })),
     };
   }),
 
@@ -709,7 +795,7 @@ export const paymentRouter = {
       return { success: true, ...result };
     }),
 
-  adminDashboard: adminProcedure.query(async () => {
+  adminDashboard: adminProcedure.query(async ({ ctx }) => {
     const database = await getPaymentSchemaReadiness();
     if (!database.ready) {
       return {
@@ -727,7 +813,7 @@ export const paymentRouter = {
       };
     }
 
-    const queues = await getAdminQueueContext();
+    const queues = await getAdminQueueContext(ctx.user.id);
     const delivered = await db
       .select({
         platformFee: orders.platformFee,
@@ -802,6 +888,7 @@ export const paymentRouter = {
             message: "The related order cannot accept payment verification.",
           });
         }
+        assertAdminCanReconcileOrder(ctx.user.id, order);
 
         // A payment can reach the bank just before a pre-purchase TTL or
         // deliverer cancellation fires. We still reconcile the submitted UTR;
@@ -832,6 +919,16 @@ export const paymentRouter = {
             message: "Payment state changed.",
           });
         }
+
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action: "PAYMENT_VERIFIED",
+          orderId: order.id,
+          paymentId: payment.id,
+          fromState: payment.status,
+          toState: verifiedStatus,
+          createdAt: now,
+        });
 
         if (!order.purchasedAt && !refundRequired) {
           await tx
@@ -942,6 +1039,7 @@ export const paymentRouter = {
             message: "Order not found",
           });
         }
+        assertAdminCanReconcileOrder(ctx.user.id, relatedOrder);
 
         const [rejected] = await tx
           .update(orderPayments)
@@ -965,6 +1063,15 @@ export const paymentRouter = {
             message: "Payment state changed while it was being reviewed.",
           });
         }
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action: "PAYMENT_REJECTED",
+          orderId: relatedOrder.id,
+          paymentId: payment.id,
+          fromState: payment.status,
+          toState: "REJECTED",
+          createdAt: now,
+        });
         if (
           !relatedOrder.purchasedAt &&
           relatedOrder.status === "ITEM_AVAILABLE"
@@ -1006,81 +1113,115 @@ export const paymentRouter = {
     )
     .mutation(async ({ ctx, input }) => {
       await requirePaymentSchemaReady();
-      const normalized = normalizeTransactionReference(input.refundReference);
+      const normalized = input.refundReference;
       const now = new Date();
 
-      const [payment] = await ctx.db
-        .select()
-        .from(orderPayments)
-        .where(eq(orderPayments.orderId, input.orderId))
-        .limit(1);
-      if (!payment) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Payment not found",
-        });
-      }
-      if (payment.status === "REFUNDED") {
-        if (payment.refundReference !== normalized) {
+      const result = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
+        );
+        const [payment] = await tx
+          .select()
+          .from(orderPayments)
+          .where(eq(orderPayments.orderId, input.orderId))
+          .limit(1);
+        if (!payment) {
           throw new TRPCError({
-            code: "CONFLICT",
-            message:
-              "This refund was already completed with another reference.",
+            code: "NOT_FOUND",
+            message: "Payment not found",
           });
         }
-        return { success: true, alreadyRefunded: true };
-      }
-      if (payment.status !== "REFUND_REQUIRED") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This payment does not require a refund.",
-        });
-      }
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, payment.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        assertAdminCanReconcileOrder(ctx.user.id, order);
 
-      try {
-        const [updated] = await ctx.db
-          .update(orderPayments)
-          .set({
-            status: "REFUNDED",
-            refundReference: normalized,
-            refundedAt: now,
-            refundedByAdminId: ctx.user.id,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(orderPayments.id, payment.id),
-              eq(orderPayments.status, "REFUND_REQUIRED"),
-            ),
-          )
-          .returning();
+        if (payment.status === "REFUNDED") {
+          if (payment.refundReference !== normalized) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "This refund was already completed with another reference.",
+            });
+          }
+          return { payment, alreadyRefunded: true };
+        }
+        if (payment.status !== "REFUND_REQUIRED") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This payment does not require a refund.",
+          });
+        }
+
+        let updated;
+        try {
+          [updated] = await tx
+            .update(orderPayments)
+            .set({
+              status: "REFUNDED",
+              refundReference: normalized,
+              refundedAt: now,
+              refundedByAdminId: ctx.user.id,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(orderPayments.id, payment.id),
+                eq(orderPayments.status, "REFUND_REQUIRED"),
+              ),
+            )
+            .returning();
+        } catch (error) {
+          if (isUniqueConstraintViolation(error)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "That refund reference is already in use.",
+            });
+          }
+          throw error;
+        }
         if (!updated) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "Refund state changed.",
           });
         }
-      } catch (error) {
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "That refund reference is already in use.",
+
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action: "REFUND_COMPLETED",
+          orderId: order.id,
+          paymentId: payment.id,
+          fromState: payment.status,
+          toState: "REFUNDED",
+          createdAt: now,
+        });
+        return { payment: updated, alreadyRefunded: false };
+      });
+
+      if (!result.alreadyRefunded) {
+        await notifyProfile(result.payment.buyerId, {
+          title: "Refund completed",
+          body: `Your ₹${(result.payment.expectedAmount / 100).toFixed(2)} refund has been marked paid.`,
+          data: {
+            orderId: result.payment.orderId,
+            type: "REFUND_COMPLETED",
+            url: `/orders/${result.payment.orderId}/status`,
+          },
+          sound: "default",
+          priority: "high",
+          channelId: "default",
         });
       }
-
-      await notifyProfile(payment.buyerId, {
-        title: "Refund completed",
-        body: `Your ₹${(payment.expectedAmount / 100).toFixed(2)} refund has been marked paid.`,
-        data: {
-          orderId: payment.orderId,
-          type: "REFUND_COMPLETED",
-          url: `/orders/${payment.orderId}/status`,
-        },
-        sound: "default",
-        priority: "high",
-        channelId: "default",
-      });
-      return { success: true, alreadyRefunded: false };
+      return { success: true, alreadyRefunded: result.alreadyRefunded };
     }),
 
   adminMarkSettlementPaid: adminProcedure
@@ -1094,78 +1235,113 @@ export const paymentRouter = {
     )
     .mutation(async ({ ctx, input }) => {
       await requirePaymentSchemaReady();
-      const normalized = normalizeTransactionReference(input.payoutReference);
+      const normalized = input.payoutReference;
       const now = new Date();
-      const [settlement] = await ctx.db
-        .select()
-        .from(orderSettlements)
-        .where(eq(orderSettlements.id, input.settlementId))
-        .limit(1);
-      if (!settlement) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Settlement not found",
-        });
-      }
-      if (settlement.status === "PAID") {
-        if (settlement.payoutReference !== normalized) {
+
+      const result = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.settlementId}, 0))`,
+        );
+        const [settlement] = await tx
+          .select()
+          .from(orderSettlements)
+          .where(eq(orderSettlements.id, input.settlementId))
+          .limit(1);
+        if (!settlement) {
           throw new TRPCError({
-            code: "CONFLICT",
-            message: "Settlement was already paid with another reference.",
+            code: "NOT_FOUND",
+            message: "Settlement not found",
           });
         }
-        return { success: true, alreadyPaid: true };
-      }
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, settlement.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        assertAdminCanReconcileOrder(ctx.user.id, order);
 
-      try {
-        const [updated] = await ctx.db
-          .update(orderSettlements)
-          .set({
-            status: "PAID",
-            payoutReference: normalized,
-            paidAt: now,
-            paidByAdminId: ctx.user.id,
-            holdReason: null,
-            updatedAt: now,
-          })
-          .where(
-            and(
-              eq(orderSettlements.id, settlement.id),
-              inArray(orderSettlements.status, [
-                "PENDING",
-                "ON_HOLD",
-                "FAILED",
-              ]),
-            ),
-          )
-          .returning();
+        if (settlement.status === "PAID") {
+          if (settlement.payoutReference !== normalized) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Settlement was already paid with another reference.",
+            });
+          }
+          return { settlement, alreadyPaid: true };
+        }
+
+        let updated;
+        try {
+          [updated] = await tx
+            .update(orderSettlements)
+            .set({
+              status: "PAID",
+              payoutReference: normalized,
+              paidAt: now,
+              paidByAdminId: ctx.user.id,
+              holdReason: null,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(orderSettlements.id, settlement.id),
+                inArray(orderSettlements.status, [
+                  "PENDING",
+                  "ON_HOLD",
+                  "FAILED",
+                ]),
+              ),
+            )
+            .returning();
+        } catch (error) {
+          if (isUniqueConstraintViolation(error)) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "That payout reference is already in use.",
+            });
+          }
+          throw error;
+        }
         if (!updated) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "Settlement state changed.",
           });
         }
-      } catch (error) {
-        if (error instanceof TRPCError) throw error;
-        throw new TRPCError({
-          code: "CONFLICT",
-          message: "That payout reference is already in use.",
+
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action: "SETTLEMENT_PAID",
+          orderId: order.id,
+          settlementId: settlement.id,
+          fromState: settlement.status,
+          toState: "PAID",
+          createdAt: now,
+        });
+        return { settlement: updated, alreadyPaid: false };
+      });
+
+      if (!result.alreadyPaid) {
+        await notifyProfile(result.settlement.delivererId, {
+          title: "Settlement paid",
+          body: `₹${(result.settlement.amountDue / 100).toFixed(2)} has been marked transferred by the admin.`,
+          data: {
+            orderId: result.settlement.orderId,
+            type: "SETTLEMENT_PAID",
+            url: "/earnings",
+          },
+          sound: "default",
+          priority: "high",
+          channelId: "default",
         });
       }
-
-      await notifyProfile(settlement.delivererId, {
-        title: "Settlement paid",
-        body: `₹${(settlement.amountDue / 100).toFixed(2)} has been marked transferred by the admin.`,
-        data: {
-          orderId: settlement.orderId,
-          type: "SETTLEMENT_PAID",
-          url: "/earnings",
-        },
-        sound: "default",
-        priority: "high",
-        channelId: "default",
-      });
-      return { success: true, alreadyPaid: false };
+      return { success: true, alreadyPaid: result.alreadyPaid };
     }),
 
   adminHoldSettlement: adminProcedure
@@ -1179,26 +1355,70 @@ export const paymentRouter = {
     )
     .mutation(async ({ ctx, input }) => {
       await requirePaymentSchemaReady();
-      const [updated] = await ctx.db
-        .update(orderSettlements)
-        .set({
-          status: "ON_HOLD",
-          holdReason: input.reason,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(orderSettlements.id, input.settlementId),
-            inArray(orderSettlements.status, ["PENDING", "FAILED", "ON_HOLD"]),
-          ),
-        )
-        .returning();
-      if (!updated) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "This settlement cannot be put on hold.",
+      const now = new Date();
+      const updated = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.settlementId}, 0))`,
+        );
+        const [settlement] = await tx
+          .select()
+          .from(orderSettlements)
+          .where(eq(orderSettlements.id, input.settlementId))
+          .limit(1);
+        if (!settlement) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Settlement not found",
+          });
+        }
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, settlement.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        assertAdminCanReconcileOrder(ctx.user.id, order);
+
+        const [held] = await tx
+          .update(orderSettlements)
+          .set({
+            status: "ON_HOLD",
+            holdReason: input.reason,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(orderSettlements.id, input.settlementId),
+              inArray(orderSettlements.status, [
+                "PENDING",
+                "FAILED",
+                "ON_HOLD",
+              ]),
+            ),
+          )
+          .returning();
+        if (!held) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This settlement cannot be put on hold.",
+          });
+        }
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action: "SETTLEMENT_HELD",
+          orderId: order.id,
+          settlementId: settlement.id,
+          fromState: settlement.status,
+          toState: "ON_HOLD",
+          createdAt: now,
         });
-      }
+        return held;
+      });
 
       await notifyProfile(updated.delivererId, {
         title: "Reimbursement on hold",

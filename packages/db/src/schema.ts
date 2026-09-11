@@ -337,7 +337,11 @@ export const orderPayments = pgTable(
   },
   (table) => [
     uniqueIndex("order_payments_order_unique").on(table.orderId),
-    uniqueIndex("order_payments_utr_unique").on(table.submittedUtr),
+    uniqueIndex("order_payments_utr_unique")
+      .on(table.submittedUtr)
+      .where(
+        sql`${table.submittedUtr} is not null and ${table.status} in ('PENDING_VERIFICATION','PAID','REFUND_REQUIRED','REFUNDED')`,
+      ),
     uniqueIndex("order_payments_refund_reference_unique").on(
       table.refundReference,
     ),
@@ -365,6 +369,14 @@ export const orderPayments = pgTable(
     check(
       "order_payments_destination_payee_length",
       sql`${table.destinationUpiPayeeName} is null or char_length(${table.destinationUpiPayeeName}) between 2 and 80`,
+    ),
+    check(
+      "order_payments_submitted_utr_format",
+      sql`${table.submittedUtr} is null or (char_length(${table.submittedUtr}) between 5 and 80 and ${table.submittedUtr} ~ '^[A-Z0-9][A-Z0-9._/-]{4,79}$')`,
+    ),
+    check(
+      "order_payments_refund_reference_format",
+      sql`${table.refundReference} is null or (char_length(${table.refundReference}) between 5 and 80 and ${table.refundReference} ~ '^[A-Z0-9][A-Z0-9._/-]{4,79}$')`,
     ),
     check(
       "order_payments_method_check",
@@ -434,6 +446,10 @@ export const orderSettlements = pgTable(
     check(
       "order_settlements_amount_matches",
       sql`${table.amountDue} = ${table.foodReimbursement} + ${table.deliveryEarning}`,
+    ),
+    check(
+      "order_settlements_payout_reference_format",
+      sql`${table.payoutReference} is null or (char_length(${table.payoutReference}) between 5 and 80 and ${table.payoutReference} ~ '^[A-Z0-9][A-Z0-9._/-]{4,79}$')`,
     ),
     check(
       "order_settlements_status_check",
@@ -519,6 +535,50 @@ export const platformPaymentSettingsHistory = pgTable(
       sql`char_length(${table.newUpiPayeeName}) between 2 and 80`,
     ),
     index("idx_platform_payment_settings_history_created").on(
+      table.createdAt.desc(),
+    ),
+  ],
+);
+
+export type PaymentAdminAction =
+  | "PAYMENT_VERIFIED"
+  | "PAYMENT_REJECTED"
+  | "REFUND_COMPLETED"
+  | "SETTLEMENT_PAID"
+  | "SETTLEMENT_HELD";
+
+export const paymentAdminActionLogs = pgTable(
+  "payment_admin_action_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom().notNull(),
+    adminId: uuid("admin_id")
+      .references(() => profiles.id, { onDelete: "restrict" })
+      .notNull(),
+    action: text("action").$type<PaymentAdminAction>().notNull(),
+    orderId: uuid("order_id").notNull(),
+    paymentId: uuid("payment_id"),
+    settlementId: uuid("settlement_id"),
+    fromState: text("from_state"),
+    toState: text("to_state").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "payment_admin_action_logs_action_check",
+      sql`${table.action} in ('PAYMENT_VERIFIED','PAYMENT_REJECTED','REFUND_COMPLETED','SETTLEMENT_PAID','SETTLEMENT_HELD')`,
+    ),
+    check(
+      "payment_admin_action_logs_state_length",
+      sql`(${table.fromState} is null or char_length(${table.fromState}) between 1 and 40) and char_length(${table.toState}) between 1 and 40`,
+    ),
+    index("idx_payment_admin_action_logs_order_created").on(
+      table.orderId,
+      table.createdAt.desc(),
+    ),
+    index("idx_payment_admin_action_logs_admin_created").on(
+      table.adminId,
       table.createdAt.desc(),
     ),
   ],
