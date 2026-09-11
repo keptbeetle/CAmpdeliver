@@ -53,6 +53,7 @@ jobs:
         with:
           repository: ${{ env.CHECKOUT_REPOSITORY }}
           ref: ${{ env.TARGET_SHA }}
+          fetch-depth: 0
 
       - name: Verify checked-out commit
         shell: bash

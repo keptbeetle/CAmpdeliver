@@ -5,6 +5,10 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+import { eq } from "@acme/db";
+import { db } from "@acme/db/client";
+import { profiles } from "@acme/db/schema";
+
 import { env } from "~/env";
 
 export async function createSupabaseServerClient() {
@@ -52,4 +56,17 @@ export const getUser = cache(async () => {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
+});
+
+export const getRegisteredUser = cache(async () => {
+  const user = await getUser();
+  if (!user) return null;
+
+  const [profile] = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.id, user.id))
+    .limit(1);
+
+  return profile ? user : null;
 });

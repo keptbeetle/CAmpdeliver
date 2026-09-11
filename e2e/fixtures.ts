@@ -7,18 +7,18 @@ export const TEST_PASSWORD =
   process.env.CAMPDELIVER_E2E_PASSWORD ?? `CampdeliverE2E-${randomUUID()}-Aa1!`;
 export const TEST_USERS = {
   buyer: {
-    phone: "1111111111",
-    email: "+911111111111@campus.edu",
+    phone: "9876500011",
+    email: "e2e.buyer@campus.edu",
     name: "E2E Buyer",
   },
   deliverer: {
-    phone: "2222222222",
-    email: "+912222222222@campus.edu",
+    phone: "9876500022",
+    email: "e2e.deliverer@campus.edu",
     name: "E2E Deliverer",
   },
   admin: {
-    phone: "3333333333",
-    email: "+913333333333@campus.edu",
+    phone: "9876500033",
+    email: "e2e.admin@campus.edu",
     name: "E2E Admin",
   },
 } as const;
@@ -179,9 +179,24 @@ export async function resetScenario(): Promise<SeededScenario> {
     }
 
     const profiles = [
-      { user: buyer, role: "STUDENT", hostel: "E2E Hostel" },
-      { user: deliverer, role: "STUDENT", hostel: "E2E Hostel" },
-      { user: admin, role: "ADMIN", hostel: "E2E Admin" },
+      {
+        user: buyer,
+        phone: TEST_USERS.buyer.phone,
+        role: "STUDENT",
+        hostel: "E2E Hostel",
+      },
+      {
+        user: deliverer,
+        phone: TEST_USERS.deliverer.phone,
+        role: "STUDENT",
+        hostel: "E2E Hostel",
+      },
+      {
+        user: admin,
+        phone: TEST_USERS.admin.phone,
+        role: "ADMIN",
+        hostel: "E2E Admin",
+      },
     ];
     for (const profile of profiles) {
       await sql`
@@ -190,7 +205,7 @@ export async function resetScenario(): Promise<SeededScenario> {
           wallet_balance, frozen_balance
         ) values (
           ${profile.user.id}, ${profile.user.user_metadata.name as string},
-          ${profile.user.email!}, ${profile.user.email!.replace("@campus.edu", "")},
+          ${profile.user.email!}, ${`+91${profile.phone}`},
           ${profile.hostel}, ${profile.role}, 0, 0
         )
         on conflict (id) do update set

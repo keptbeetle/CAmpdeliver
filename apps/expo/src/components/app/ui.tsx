@@ -85,20 +85,28 @@ export function InlineNotice({
   icon?: keyof typeof Feather.glyphMap;
   title: string;
   copy?: string;
-  tone?: "info" | "success" | "warning";
+  tone?: "info" | "success" | "caution" | "warning" | "danger";
 }) {
   const toneStyle =
     tone === "success"
       ? styles.noticeSuccess
-      : tone === "warning"
-        ? styles.noticeWarning
-        : styles.noticeInfo;
+      : tone === "caution"
+        ? styles.noticeCaution
+        : tone === "warning"
+          ? styles.noticeWarning
+          : tone === "danger"
+            ? styles.noticeDanger
+            : styles.noticeInfo;
   const iconColor =
     tone === "success"
       ? colors.success
-      : tone === "warning"
-        ? colors.warning
-        : colors.primary;
+      : tone === "caution"
+        ? colors.caution
+        : tone === "warning"
+          ? colors.warning
+          : tone === "danger"
+            ? colors.danger
+            : colors.primary;
 
   return (
     <View style={[styles.notice, toneStyle]}>
@@ -155,7 +163,7 @@ export function AppButton({
   icon?: keyof typeof Feather.glyphMap;
   loading?: boolean;
   disabled?: boolean;
-  tone?: "primary" | "secondary" | "quiet" | "warning";
+  tone?: "primary" | "secondary" | "quiet" | "warning" | "danger";
   compact?: boolean;
   testID?: string;
 }) {
@@ -167,10 +175,17 @@ export function AppButton({
         ? styles.buttonQuiet
         : tone === "warning"
           ? styles.buttonWarning
-          : styles.buttonPrimary;
+          : tone === "danger"
+            ? styles.buttonDanger
+            : styles.buttonPrimary;
   const textStyle =
-    tone === "primary" ? styles.buttonTextPrimary : styles.buttonTextSecondary;
-  const iconColor = tone === "primary" ? colors.white : colors.primaryStrong;
+    tone === "primary" || tone === "danger"
+      ? styles.buttonTextPrimary
+      : styles.buttonTextSecondary;
+  const iconColor =
+    tone === "primary" || tone === "danger"
+      ? colors.white
+      : colors.primaryStrong;
 
   return (
     <Pressable
@@ -227,6 +242,11 @@ const styles = StyleSheet.create({
     minHeight: 42,
     paddingHorizontal: 15,
   },
+  buttonDanger: {
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+    borderWidth: 1,
+  },
   buttonDisabled: {
     opacity: 0.5,
   },
@@ -246,7 +266,7 @@ const styles = StyleSheet.create({
   },
   buttonSecondary: {
     backgroundColor: colors.primarySoft,
-    borderColor: "#BAD9D7",
+    borderColor: colors.borderStrong,
     borderWidth: 1,
   },
   buttonText: {
@@ -261,7 +281,7 @@ const styles = StyleSheet.create({
   },
   buttonWarning: {
     backgroundColor: colors.warningSoft,
-    borderColor: "#E8CFAD",
+    borderColor: "#F0C28F",
     borderWidth: 1,
   },
   notice: {
@@ -275,9 +295,17 @@ const styles = StyleSheet.create({
   noticeCopy: {
     flex: 1,
   },
+  noticeCaution: {
+    backgroundColor: colors.cautionSoft,
+    borderColor: "#E9D27D",
+  },
+  noticeDanger: {
+    backgroundColor: colors.dangerSoft,
+    borderColor: "#E9A8AF",
+  },
   noticeInfo: {
     backgroundColor: colors.primarySoft,
-    borderColor: "#BAD9D7",
+    borderColor: colors.borderStrong,
   },
   noticeSuccess: {
     backgroundColor: colors.successSoft,
@@ -296,7 +324,7 @@ const styles = StyleSheet.create({
   },
   noticeWarning: {
     backgroundColor: colors.warningSoft,
-    borderColor: "#E8CFAD",
+    borderColor: "#F0C28F",
   },
   sectionCard: {
     backgroundColor: colors.panel,
