@@ -1,7 +1,7 @@
-import { Feather } from "@expo/vector-icons";
 import type { LngLat, LngLatBounds } from "@maplibre/maplibre-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import {
   Camera,
   GeoJSONSource,
@@ -67,7 +67,9 @@ function interpolateCoordinate(
   };
 }
 
-function useSmoothCoordinate(target: MapCoordinate | null): MapCoordinate | null {
+function useSmoothCoordinate(
+  target: MapCoordinate | null,
+): MapCoordinate | null {
   const targetLatitude = target?.latitude ?? null;
   const targetLongitude = target?.longitude ?? null;
   const [displayed, setDisplayed] = useState<MapCoordinate | null>(target);
@@ -169,7 +171,9 @@ function PinMarker({ accessibilityLabel, icon, tone }: PinMarkerProps) {
       accessibilityLabel={accessibilityLabel}
       style={[styles.markerWrap, selected && styles.markerWrapSelected]}
     >
-      <View style={[styles.markerShadow, selected && styles.markerShadowSelected]} />
+      <View
+        style={[styles.markerShadow, selected && styles.markerShadowSelected]}
+      />
       <View
         style={[
           styles.markerFace,
