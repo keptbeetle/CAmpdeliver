@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       architecture:
-        description: Android ABI to package for manual testing
+        description: Android target for manual testing
         required: true
-        default: arm64-v8a
+        default: universal
         type: choice
         options:
+          - universal
           - arm64-v8a
           - x86_64
   pull_request:
@@ -30,7 +31,7 @@ on:
       - "tooling/github/setup/**"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.architecture || 'arm64-v8a' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}-${{ inputs.architecture || 'universal' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
@@ -39,12 +40,15 @@ permissions:
 
 jobs:
   preview-apk:
+    name: preview-apk (${{ inputs.architecture || 'universal' }})
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      BUILD_ARCHITECTURE: ${{ inputs.architecture || 'arm64-v8a' }}
+      BUILD_ARCHITECTURES: ${{ inputs.architecture == 'arm64-v8a' && 'arm64-v8a' || inputs.architecture == 'x86_64' && 'x86_64' || 'arm64-v8a,x86_64' }}
+      APK_VARIANT: ${{ inputs.architecture || 'universal' }}
       TARGET_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       CHECKOUT_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      CAMPDELIVER_ANDROID_VERSION_CODE: ${{ github.run_number }}
       NODE_ENV: production
       EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
       EXPO_PUBLIC_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SUPABASE_URL }}
@@ -129,17 +133,78 @@ jobs:
         working-directory: apps/expo/android
         env:
           EXPO_PUBLIC_API_URL: ${{ steps.backend.outputs.api_url }}
-        run: ./gradlew --no-daemon -PreactNativeArchitectures="$BUILD_ARCHITECTURE" assembleRelease
+        run: ./gradlew --no-daemon -PreactNativeArchitectures="$BUILD_ARCHITECTURES" assembleRelease
 
       - name: Verify bundled preview environment
         env:
           EXPO_PUBLIC_API_URL: ${{ steps.backend.outputs.api_url }}
         run: pnpm -F @acme/expo verify:android-bundle-env
 
+      - name: Prepare clearly labeled APK
+        id: apk
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          source_apk="apps/expo/android/app/build/outputs/apk/release/app-release.apk"
+          short_sha="${{ steps.backend.outputs.short_sha }}"
+
+          case "$APK_VARIANT" in
+            universal)
+              artifact_name="campdeliver-UNIVERSAL-phone-emulator-$short_sha"
+              apk_filename="CAmpDeliver-universal-phone-emulator-$short_sha.apk"
+              expected_abis=(arm64-v8a x86_64)
+              target_note="Installs on ARM64 Android phones and x86_64 test emulators."
+              ;;
+            arm64-v8a)
+              artifact_name="campdeliver-PHONE-arm64-v8a-$short_sha"
+              apk_filename="CAmpDeliver-PHONE-arm64-v8a-$short_sha.apk"
+              expected_abis=(arm64-v8a)
+              target_note="PHONE build: installs on ARM64 Android devices; not x86_64 emulators."
+              ;;
+            x86_64)
+              artifact_name="campdeliver-EMULATOR-ONLY-x86_64-$short_sha"
+              apk_filename="CAmpDeliver-EMULATOR-ONLY-x86_64-$short_sha.apk"
+              expected_abis=(x86_64)
+              target_note="EMULATOR-ONLY build: do not install this APK on a physical ARM Android phone."
+              ;;
+            *)
+              echo "Unknown APK variant: $APK_VARIANT" >&2
+              exit 1
+              ;;
+          esac
+
+          apk_entries="$(unzip -Z1 "$source_apk")"
+          for abi in "${expected_abis[@]}"; do
+            if ! grep -q "^lib/$abi/" <<<"$apk_entries"; then
+              echo "APK is missing expected native ABI $abi" >&2
+              exit 1
+            fi
+          done
+
+          mkdir -p dist
+          cp "$source_apk" "dist/$apk_filename"
+          {
+            echo "artifact_name=$artifact_name"
+            echo "apk_filename=$apk_filename"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### CAmpDeliver Android preview"
+            echo
+            echo "**$target_note**"
+            echo
+            echo "- Variant: \`$APK_VARIANT\`"
+            echo "- Native ABIs: \`$BUILD_ARCHITECTURES\`"
+            echo "- Android version code: \`$CAMPDELIVER_ANDROID_VERSION_CODE\`"
+            echo "- Commit: \`$TARGET_SHA\`"
+            echo "- APK filename: \`$apk_filename\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: campdeliver-android-${{ env.BUILD_ARCHITECTURE }}-${{ steps.backend.outputs.short_sha }}
-          path: apps/expo/android/app/build/outputs/apk/release/app-release.apk
+          name: ${{ steps.apk.outputs.artifact_name }}
+          path: dist/${{ steps.apk.outputs.apk_filename }}
           if-no-files-found: error
           retention-days: 14

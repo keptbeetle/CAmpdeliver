@@ -1,9 +1,17 @@
 import type { Session } from "@supabase/supabase-js";
 import type React from "react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { AppState } from "react-native";
 import { focusManager } from "@tanstack/react-query";
 
+import { queryClient } from "~/utils/api";
 import { cacheAuthSession, supabase } from "~/utils/auth";
 
 interface AuthSessionContextValue {
@@ -20,6 +28,7 @@ export function AuthSessionProvider({
 }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const activeUserIdRef = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     let isMounted = true;
@@ -27,7 +36,17 @@ export function AuthSessionProvider({
 
     const applySession = (nextSession: Session | null) => {
       if (!isMounted) return;
+      const nextUserId = nextSession?.user.id ?? null;
+      const previousUserId = activeUserIdRef.current;
+      if (previousUserId !== undefined && previousUserId !== nextUserId) {
+        // Never reuse authenticated query data across identities. Besides being
+        // safer, this prevents a cached "no profile" result from a just-created
+        // account from bouncing the next authenticated session back to signup.
+        queryClient.removeQueries();
+      }
+      activeUserIdRef.current = nextUserId;
       cacheAuthSession(nextSession);
+      void supabase.realtime.setAuth(nextSession?.access_token ?? null);
       setSession(nextSession);
     };
 

@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import { eq, sql } from "@acme/db";
+import { and, eq, ne, sql } from "@acme/db";
 import { profiles } from "@acme/db/schema";
 
 import {
@@ -332,10 +332,28 @@ export const authRouter = {
         .strict(),
     )
     .mutation(async ({ ctx, input }) => {
-      await ctx.db
-        .update(profiles)
-        .set({ pushToken: input.pushToken, updatedAt: new Date() })
-        .where(eq(profiles.id, ctx.user.id));
+      const now = new Date();
+      await ctx.db.transaction(async (tx) => {
+        // One physical Expo token must belong to only the current signed-in
+        // profile. This prevents stale profiles on the same device from
+        // receiving duplicate quest pushes after account switching/reinstall.
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.pushToken}, 31))`,
+        );
+        await tx
+          .update(profiles)
+          .set({ pushToken: null, updatedAt: now })
+          .where(
+            and(
+              eq(profiles.pushToken, input.pushToken),
+              ne(profiles.id, ctx.user.id),
+            ),
+          );
+        await tx
+          .update(profiles)
+          .set({ pushToken: input.pushToken, updatedAt: now })
+          .where(eq(profiles.id, ctx.user.id));
+      });
       return { success: true };
     }),
 
@@ -363,10 +381,47 @@ export const authRouter = {
         .set({
           deliveryNotificationsEnabled: input.enabled,
           deliveryCanteenIds: input.canteenIds,
-          nearbyQuestAlertsEnabled: input.nearbyQuestAlertsEnabled,
+          // Background geofencing was removed. Foreground presence now decides
+          // whether a deliverer is close enough to receive a quest alert.
+          nearbyQuestAlertsEnabled: false,
+          ...(!input.enabled || input.canteenIds.length === 0
+            ? {
+                deliveryPresenceLatitude: null,
+                deliveryPresenceLongitude: null,
+                deliveryPresenceUpdatedAt: null,
+              }
+            : {}),
           updatedAt: new Date(),
         })
         .where(eq(profiles.id, ctx.user.id));
       return { success: true };
+    }),
+
+  updateDeliveryPresence: protectedProcedure
+    .input(
+      z
+        .object({
+          latitude: z.number().finite().min(-90).max(90),
+          longitude: z.number().finite().min(-180).max(180),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await ctx.db
+        .update(profiles)
+        .set({
+          deliveryPresenceLatitude: input.latitude,
+          deliveryPresenceLongitude: input.longitude,
+          deliveryPresenceUpdatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(profiles.id, ctx.user.id),
+            eq(profiles.deliveryNotificationsEnabled, true),
+          ),
+        )
+        .returning({ id: profiles.id });
+      return { accepted: Boolean(updated) };
     }),
 } satisfies TRPCRouterRecord;

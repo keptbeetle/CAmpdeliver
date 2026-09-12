@@ -497,11 +497,16 @@ function PaymentDestinationCard({
               value={payeeName}
               onChangeText={onChangePayeeName}
               autoCapitalize="words"
-              placeholder="CAmpDeliver"
+              placeholder="Recipient name"
               placeholderTextColor={colors.faint}
               style={styles.input}
               maxLength={80}
             />
+            <Text style={styles.destinationCopy}>
+              Use the recipient name associated with this UPI ID. For a personal
+              VPA, avoid a platform nickname if it differs from the name shown
+              by the UPI app.
+            </Text>
           </View>
           <AppButton
             label="Save UPI Destination"

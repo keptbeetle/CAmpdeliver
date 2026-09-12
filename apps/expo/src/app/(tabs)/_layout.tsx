@@ -6,6 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { colors } from "~/components/app/theme";
 import { LoadingState } from "~/components/app/ui";
+import { DeliveryPresenceManager } from "~/components/DeliveryPresenceManager";
+import { PermissionOnboardingManager } from "~/components/PermissionOnboardingManager";
 import { useAuthSession } from "~/providers/AuthSessionProvider";
 import { trpc } from "~/utils/api";
 
@@ -38,65 +40,73 @@ export default function TabsLayout() {
   }
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        sceneStyle: { backgroundColor: colors.bg },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.faint,
-        tabBarHideOnKeyboard: true,
-        tabBarLabelStyle: styles.label,
-        tabBarStyle: [
-          styles.tabBar,
-          {
-            height: 64 + insets.bottom,
-            paddingBottom: Math.max(6, insets.bottom),
-          },
-        ],
-        tabBarItemStyle: styles.tabItem,
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="home" size={focused ? 22 : 21} color={color} />
-          ),
+    <>
+      <PermissionOnboardingManager />
+      <DeliveryPresenceManager />
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          sceneStyle: { backgroundColor: colors.bg },
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.faint,
+          tabBarHideOnKeyboard: true,
+          tabBarLabelStyle: styles.label,
+          tabBarStyle: [
+            styles.tabBar,
+            {
+              height: 64 + insets.bottom,
+              paddingBottom: Math.max(6, insets.bottom),
+            },
+          ],
+          tabBarItemStyle: styles.tabItem,
         }}
-      />
-      <Tabs.Screen
-        name="quests"
-        options={{
-          title: "Quests",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="navigation" size={focused ? 22 : 21} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="history_tab"
-        options={{
-          title: "Orders",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather name="package" size={focused ? 22 : 21} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="earnings"
-        options={{
-          title: "Earnings",
-          tabBarIcon: ({ color, focused }) => (
-            <Feather
-              name="trending-up"
-              size={focused ? 22 : 21}
-              color={color}
-            />
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ color, focused }) => (
+              <Feather name="home" size={focused ? 22 : 21} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="quests"
+          options={{
+            title: "Quests",
+            tabBarIcon: ({ color, focused }) => (
+              <Feather
+                name="navigation"
+                size={focused ? 22 : 21}
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="history_tab"
+          options={{
+            title: "Orders",
+            tabBarIcon: ({ color, focused }) => (
+              <Feather name="package" size={focused ? 22 : 21} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="earnings"
+          options={{
+            title: "Earnings",
+            tabBarIcon: ({ color, focused }) => (
+              <Feather
+                name="trending-up"
+                size={focused ? 22 : 21}
+                color={color}
+              />
+            ),
+          }}
+        />
+      </Tabs>
+    </>
   );
 }
 

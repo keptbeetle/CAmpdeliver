@@ -102,7 +102,9 @@ export default function CheckoutScreen() {
         return;
       }
 
-      const current = await locationService.getCurrentPosition();
+      const current = await locationService.getCurrentPosition({
+        highAccuracy: true,
+      });
       const deliveryLatitude = current.latitude;
       const deliveryLongitude = current.longitude;
 

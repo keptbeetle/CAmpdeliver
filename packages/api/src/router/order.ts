@@ -27,6 +27,10 @@ import {
   profiles,
 } from "@acme/db/schema";
 
+import {
+  distanceMetres,
+  isDeliveryQuestEligible,
+} from "../services/delivery-eligibility";
 import { expireStaleOrders } from "../services/order-expiry";
 import {
   DELIVERY_OTP_LOCK_SECONDS,
@@ -68,6 +72,8 @@ const ACTIVE_ORDER_STATUSES = [
   "BROADCASTED",
   ...ACTIVE_LOCATION_STATUSES,
 ] as const;
+
+const DELIVERY_PRESENCE_MAX_AGE_MS = 45 * 1000;
 
 async function requirePaymentSchemaReady() {
   const database = await getPaymentSchemaReadiness();
@@ -176,24 +182,6 @@ async function readLegacyOrders(database: typeof db, userId: string) {
     cancellationReason: null,
     payment: null,
   }));
-}
-
-function distanceMetres(
-  latitudeA: number,
-  longitudeA: number,
-  latitudeB: number,
-  longitudeB: number,
-) {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const radius = 6371e3;
-  const phi1 = toRad(latitudeA);
-  const phi2 = toRad(latitudeB);
-  const deltaPhi = toRad(latitudeB - latitudeA);
-  const deltaLambda = toRad(longitudeB - longitudeA);
-  const a =
-    Math.sin(deltaPhi / 2) ** 2 +
-    Math.cos(phi1) * Math.cos(phi2) * Math.sin(deltaLambda / 2) ** 2;
-  return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export const orderRouter = {
@@ -310,7 +298,7 @@ export const orderRouter = {
 
       return ordersList
         .filter((order) => {
-          const radius =
+          const pickupRadius =
             (order.canteenId
               ? canteenRadiusMap.get(order.canteenId)
               : undefined) ?? 150;
@@ -320,7 +308,7 @@ export const orderRouter = {
               longitude,
               order.canteenLatitude,
               order.canteenLongitude,
-            ) <= radius
+            ) <= pickupRadius
           );
         })
         .map((order) => {
@@ -497,20 +485,49 @@ export const orderRouter = {
       });
 
       try {
+        const presenceCutoff = new Date(
+          now.getTime() - DELIVERY_PRESENCE_MAX_AGE_MS,
+        );
         const potentialDeliverers = await ctx.db
-          .select({ pushToken: profiles.pushToken })
+          .select({
+            pushToken: profiles.pushToken,
+            latitude: profiles.deliveryPresenceLatitude,
+            longitude: profiles.deliveryPresenceLongitude,
+          })
           .from(profiles)
           .where(
             and(
               ne(profiles.id, ctx.user.id),
               isNotNull(profiles.pushToken),
+              isNotNull(profiles.deliveryPresenceLatitude),
+              isNotNull(profiles.deliveryPresenceLongitude),
+              gt(profiles.deliveryPresenceUpdatedAt, presenceCutoff),
               eq(profiles.deliveryNotificationsEnabled, true),
               sql`${profiles.deliveryCanteenIds} @> ${JSON.stringify([canteen.id])}::jsonb`,
             ),
           );
-        const tokens = potentialDeliverers
-          .map((profile) => profile.pushToken)
-          .filter((token): token is string => Boolean(token));
+        const tokens = [
+          ...new Set(
+            potentialDeliverers
+              .filter(
+                (profile) =>
+                  profile.latitude !== null &&
+                  profile.longitude !== null &&
+                  isDeliveryQuestEligible({
+                    availabilityEnabled: true,
+                    selectedCanteenIds: [canteen.id],
+                    canteenId: canteen.id,
+                    latitude: profile.latitude,
+                    longitude: profile.longitude,
+                    canteenLatitude: canteen.latitude,
+                    canteenLongitude: canteen.longitude,
+                    pickupRadiusMetres: canteen.radius,
+                  }),
+              )
+              .map((profile) => profile.pushToken)
+              .filter((token): token is string => Boolean(token)),
+          ),
+        ];
         if (tokens.length > 0) {
           await sendExpoPushNotifications([
             {
@@ -577,6 +594,8 @@ export const orderRouter = {
         .object({
           orderId: z.string().uuid(),
           allowPayAtDelivery: z.boolean().default(false),
+          latitude: z.number().finite().min(-90).max(90),
+          longitude: z.number().finite().min(-180).max(180),
         })
         .strict(),
     )
@@ -593,6 +612,47 @@ export const orderRouter = {
         await tx.execute(
           sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
         );
+
+        const [candidateOrder] = await tx
+          .select({
+            status: orders.status,
+            canteenId: orders.canteenId,
+            canteenLatitude: orders.canteenLatitude,
+            canteenLongitude: orders.canteenLongitude,
+          })
+          .from(orders)
+          .where(eq(orders.id, input.orderId))
+          .limit(1);
+        if (candidateOrder?.status !== "BROADCASTED") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "This quest is no longer available.",
+          });
+        }
+
+        const [canteenConfig] = candidateOrder.canteenId
+          ? await tx
+              .select({ radius: canteens.radius })
+              .from(canteens)
+              .where(eq(canteens.id, candidateOrder.canteenId))
+              .limit(1)
+          : [];
+        const pickupRadius = canteenConfig?.radius ?? 150;
+        if (
+          distanceMetres(
+            input.latitude,
+            input.longitude,
+            candidateOrder.canteenLatitude,
+            candidateOrder.canteenLongitude,
+          ) > pickupRadius
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "You must be inside this canteen's pickup radius before accepting the quest.",
+          });
+        }
+
         const [activeDelivery] = await tx
           .select({ id: orders.id })
           .from(orders)

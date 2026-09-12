@@ -6,7 +6,7 @@ import { useRouter } from "expo-router";
 import { useMutation } from "@tanstack/react-query";
 
 import { useAuthSession } from "~/providers/AuthSessionProvider";
-import { trpc } from "~/utils/api";
+import { queryClient, trpc } from "~/utils/api";
 
 Notifications.setNotificationHandler({
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -19,14 +19,38 @@ Notifications.setNotificationHandler({
   }),
 });
 
+interface NotificationData {
+  orderId?: string;
+  type?: string;
+  url?: string;
+}
+
+function notificationData(
+  notification: Notifications.Notification,
+): NotificationData | undefined {
+  return notification.request.content.data as NotificationData | undefined;
+}
+
 function notificationRoute(response: Notifications.NotificationResponse) {
-  const data = response.notification.request.content.data as
-    | { orderId?: string; url?: string }
-    | undefined;
+  const data = notificationData(response.notification);
 
   if (data?.url?.startsWith("/")) return data.url;
   if (data?.orderId) return `/orders/${data.orderId}/status`;
   return null;
+}
+
+function refreshNotificationData(notification: Notifications.Notification) {
+  const data = notificationData(notification);
+  if (data?.type === "NEW_QUEST") {
+    void queryClient.invalidateQueries({
+      queryKey: trpc.order.availableQuests.queryKey(),
+    });
+  }
+  if (data?.orderId) {
+    void queryClient.invalidateQueries({
+      queryKey: trpc.order.myOrders.queryKey(),
+    });
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,10 +94,14 @@ export function PushNotificationManager() {
     if (isLoading || !session) return;
 
     const navigate = (response: Notifications.NotificationResponse) => {
+      refreshNotificationData(response.notification);
       const route = notificationRoute(response);
       if (route) router.push(route as never);
     };
 
+    const receivedSubscription = Notifications.addNotificationReceivedListener(
+      refreshNotificationData,
+    );
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener(navigate);
     void Notifications.getLastNotificationResponseAsync().then((response) => {
@@ -82,7 +110,10 @@ export function PushNotificationManager() {
       Notifications.clearLastNotificationResponse();
     });
 
-    return () => responseSubscription.remove();
+    return () => {
+      receivedSubscription.remove();
+      responseSubscription.remove();
+    };
   }, [isLoading, router, session]);
 
   useEffect(() => {
@@ -93,6 +124,7 @@ export function PushNotificationManager() {
 
     let cancelled = false;
     let registrationInFlight: Promise<void> | null = null;
+    let permissionRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
     const registerDevice = () => {
       if (registrationInFlight) return registrationInFlight;
@@ -100,15 +132,23 @@ export function PushNotificationManager() {
       registrationInFlight = (async () => {
         try {
           await configureAndroidChannel();
-          const currentPermissions = await Notifications.getPermissionsAsync();
-          const permissions =
-            currentPermissions.status ===
-            Notifications.PermissionStatus.UNDETERMINED
-              ? await Notifications.requestPermissionsAsync()
-              : currentPermissions;
+          const permissions = await Notifications.getPermissionsAsync();
 
           if (permissions.status !== Notifications.PermissionStatus.GRANTED) {
-            console.info("Push notifications are not enabled for this device.");
+            // The authenticated tabs own the user-facing permission prompt. If
+            // this is a first login/signup, quietly wait for that prompt instead
+            // of interrupting OTP/profile creation from the root manager.
+            if (
+              permissions.status ===
+                Notifications.PermissionStatus.UNDETERMINED &&
+              !cancelled &&
+              !permissionRetryTimer
+            ) {
+              permissionRetryTimer = setTimeout(() => {
+                permissionRetryTimer = null;
+                void registerDevice();
+              }, 1000);
+            }
             return;
           }
 
@@ -162,6 +202,7 @@ export function PushNotificationManager() {
 
     return () => {
       cancelled = true;
+      if (permissionRetryTimer) clearTimeout(permissionRetryTimer);
       appStateSubscription.remove();
       tokenSubscription.remove();
     };

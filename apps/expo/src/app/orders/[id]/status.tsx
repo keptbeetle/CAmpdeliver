@@ -242,14 +242,21 @@ export default function OrderStatusScreen() {
       );
       return;
     }
-    const params = new URLSearchParams({
-      pa: receivingUpiId,
-      pn: receivingPayeeName,
-      am: (expectedAmount / 100).toFixed(2),
-      cu: "INR",
-      tn: `CAmpDeliver ${shortId(order.id)}`,
-    });
-    const uri = `upi://pay?${params.toString()}`;
+    // UPI intents are URI query strings, not HTML form bodies. Encode each
+    // value with percent escapes (spaces become %20, not '+'). This pilot is
+    // not merchant-onboarded, so never fabricate merchant metadata such as MCC,
+    // merchant transaction IDs, org IDs, or signatures.
+    const upiParameters: [string, string][] = [
+      ["pa", receivingUpiId],
+      ["pn", receivingPayeeName],
+      ["tn", `CAmpDeliver ${shortId(order.id)}`],
+      ["am", (expectedAmount / 100).toFixed(2)],
+      ["cu", "INR"],
+    ];
+    const params = upiParameters
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join("&");
+    const uri = `upi://pay?${params}`;
     try {
       await Linking.openURL(uri);
     } catch {
@@ -934,6 +941,11 @@ function PaymentCard({
             tone="secondary"
             disabled={!receivingUpiId || activeAction !== null}
             onPress={openUpi}
+          />
+          <InlineNotice
+            icon="info"
+            title="If the UPI app blocks this launch"
+            copy="Open Google Pay, PhonePe, or your UPI app manually, choose Pay UPI ID, long-press the UPI ID above to copy it, and pay the exact amount. Then return here and submit the UTR. This avoids app-to-app intent restrictions while keeping the same CAmpDeliver verification flow."
           />
           <TextInput
             value={utrInput}

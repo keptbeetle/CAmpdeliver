@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Platform,
   Pressable,
   StyleSheet,
   Switch,
@@ -31,23 +30,17 @@ export function DeliveryAvailabilityCard() {
   const selectedCanteenIds =
     userSelectedCanteenIds ?? profile?.deliveryCanteenIds ?? [];
   const active = profile?.deliveryNotificationsEnabled ?? false;
-  const nearbyEnabled = profile?.nearbyQuestAlertsEnabled ?? false;
-  const supportsNearbyGeofences = Platform.OS === "android";
 
   const availabilityMutation = useMutation(
     trpc.auth.updateDeliveryAvailability.mutationOptions(),
   );
 
-  const persist = async (
-    enabled: boolean,
-    canteenIds: string[],
-    nearbyQuestAlertsEnabled: boolean,
-  ) => {
+  const persist = async (enabled: boolean, canteenIds: string[]) => {
     try {
       await availabilityMutation.mutateAsync({
         enabled,
         canteenIds,
-        nearbyQuestAlertsEnabled,
+        nearbyQuestAlertsEnabled: false,
       });
       setUserSelectedCanteenIds(canteenIds);
       await queryClient.invalidateQueries({
@@ -93,9 +86,23 @@ export function DeliveryAvailabilityCard() {
         );
         return;
       }
+
+      const currentLocationPermission =
+        await Location.getForegroundPermissionsAsync();
+      const locationPermission =
+        currentLocationPermission.status === Location.PermissionStatus.GRANTED
+          ? currentLocationPermission
+          : await Location.requestForegroundPermissionsAsync();
+      if (locationPermission.status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert(
+          "Location is required",
+          "Allow location while using CAmpDeliver so the server can verify that you are actually inside a selected canteen's pickup radius.",
+        );
+        return;
+      }
     }
 
-    await persist(enabled, canteenIds, enabled ? nearbyEnabled : false);
+    await persist(enabled, canteenIds);
   };
 
   const toggleCanteen = (canteenId: string) => {
@@ -103,83 +110,13 @@ export function DeliveryAvailabilityCard() {
       ? selectedCanteenIds.filter((id) => id !== canteenId)
       : [...selectedCanteenIds, canteenId];
 
-    // An empty watch list is semantically unavailable. Keeping availability or
-    // background geofencing enabled here would create a misleading state.
+    // An empty list is semantically unavailable.
     if (next.length === 0) {
-      void persist(false, next, false);
+      void persist(false, next);
       return;
     }
 
-    void persist(active, next, nearbyEnabled);
-  };
-
-  const setNearbyAlerts = (enabled: boolean) => {
-    if (!enabled) {
-      void persist(active, selectedCanteenIds, false);
-      return;
-    }
-
-    if (!active || selectedCanteenIds.length === 0) return;
-
-    Alert.alert(
-      "Alert when you reach a canteen?",
-      "Android can notify you when you enter a selected canteen area. CAmpDeliver does not continuously upload your background location for this feature.",
-      [
-        { text: "Not now", style: "cancel" },
-        {
-          text: "Continue",
-          onPress: () => {
-            void (async () => {
-              const existingNotification =
-                await Notifications.getPermissionsAsync();
-              const notificationPermission =
-                existingNotification.status ===
-                Notifications.PermissionStatus.GRANTED
-                  ? existingNotification
-                  : await Notifications.requestPermissionsAsync();
-              if (
-                notificationPermission.status !==
-                Notifications.PermissionStatus.GRANTED
-              ) {
-                Alert.alert(
-                  "Notifications are off",
-                  "Enable notifications in Android settings to receive nearby quest alerts.",
-                );
-                return;
-              }
-
-              const foreground =
-                await Location.requestForegroundPermissionsAsync();
-              if (foreground.status !== Location.PermissionStatus.GRANTED) {
-                Alert.alert(
-                  "Location is off",
-                  "Allow location while using the app first, then try again.",
-                );
-                return;
-              }
-
-              const background =
-                await Location.requestBackgroundPermissionsAsync();
-              if (background.status !== Location.PermissionStatus.GRANTED) {
-                Alert.alert(
-                  "Background location is off",
-                  'Choose "Allow all the time" in Android settings for canteen arrival alerts.',
-                );
-                return;
-              }
-
-              await persist(true, selectedCanteenIds, true);
-            })().catch((error: unknown) => {
-              console.warn("Could not enable nearby quest alerts", error);
-              Alert.alert(
-                "Nearby alerts not enabled",
-                "Please try again from the Quests screen.",
-              );
-            });
-          },
-        },
-      ],
-    );
+    void persist(active, next);
   };
 
   const isSaving = availabilityMutation.isPending;
@@ -191,9 +128,9 @@ export function DeliveryAvailabilityCard() {
           <Feather name="bell" size={18} color={colors.primary} />
         </View>
         <View style={styles.headingCopy}>
-          <Text style={styles.title}>Quest availability</Text>
+          <Text style={styles.title}>Quest alerts</Text>
           <Text style={styles.copy}>
-            Choose when and where you want delivery requests.
+            Choose which canteens may notify you while you are nearby.
           </Text>
         </View>
         {isSaving ? (
@@ -203,13 +140,14 @@ export function DeliveryAvailabilityCard() {
 
       <View style={styles.row}>
         <View style={styles.rowCopy}>
-          <Text style={styles.rowTitle}>Available for quests</Text>
+          <Text style={styles.rowTitle}>Notify me about nearby quests</Text>
           <Text style={styles.rowDescription}>
-            Receive delivery notifications for your selected canteens.
+            Alerts are sent only when your recent foreground location is inside
+            a selected canteen radius.
           </Text>
         </View>
         <Switch
-          accessibilityLabel="Available for delivery quests"
+          accessibilityLabel="Notify me about nearby delivery quests"
           disabled={isSaving || canteensLoading}
           onValueChange={(enabled) => void setDeliveryAvailability(enabled)}
           thumbColor={colors.white}
@@ -261,42 +199,18 @@ export function DeliveryAvailabilityCard() {
             })}
           </View>
 
-          {supportsNearbyGeofences ? (
-            <View style={[styles.row, styles.nearbyRow]}>
-              <View style={styles.rowCopy}>
-                <Text style={styles.rowTitle}>Alert when I am nearby</Text>
-                <Text style={styles.rowDescription}>
-                  Optional Android arrival alerts for selected canteens.
-                </Text>
-              </View>
-              <Switch
-                accessibilityLabel="Alert when near a selected canteen"
-                disabled={isSaving || selectedCanteenIds.length === 0}
-                onValueChange={setNearbyAlerts}
-                thumbColor={colors.white}
-                trackColor={{
-                  false: colors.borderStrong,
-                  true: colors.primary,
-                }}
-                value={nearbyEnabled}
-              />
-            </View>
-          ) : null}
-
-          {supportsNearbyGeofences && nearbyEnabled ? (
-            <InlineNotice
-              tone="success"
-              icon="shield"
-              title="Nearby alerts are on"
-              copy="Android watches only the selected canteen areas. Turn off availability to stop these alerts."
-            />
-          ) : null}
+          <InlineNotice
+            tone="success"
+            icon="crosshair"
+            title="Live location decides eligibility"
+            copy="You will only see and receive fresh quest alerts while your recent foreground location is inside the selected canteen's pickup radius. No background-location permission is required."
+          />
         </>
       ) : (
         <InlineNotice
           icon="moon"
-          title="You are currently unavailable"
-          copy="You can still place and track your own orders."
+          title="Quest alerts are off"
+          copy="You can still open Quests and accept a request when your current location is inside its canteen pickup radius."
         />
       )}
     </SectionCard>
@@ -358,11 +272,6 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: "center",
     width: 40,
-  },
-  nearbyRow: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    paddingTop: 14,
   },
   pressed: {
     opacity: 0.74,

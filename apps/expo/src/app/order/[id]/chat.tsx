@@ -50,7 +50,11 @@ export default function OrderChatScreen() {
     refetch: refetchMessages,
   } = useQuery({
     ...trpc.chat.getMessages.queryOptions({ orderId: id }),
-    refetchInterval: paymentConfig?.databaseReady === false ? 3000 : false,
+    // Realtime is the fast path. This short foreground poll is the recovery
+    // path when a device temporarily loses its Supabase realtime socket.
+    refetchInterval: 2500,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
   });
   const { data: orders, isLoading: ordersLoading } = useQuery(
     trpc.order.myOrders.queryOptions(),
@@ -383,9 +387,7 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.45,
   },
-  emptyMessageWrap: {
-    transform: [{ scaleY: -1 }],
-  },
+  emptyMessageWrap: {},
   header: {
     alignItems: "center",
     backgroundColor: colors.bg,

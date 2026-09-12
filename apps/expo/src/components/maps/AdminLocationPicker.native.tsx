@@ -1,5 +1,5 @@
-import type { LngLat } from "@maplibre/maplibre-react-native";
-import { useMemo, useState } from "react";
+import type { CameraRef, LngLat } from "@maplibre/maplibre-react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +23,15 @@ import { colors, radius, shadow } from "~/components/app/theme";
 const MAP_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const EARTH_RADIUS_METERS = 6_371_000;
 const RADIUS_SEGMENTS = 64;
+const DEFAULT_ZOOM = 16.5;
+
+function sameCoordinate(a: LngLat | null, b: LngLat) {
+  return (
+    a !== null &&
+    Math.abs(a[0] - b[0]) < 0.0000001 &&
+    Math.abs(a[1] - b[1]) < 0.0000001
+  );
+}
 
 export interface AdminLocationPickerProps {
   latitude: number;
@@ -103,10 +112,18 @@ export function AdminLocationPicker({
   onLocationChange,
 }: AdminLocationPickerProps) {
   const [locating, setLocating] = useState(false);
+  const cameraRef = useRef<CameraRef>(null);
   const coordinate = useMemo<LngLat>(
     () => [longitude, latitude],
     [latitude, longitude],
   );
+  const previousCoordinateRef = useRef<LngLat>(coordinate);
+  const mapPlacedCoordinateRef = useRef<LngLat | null>(null);
+  const initialViewState = useRef({
+    center: coordinate,
+    zoom: DEFAULT_ZOOM,
+    pitch: 10,
+  }).current;
   const geofence = useMemo(
     () =>
       radiusPolygon(
@@ -116,6 +133,24 @@ export function AdminLocationPicker({
       ),
     [latitude, longitude, radiusMeters],
   );
+
+  useEffect(() => {
+    const previousCoordinate = previousCoordinateRef.current;
+    previousCoordinateRef.current = coordinate;
+    if (sameCoordinate(previousCoordinate, coordinate)) return;
+
+    if (sameCoordinate(mapPlacedCoordinateRef.current, coordinate)) {
+      mapPlacedCoordinateRef.current = null;
+      return;
+    }
+
+    mapPlacedCoordinateRef.current = null;
+    cameraRef.current?.flyTo({
+      center: coordinate,
+      zoom: DEFAULT_ZOOM,
+      duration: 650,
+    });
+  }, [coordinate]);
 
   const locateDevice = async () => {
     if (locating) return;
@@ -132,6 +167,17 @@ export function AdminLocationPicker({
 
       const position = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
+      });
+      const nextCoordinate: LngLat = [
+        position.coords.longitude,
+        position.coords.latitude,
+      ];
+      mapPlacedCoordinateRef.current = null;
+      previousCoordinateRef.current = nextCoordinate;
+      cameraRef.current?.flyTo({
+        center: nextCoordinate,
+        zoom: DEFAULT_ZOOM,
+        duration: 650,
       });
       onLocationChange(position.coords.latitude, position.coords.longitude);
     } catch (error) {
@@ -150,6 +196,7 @@ export function AdminLocationPicker({
 
   return (
     <View style={styles.container}>
+      {/* MapLibre only disallows Android ScrollView interception when dragPan is explicitly true. */}
       <Map
         style={styles.map}
         mapStyle={MAP_STYLE_URL}
@@ -160,17 +207,22 @@ export function AdminLocationPicker({
         attribution
         attributionPosition={{ top: 8, right: 8 }}
         tintColor={colors.primary}
+        dragPan
+        touchZoom
+        doubleTapZoom
+        doubleTapHoldZoom
+        touchRotate
+        touchPitch
         onPress={(event) => {
           const [nextLongitude, nextLatitude] = event.nativeEvent.lngLat;
+          mapPlacedCoordinateRef.current = [nextLongitude, nextLatitude];
           onLocationChange(nextLatitude, nextLongitude);
         }}
       >
         <Camera
-          center={coordinate}
-          zoom={16.5}
-          duration={420}
-          easing="ease"
-          minZoom={12}
+          ref={cameraRef}
+          initialViewState={initialViewState}
+          minZoom={4}
           maxZoom={20}
         />
 
@@ -207,8 +259,25 @@ export function AdminLocationPicker({
 
       <View pointerEvents="none" style={styles.hintPill}>
         <Feather name="crosshair" size={14} color={colors.primaryStrong} />
-        <Text style={styles.hintText}>Tap anywhere to place marker</Text>
+        <Text style={styles.hintText}>
+          Pan or pinch freely · tap to place marker
+        </Text>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Center map on placed marker"
+        onPress={() =>
+          cameraRef.current?.easeTo({
+            center: coordinate,
+            duration: 420,
+          })
+        }
+        style={({ pressed }) => [styles.focusButton, pressed && styles.pressed]}
+      >
+        <Feather name="crosshair" size={15} color={colors.primaryStrong} />
+        <Text style={styles.focusButtonText}>Center pin</Text>
+      </Pressable>
 
       <Pressable
         accessibilityRole="button"
@@ -247,6 +316,26 @@ const styles = StyleSheet.create({
   },
   disabled: {
     opacity: 0.6,
+  },
+  focusButton: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.96)",
+    borderColor: colors.borderStrong,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    bottom: 12,
+    flexDirection: "row",
+    gap: 7,
+    left: 12,
+    minHeight: 42,
+    paddingHorizontal: 13,
+    position: "absolute",
+    ...shadow,
+  },
+  focusButtonText: {
+    color: colors.primaryStrong,
+    fontSize: 12,
+    fontWeight: "900",
   },
   hintPill: {
     alignItems: "center",

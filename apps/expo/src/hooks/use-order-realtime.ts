@@ -31,32 +31,54 @@ export function useOrderRealtime(
   useEffect(() => {
     if (!orderId) return;
 
-    const channel = supabase
-      .channel(`order:${orderId}`, { config: { private: true } })
-      .on("broadcast", { event: "location_update" }, (payload) => {
-        const data = payload.payload as DelivererLocationPayload;
-        setDelivererLocation({
-          latitude: data.latitude,
-          longitude: data.longitude,
+    let cancelled = false;
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const subscribe = async () => {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) {
+        console.warn(
+          `Could not authenticate realtime order:${orderId}:`,
+          error,
+        );
+        return;
+      }
+      const accessToken = data.session?.access_token;
+      if (!accessToken || cancelled) return;
+
+      await supabase.realtime.setAuth(accessToken);
+      // Cleanup can run while realtime authentication is awaiting.
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+      if (cancelled) return;
+
+      channel = supabase
+        .channel(`order:${orderId}`, { config: { private: true } })
+        .on("broadcast", { event: "location_update" }, (payload) => {
+          const location = payload.payload as DelivererLocationPayload;
+          setDelivererLocation({
+            latitude: location.latitude,
+            longitude: location.longitude,
+          });
+          optionsRef.current?.onLocationUpdate?.(location);
+        })
+        .on("broadcast", { event: "chat_update" }, () => {
+          optionsRef.current?.onChatUpdate?.();
+        })
+        .on("broadcast", { event: "order_update" }, () => {
+          optionsRef.current?.onOrderUpdate?.();
         });
-        optionsRef.current?.onLocationUpdate?.(data);
-      })
-      .on("broadcast", { event: "chat_update" }, () => {
-        optionsRef.current?.onChatUpdate?.();
-      })
-      .on("broadcast", { event: "order_update" }, () => {
-        optionsRef.current?.onOrderUpdate?.();
-      });
 
-    channel.subscribe((status) => {
-      console.log(`Channel order:${orderId} status:`, status);
-    });
+      channelRef.current = channel;
+      channel.subscribe();
+    };
 
-    channelRef.current = channel;
+    void subscribe();
 
     return () => {
-      void supabase.removeChannel(channel);
-      channelRef.current = null;
+      cancelled = true;
+      const activeChannel = channel;
+      if (activeChannel) void supabase.removeChannel(activeChannel);
+      if (channelRef.current === activeChannel) channelRef.current = null;
     };
   }, [orderId]);
 

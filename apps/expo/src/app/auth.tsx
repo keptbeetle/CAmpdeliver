@@ -18,7 +18,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { colors, radius, shadow } from "~/components/app/theme";
 import { AppButton, InlineNotice, LoadingState } from "~/components/app/ui";
 import { useAuthSession } from "~/providers/AuthSessionProvider";
-import { trpc } from "~/utils/api";
+import { queryClient, trpc } from "~/utils/api";
 import { supabase } from "~/utils/auth";
 
 const EMAIL_OTP_LENGTH = 8;
@@ -61,6 +61,8 @@ export default function AuthScreen() {
   const [authLoading, setAuthLoading] = useState(false);
 
   const otpInputRef = useRef<TextInput>(null);
+  const [signupCompletionInFlight, setSignupCompletionInFlight] =
+    useState(false);
   const shakeAnimation = useRef(new Animated.Value(0)).current;
 
   const requestOtpMutation = useMutation(
@@ -79,7 +81,7 @@ export default function AuthScreen() {
   });
 
   useEffect(() => {
-    if (!session || profileState.isPending) return;
+    if (signupCompletionInFlight || !session || profileState.isPending) return;
     if (profileState.data?.hasProfile) {
       router.replace("/" as never);
       return;
@@ -89,7 +91,13 @@ export default function AuthScreen() {
       setStep(1);
       void supabase.auth.signOut({ scope: "local" });
     }
-  }, [profileState.data, profileState.isPending, router, session]);
+  }, [
+    profileState.data,
+    profileState.isPending,
+    router,
+    session,
+    signupCompletionInFlight,
+  ]);
 
   useEffect(() => {
     if (timer <= 0 || session) return;
@@ -143,11 +151,24 @@ export default function AuthScreen() {
         identifier: identifier.trim(),
         password,
       });
+      queryClient.removeQueries({
+        queryKey: trpc.auth.hasProfile.queryKey(),
+      });
       const { error } = await supabase.auth.setSession({
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
       });
       if (error) throw error;
+
+      const profile = await queryClient.fetchQuery({
+        ...trpc.auth.hasProfile.queryOptions(),
+        staleTime: 0,
+      });
+      if (!profile.hasProfile) {
+        throw new Error(
+          "This account is missing its CAmpDeliver profile. Complete signup first.",
+        );
+      }
       router.replace("/" as never);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Unable to sign in.");
@@ -219,6 +240,7 @@ export default function AuthScreen() {
 
     setAuthError(null);
     setAuthLoading(true);
+    setSignupCompletionInFlight(true);
     let emailVerified = false;
     try {
       const { error: verifyError } = await supabase.auth.verifyOtp({
@@ -235,11 +257,20 @@ export default function AuthScreen() {
       });
       if (passwordError) throw passwordError;
 
-      await completeSignupMutation.mutateAsync({
+      const createdProfile = await completeSignupMutation.mutateAsync({
         name: name.trim(),
         hostelName: hostelName.trim(),
         phoneNumber: signupPhone,
       });
+      queryClient.setQueryData(trpc.auth.hasProfile.queryKey(), {
+        hasProfile: true,
+      });
+      queryClient.setQueryData(
+        trpc.auth.getMyProfile.queryKey(),
+        createdProfile,
+      );
+      // Signup verification already created a valid authenticated session.
+      // Enter the app immediately instead of forcing a redundant first login.
       router.replace("/" as never);
     } catch (error) {
       if (emailVerified) {
@@ -252,6 +283,7 @@ export default function AuthScreen() {
           : "Verification failed. Check the email code and try again.",
       );
     } finally {
+      setSignupCompletionInFlight(false);
       setAuthLoading(false);
     }
   };
@@ -266,6 +298,7 @@ export default function AuthScreen() {
 
   if (
     checkingSession ||
+    signupCompletionInFlight ||
     (session && profileState.isPending) ||
     profileState.data?.hasProfile
   ) {
