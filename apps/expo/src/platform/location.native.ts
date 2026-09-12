@@ -4,8 +4,11 @@ import type { LocationService } from "./location.types";
 
 export const locationService: LocationService = {
   async requestForegroundPermission() {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    return status === Location.PermissionStatus.GRANTED;
+    const existing = await Location.getForegroundPermissionsAsync();
+    if (existing.status === Location.PermissionStatus.GRANTED) return true;
+
+    const requested = await Location.requestForegroundPermissionsAsync();
+    return requested.status === Location.PermissionStatus.GRANTED;
   },
   async hasForegroundPermission() {
     const { status } = await Location.getForegroundPermissionsAsync();
