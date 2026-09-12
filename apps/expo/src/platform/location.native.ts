@@ -69,7 +69,11 @@ export const locationService: LocationService = {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
-          reject(error instanceof Error ? error : new Error("Unable to read location."));
+          reject(
+            error instanceof Error
+              ? error
+              : new Error("Unable to read location."),
+          );
         });
     });
   },
