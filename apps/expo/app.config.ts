@@ -29,6 +29,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: "com.campdeliver.app",
+    versionCode: Number(process.env.CAMPDELIVER_ANDROID_VERSION_CODE ?? 1),
     googleServicesFile: "./google-services.json",
     permissions: ["android.permission.POST_NOTIFICATIONS"],
     adaptiveIcon: {
