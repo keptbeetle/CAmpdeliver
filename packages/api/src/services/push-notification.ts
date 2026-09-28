@@ -1,7 +1,7 @@
 export interface ExpoPushMessage {
   to: string | string[];
-  title: string;
-  body: string;
+  title?: string;
+  body?: string;
   data?: Record<string, unknown>;
   sound?: "default" | null;
   priority?: "default" | "normal" | "high";
@@ -30,6 +30,24 @@ export function isExpoPushToken(token: unknown): token is string {
   );
 }
 
+function normalizePushMessage(
+  message: ExpoPushMessage,
+  to: string | string[],
+): ExpoPushMessage {
+  const hasPresentation = Boolean(message.title ?? message.body);
+  return {
+    ...message,
+    to,
+    priority: message.priority ?? "high",
+    ...(hasPresentation
+      ? {
+          sound: message.sound ?? "default",
+          channelId: message.channelId ?? "default",
+        }
+      : {}),
+  };
+}
+
 /**
  * Sends push notifications to mobile devices via Expo's Push API.
  * Gracefully handles invalid tokens and network errors without throwing.
@@ -41,27 +59,15 @@ export async function sendExpoPushNotifications(
     return [];
   }
 
-  // Filter and normalize messages with valid tokens
   const validMessages: ExpoPushMessage[] = [];
-  for (const msg of messages) {
-    if (Array.isArray(msg.to)) {
-      const validTokens = msg.to.filter(isExpoPushToken);
+  for (const message of messages) {
+    if (Array.isArray(message.to)) {
+      const validTokens = message.to.filter(isExpoPushToken);
       if (validTokens.length > 0) {
-        validMessages.push({
-          ...msg,
-          to: validTokens,
-          sound: msg.sound ?? "default",
-          priority: msg.priority ?? "high",
-          channelId: msg.channelId ?? "default",
-        });
+        validMessages.push(normalizePushMessage(message, validTokens));
       }
-    } else if (isExpoPushToken(msg.to)) {
-      validMessages.push({
-        ...msg,
-        sound: msg.sound ?? "default",
-        priority: msg.priority ?? "high",
-        channelId: msg.channelId ?? "default",
-      });
+    } else if (isExpoPushToken(message.to)) {
+      validMessages.push(normalizePushMessage(message, message.to));
     }
   }
 

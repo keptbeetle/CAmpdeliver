@@ -27,9 +27,10 @@ import {
   profiles,
 } from "@acme/db/schema";
 
+import type { ExpoPushMessage } from "../services/push-notification";
 import {
+  classifyDeliveryQuestAlert,
   distanceMetres,
-  isDeliveryQuestEligible,
 } from "../services/delivery-eligibility";
 import { expireStaleOrders } from "../services/order-expiry";
 import {
@@ -493,58 +494,81 @@ export const orderRouter = {
             pushToken: profiles.pushToken,
             latitude: profiles.deliveryPresenceLatitude,
             longitude: profiles.deliveryPresenceLongitude,
+            presenceUpdatedAt: profiles.deliveryPresenceUpdatedAt,
+            backgroundAlertsEnabled: profiles.nearbyQuestAlertsEnabled,
           })
           .from(profiles)
           .where(
             and(
               ne(profiles.id, ctx.user.id),
               isNotNull(profiles.pushToken),
-              isNotNull(profiles.deliveryPresenceLatitude),
-              isNotNull(profiles.deliveryPresenceLongitude),
-              gt(profiles.deliveryPresenceUpdatedAt, presenceCutoff),
               eq(profiles.deliveryNotificationsEnabled, true),
               sql`${profiles.deliveryCanteenIds} @> ${JSON.stringify([canteen.id])}::jsonb`,
             ),
           );
-        const tokens = [
-          ...new Set(
-            potentialDeliverers
-              .filter(
-                (profile) =>
-                  profile.latitude !== null &&
-                  profile.longitude !== null &&
-                  isDeliveryQuestEligible({
-                    availabilityEnabled: true,
-                    selectedCanteenIds: [canteen.id],
-                    canteenId: canteen.id,
-                    latitude: profile.latitude,
-                    longitude: profile.longitude,
-                    canteenLatitude: canteen.latitude,
-                    canteenLongitude: canteen.longitude,
-                    pickupRadiusMetres: canteen.radius,
-                  }),
-              )
-              .map((profile) => profile.pushToken)
-              .filter((token): token is string => Boolean(token)),
-          ),
-        ];
-        if (tokens.length > 0) {
-          await sendExpoPushNotifications([
-            {
-              to: tokens,
-              title: "New delivery quest",
-              body: `Pickup at ${canteen.name}. Earn ₹${(config.deliveryFeePaise / 100).toFixed(2)}.`,
-              data: {
-                orderId: newOrder.id,
-                canteenId: canteen.id,
-                type: "NEW_QUEST",
-                url: "/quests",
-              },
-              sound: "default",
-              priority: "high",
-              channelId: "default",
+
+        const freshNearbyTokens = new Set<string>();
+        const backgroundCandidateTokens = new Set<string>();
+        for (const profile of potentialDeliverers) {
+          if (!profile.pushToken) continue;
+          const mode = classifyDeliveryQuestAlert({
+            latitude: profile.latitude,
+            longitude: profile.longitude,
+            presenceUpdatedAt: profile.presenceUpdatedAt,
+            presenceCutoff,
+            backgroundAlertsEnabled: profile.backgroundAlertsEnabled,
+            canteenLatitude: canteen.latitude,
+            canteenLongitude: canteen.longitude,
+            pickupRadiusMetres: canteen.radius,
+          });
+          if (mode === "VISIBLE") {
+            freshNearbyTokens.add(profile.pushToken);
+          } else if (mode === "BACKGROUND_CHECK") {
+            backgroundCandidateTokens.add(profile.pushToken);
+          }
+        }
+
+        const messages: ExpoPushMessage[] = [];
+        if (freshNearbyTokens.size > 0) {
+          messages.push({
+            to: [...freshNearbyTokens],
+            title: "New delivery quest",
+            body: `Pickup at ${canteen.name}. Earn \u20b9${(
+              config.deliveryFeePaise / 100
+            ).toFixed(2)}.`,
+            data: {
+              orderId: newOrder.id,
+              canteenId: canteen.id,
+              type: "NEW_QUEST",
+              url: "/quests",
             },
-          ]);
+            sound: "default",
+            priority: "high",
+            channelId: "default",
+          });
+        }
+
+        if (backgroundCandidateTokens.size > 0) {
+          messages.push({
+            to: [...backgroundCandidateTokens],
+            data: {
+              type: "NEW_QUEST_CANDIDATE",
+              orderId: newOrder.id,
+              canteenId: canteen.id,
+              canteenName: canteen.name,
+              canteenLatitude: canteen.latitude,
+              canteenLongitude: canteen.longitude,
+              pickupRadiusMetres: canteen.radius,
+              deliveryFeePaise: config.deliveryFeePaise,
+              expiresAtMs: newOrder.stateExpiresAt?.getTime() ?? Date.now(),
+              url: "/quests",
+            },
+            priority: "high",
+          });
+        }
+
+        if (messages.length > 0) {
+          await sendExpoPushNotifications(messages);
         }
       } catch (error) {
         console.error("[createOrder] Push dispatch error:", error);

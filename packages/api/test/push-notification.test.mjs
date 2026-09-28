@@ -91,3 +91,38 @@ test("reports Expo credential rejection as an error ticket", async () => {
     console.error = originalConsoleError;
   }
 });
+
+test("keeps headless push messages data-only", async () => {
+  const originalFetch = globalThis.fetch;
+  let request;
+  globalThis.fetch = async (url, options) => {
+    request = { url, options };
+    return new Response(
+      JSON.stringify({ data: [{ status: "ok", id: "headless-ticket" }] }),
+      { status: 200 },
+    );
+  };
+
+  try {
+    await sendExpoPushNotifications([
+      {
+        to: "ExpoPushToken[device-token]",
+        data: { type: "NEW_QUEST_CANDIDATE", orderId: "order-1" },
+        priority: "high",
+      },
+    ]);
+
+    const [message] = JSON.parse(request.options.body);
+    assert.deepEqual(message, {
+      to: "ExpoPushToken[device-token]",
+      data: { type: "NEW_QUEST_CANDIDATE", orderId: "order-1" },
+      priority: "high",
+    });
+    assert.equal("title" in message, false);
+    assert.equal("body" in message, false);
+    assert.equal("sound" in message, false);
+    assert.equal("channelId" in message, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

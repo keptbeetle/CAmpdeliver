@@ -47,3 +47,44 @@ export function isDeliveryQuestEligible({
     pickupRadiusMetres
   );
 }
+
+export type DeliveryQuestAlertMode = "VISIBLE" | "BACKGROUND_CHECK" | "NONE";
+
+export function classifyDeliveryQuestAlert({
+  latitude,
+  longitude,
+  presenceUpdatedAt,
+  presenceCutoff,
+  backgroundAlertsEnabled,
+  canteenLatitude,
+  canteenLongitude,
+  pickupRadiusMetres,
+}: {
+  latitude: number | null;
+  longitude: number | null;
+  presenceUpdatedAt: Date | null;
+  presenceCutoff: Date;
+  backgroundAlertsEnabled: boolean;
+  canteenLatitude: number;
+  canteenLongitude: number;
+  pickupRadiusMetres: number;
+}): DeliveryQuestAlertMode {
+  const hasFreshPresence =
+    latitude !== null &&
+    longitude !== null &&
+    presenceUpdatedAt !== null &&
+    presenceUpdatedAt > presenceCutoff;
+
+  if (!hasFreshPresence) {
+    return backgroundAlertsEnabled ? "BACKGROUND_CHECK" : "NONE";
+  }
+
+  return distanceMetres(
+    latitude,
+    longitude,
+    canteenLatitude,
+    canteenLongitude,
+  ) <= pickupRadiusMetres
+    ? "VISIBLE"
+    : "NONE";
+}
