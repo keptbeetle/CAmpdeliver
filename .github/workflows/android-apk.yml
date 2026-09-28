@@ -80,8 +80,13 @@ jobs:
         with:
           cache-read-only: false
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Verify runner Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${ANDROID_HOME:?GitHub runner did not provide ANDROID_HOME}"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          echo "Using runner Android SDK at $ANDROID_HOME"
 
       - name: Setup workspace
         uses: ./tooling/github/setup
