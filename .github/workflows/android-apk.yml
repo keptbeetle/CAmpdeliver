@@ -37,6 +37,7 @@ concurrency:
 permissions:
   contents: read
   deployments: read
+  checks: read
 
 jobs:
   preview-apk:
