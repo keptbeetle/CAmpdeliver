@@ -53,6 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     reactCompiler: true,
   },
   plugins: [
+    "./plugins/with-vercel-dns-fallback.cjs",
     "expo-router",
     "expo-font",
     "expo-secure-store",

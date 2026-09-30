@@ -104,8 +104,11 @@ jobs:
         shell: bash
         run: cp .env.example .env
 
-      - name: Test branch-aware backend resolver
-        run: node --test apps/expo/scripts/resolve-backend-url.test.mjs
+      - name: Test Android build helpers
+        run: >-
+          node --test
+          apps/expo/scripts/resolve-backend-url.test.mjs
+          apps/expo/scripts/vercel-dns-fallback.test.mjs
 
       - name: Resolve branch-aware Vercel backend
         id: backend
