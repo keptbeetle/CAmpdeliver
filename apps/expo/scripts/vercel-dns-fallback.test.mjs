@@ -25,18 +25,35 @@ test("injects the CAmpDeliver Vercel DNS fallback before React Native starts", (
 
   assert.match(
     result,
-    /import com\.facebook\.react\.modules\.network\.NetworkingModule/,
+    /import com\.facebook\.react\.modules\.network\.OkHttpClientProvider/,
   );
   assert.match(result, /import okhttp3\.Dns/);
   assert.match(result, /VERCEL_EDGE_DISCOVERY_HOST = "cname\.vercel-dns\.com"/);
   assert.match(result, /Dns\.SYSTEM\.lookup\(VERCEL_EDGE_DISCOVERY_HOST\)/);
+  assert.match(result, /auth\.getSignupConfig/);
+  assert.match(result, /TRPC_HEALTH_PATH/);
+  assert.match(result, /android-route-probe/);
+  assert.match(result, /\.url\("https:\/\/\$hostname\$TRPC_HEALTH_PATH"\)/);
+  assert.match(result, /\.get\(\)/);
+  assert.doesNotMatch(result, /\.head\(\)/);
+  assert.match(result, /TimeUnit\.SECONDS\.toNanos\(60\)/);
+  assert.match(result, /fun invalidate\(hostname: String\)/);
   assert.match(result, /normalized\.startsWith\("c-ampdeliver-nextjs-"\)/);
   assert.match(
     result,
-    /NetworkingModule\.setCustomClientBuilder[\s\S]*builder\.dns\(CampDeliverVercelDns\)/,
+    /OkHttpClientProvider\.setOkHttpClientFactory[\s\S]*\.dns\(CampDeliverVercelDns\)/,
   );
+  assert.match(
+    result,
+    /OkHttpClientProvider\.createClientBuilder\(applicationContext\)/,
+  );
+  assert.doesNotMatch(result, /\.proxy\(java\.net\.Proxy\.NO_PROXY\)/);
+  assert.match(result, /\.connectTimeout\(5, TimeUnit\.SECONDS\)/);
+  assert.match(result, /\.callTimeout\(30, TimeUnit\.SECONDS\)/);
+  assert.match(result, /CampDeliverVercelDns\.invalidate/);
+  assert.doesNotMatch(result, /NetworkingModule\.setCustomClientBuilder/);
   assert.ok(
-    result.indexOf("NetworkingModule.setCustomClientBuilder") <
+    result.indexOf("OkHttpClientProvider.setOkHttpClientFactory") <
       result.indexOf("loadReactNative(this)"),
   );
 });
@@ -44,6 +61,35 @@ test("injects the CAmpDeliver Vercel DNS fallback before React Native starts", (
 test("injection is idempotent", () => {
   const once = injectVercelDnsFallback(mainApplicationFixture);
   assert.equal(injectVercelDnsFallback(once), once);
+});
+
+test("upgrades a prebuilt application from the old DNS-only plugin", () => {
+  const previous = mainApplicationFixture
+    .replace(
+      "import com.facebook.react.defaults.DefaultReactNativeHost\n",
+      "import com.facebook.react.defaults.DefaultReactNativeHost\n" +
+        "import com.facebook.react.modules.network.NetworkingModule\n" +
+        "import okhttp3.Dns\n" +
+        "import java.net.InetAddress\n",
+    )
+    .replace(
+      "class MainApplication",
+      "private object CampDeliverVercelDns : Dns {\n" +
+        '  override fun lookup(hostname: String) = Dns.SYSTEM.lookup("cname.vercel-dns.com")\n' +
+        "}\n\nclass MainApplication",
+    )
+    .replace(
+      "    super.onCreate()\n",
+      "    super.onCreate()\n" +
+        "    NetworkingModule.setCustomClientBuilder { builder ->\n" +
+        "      builder.dns(CampDeliverVercelDns)\n" +
+        "    }\n",
+    );
+
+  assert.equal(
+    injectVercelDnsFallback(previous),
+    injectVercelDnsFallback(mainApplicationFixture),
+  );
 });
 
 test("updates an existing fallback to the canonical Vercel DNS edge", () => {

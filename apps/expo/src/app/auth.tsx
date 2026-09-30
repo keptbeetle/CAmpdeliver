@@ -146,6 +146,7 @@ export default function AuthScreen() {
     }
     setAuthError(null);
     setAuthLoading(true);
+    let networkStage: "login" | "session" | "profile" = "login";
     try {
       const result = await signInMutation.mutateAsync({
         identifier: identifier.trim(),
@@ -154,12 +155,15 @@ export default function AuthScreen() {
       queryClient.removeQueries({
         queryKey: trpc.auth.hasProfile.queryKey(),
       });
+
+      networkStage = "session";
       const { error } = await supabase.auth.setSession({
         access_token: result.accessToken,
         refresh_token: result.refreshToken,
       });
       if (error) throw error;
 
+      networkStage = "profile";
       const profile = await queryClient.fetchQuery({
         ...trpc.auth.hasProfile.queryOptions(),
         staleTime: 0,
@@ -171,7 +175,24 @@ export default function AuthScreen() {
       }
       router.replace("/" as never);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to sign in.");
+      const message =
+        error instanceof Error ? error.message : "Unable to sign in.";
+      if (
+        /network request failed|networkerror|failed to fetch|timed?\s?out/i.test(
+          message,
+        )
+      ) {
+        console.warn("Sign-in network stage failed:", networkStage);
+        const networkMessage =
+          networkStage === "login"
+            ? "Cannot reach the CAmpDeliver login service. Please try again."
+            : networkStage === "session"
+              ? "Your login was accepted, but the secure session service could not be reached. Please try again."
+              : "You are signed in, but profile verification could not be reached. Please try again.";
+        setError(networkMessage);
+      } else {
+        setError(message);
+      }
     } finally {
       setAuthLoading(false);
     }
