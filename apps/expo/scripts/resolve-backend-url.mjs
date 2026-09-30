@@ -5,6 +5,17 @@ const DEFAULT_PRODUCTION_API_URL = "https://c-ampdeliver-nextjs.vercel.app";
 const DEFAULT_HISTORY_LIMIT = 30;
 const DEFAULT_WAIT_MS = process.env.CI ? 180_000 : 0;
 const POLL_INTERVAL_MS = 5_000;
+const BACKEND_PROBE_TIMEOUT_MS = 8_000;
+const BACKEND_PROBE_ATTEMPTS = 2;
+const BACKEND_PROBE_PATH = "/api/trpc/auth.signInWithIdentifier?batch=1";
+const BACKEND_PROBE_BODY = JSON.stringify({
+  0: {
+    json: {
+      identifier: "network-probe@example.invalid",
+      password: "not-a-real-password",
+    },
+  },
+});
 const BACKEND_RELEVANT_PREFIXES = [
   "apps/nextjs/",
   "packages/api/",
@@ -91,6 +102,172 @@ function latestStatus(statuses) {
       String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")),
     )
     .at(-1);
+}
+
+export function extractVercelPreviewAlias(value) {
+  const match = String(value ?? "").match(
+    /https:\/\/vercel\.live\/open-feedback\/([A-Za-z0-9.-]+\.vercel\.app)(?:[/?#]|$)/i,
+  );
+  if (!match?.[1]) return null;
+
+  const url = `https://${match[1]}`;
+  return validVercelUrl(url) ? url : null;
+}
+
+function previewAliasForCommit(repo, sha) {
+  try {
+    const checks = ghJson(
+      `/repos/${repo}/commits/${encodeURIComponent(sha)}/check-runs?per_page=100`,
+    );
+    for (const check of checks.check_runs ?? []) {
+      if (check.name !== "Vercel Preview Comments") continue;
+      const alias = extractVercelPreviewAlias(
+        [check.output?.title, check.output?.summary, check.output?.text]
+          .filter(Boolean)
+          .join("\n"),
+      );
+      if (alias) return alias;
+    }
+  } catch {
+    // Deployment records remain a valid fallback when check metadata is unavailable.
+  }
+  return null;
+}
+
+function previewAliasFromHistory(repo, history) {
+  for (const sha of history) {
+    const alias = previewAliasForCommit(repo, sha);
+    if (alias) return alias;
+    if (commitAffectsBackend(sha)) break;
+  }
+  return null;
+}
+
+function curlBackendProbe(url, timeoutMs) {
+  const executable = process.platform === "win32" ? "curl.exe" : "curl";
+  const output = execFileSync(
+    executable,
+    [
+      "--silent",
+      "--show-error",
+      "--location",
+      "--max-time",
+      String(Math.max(1, timeoutMs / 1000)),
+      "--header",
+      "content-type: application/json",
+      "--header",
+      "x-trpc-source: expo-backend-resolver",
+      "--request",
+      "POST",
+      "--data-binary",
+      BACKEND_PROBE_BODY,
+      "--write-out",
+      "\n%{http_code}",
+      `${url}${BACKEND_PROBE_PATH}`,
+    ],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+
+  const statusMatch = output.match(/\r?\n(\d{3})\s*$/);
+  if (!statusMatch || statusMatch.index === undefined) {
+    throw new Error("readiness probe did not return an HTTP status");
+  }
+
+  return {
+    status: Number(statusMatch[1]),
+    body: output.slice(0, statusMatch.index),
+  };
+}
+
+export async function probeBackendAuth(
+  url,
+  {
+    requestImpl = curlBackendProbe,
+    timeoutMs = BACKEND_PROBE_TIMEOUT_MS,
+    attempts = BACKEND_PROBE_ATTEMPTS,
+  } = {},
+) {
+  let lastFailure = "request failed";
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const response = await requestImpl(url, timeoutMs);
+
+      if (response.status !== 401) {
+        const reason = `HTTP ${response.status}`;
+        if (response.status < 500 || attempt === attempts) {
+          return { ok: false, reason };
+        }
+        lastFailure = reason;
+        continue;
+      }
+
+      let payload;
+      try {
+        payload = JSON.parse(response.body);
+      } catch {
+        return { ok: false, reason: "non-JSON login probe response" };
+      }
+
+      const errorData = Array.isArray(payload)
+        ? payload[0]?.error?.json?.data
+        : undefined;
+      if (
+        errorData?.path !== "auth.signInWithIdentifier" ||
+        errorData?.code !== "UNAUTHORIZED"
+      ) {
+        return { ok: false, reason: "unexpected login probe payload" };
+      }
+
+      return { ok: true };
+    } catch (error) {
+      const stderr =
+        error && typeof error === "object" && "stderr" in error
+          ? String(error.stderr ?? "").trim()
+          : "";
+      lastFailure =
+        stderr || (error instanceof Error ? error.message : String(error));
+      if (attempt < attempts) {
+        await sleep(250 * attempt);
+      }
+    }
+  }
+
+  return { ok: false, reason: lastFailure || "request failed" };
+}
+
+export async function healthyPreviewCandidate(
+  deploymentUrl,
+  previewAlias,
+  { allowAlias = true, probeImpl = probeBackendAuth } = {},
+) {
+  const candidates =
+    allowAlias && previewAlias
+      ? [previewAlias]
+      : [deploymentUrl].filter(Boolean);
+  const failures = [];
+
+  for (const url of candidates) {
+    const probe = await probeImpl(url);
+    if (probe.ok) {
+      return {
+        ok: true,
+        url,
+        source: url === previewAlias ? "alias" : "deployment",
+      };
+    }
+    failures.push(
+      `${url === previewAlias ? "alias" : "deployment"}: ${probe.reason}`,
+    );
+  }
+
+  return {
+    ok: false,
+    reason: failures.join("; ") || "no preview URL was available",
+  };
 }
 
 function deploymentState(repo, sha) {
@@ -192,18 +369,58 @@ export async function resolveBackendUrl({
 
   const repo = repositorySlug();
   const history = branchHistory(targetSha);
+  const previewAlias = previewAliasFromHistory(repo, history);
+  const backendChanged = commitAffectsBackend(targetSha);
+
+  if (!backendChanged && previewAlias) {
+    const candidate = await healthyPreviewCandidate(null, previewAlias);
+    if (!candidate.ok) {
+      throw new Error(
+        `Stable Vercel branch alias failed the auth readiness probe; refusing to bundle an ephemeral deployment URL: ${candidate.reason}.`,
+      );
+    }
+    return {
+      url: candidate.url,
+      source: "preview-alias",
+      sha: targetSha,
+    };
+  }
+
   const currentState = await resolveCurrentDeployment(repo, targetSha, waitMs);
 
   if (currentState.kind === "success") {
-    return { url: currentState.url, source: "preview", sha: targetSha };
+    const candidate = await healthyPreviewCandidate(
+      currentState.url,
+      previewAlias,
+      { allowAlias: !backendChanged },
+    );
+    if (candidate.ok) {
+      return {
+        url: candidate.url,
+        source: candidate.source === "alias" ? "preview-alias" : "preview",
+        sha: targetSha,
+      };
+    }
+    if (backendChanged) {
+      throw new Error(
+        `Vercel Preview for backend-changing commit ${targetSha.slice(0, 12)} is marked successful but failed the auth readiness probe: ${candidate.reason}.`,
+      );
+    }
+    console.error(
+      `[expo-backend] skipping unhealthy preview ${targetSha.slice(0, 12)}: ${candidate.reason}`,
+    );
   }
   if (currentState.kind === "failed") {
-    throw new Error(
-      `Vercel Preview failed for ${targetSha.slice(0, 12)}: ${currentState.description || "unknown error"}`,
+    if (backendChanged) {
+      throw new Error(
+        `Vercel Preview failed for backend-changing commit ${targetSha.slice(0, 12)}: ${currentState.description || "unknown error"}`,
+      );
+    }
+    console.error(
+      `[expo-backend] skipping failed preview ${targetSha.slice(0, 12)}: ${currentState.description || "unknown error"}`,
     );
   }
 
-  const backendChanged = commitAffectsBackend(targetSha);
   if (currentState.kind === "skipped" && backendChanged) {
     throw new Error(
       `Vercel skipped backend-changing commit ${targetSha.slice(0, 12)}. Fix the Vercel deployment before running Expo instead of using an older backend.`,
@@ -221,16 +438,44 @@ export async function resolveBackendUrl({
 
   for (const sha of history.slice(1)) {
     const state = deploymentState(repo, sha);
+    const ancestorChangedBackend = commitAffectsBackend(sha);
     if (state.kind === "success") {
-      return { url: state.url, source: "preview-ancestor", sha };
+      const candidate = await healthyPreviewCandidate(state.url, previewAlias, {
+        allowAlias: !ancestorChangedBackend,
+      });
+      if (candidate.ok) {
+        return {
+          url: candidate.url,
+          source:
+            candidate.source === "alias"
+              ? "preview-ancestor-alias"
+              : "preview-ancestor",
+          sha,
+        };
+      }
+      if (ancestorChangedBackend) {
+        throw new Error(
+          `Cannot cross backend-changing commit ${sha.slice(0, 12)} because its successful Vercel Preview failed the auth readiness probe: ${candidate.reason}.`,
+        );
+      }
+      console.error(
+        `[expo-backend] skipping unhealthy preview ${sha.slice(0, 12)}: ${candidate.reason}`,
+      );
+      continue;
     }
     if (state.kind === "failed") {
-      throw new Error(
-        `Latest branch backend Preview failed at ${sha.slice(0, 12)}: ${state.description || "unknown error"}`,
+      if (ancestorChangedBackend) {
+        throw new Error(
+          `Latest branch backend Preview failed at backend-changing commit ${sha.slice(0, 12)}: ${state.description || "unknown error"}`,
+        );
+      }
+      console.error(
+        `[expo-backend] skipping failed preview ${sha.slice(0, 12)}: ${state.description || "unknown error"}`,
       );
+      continue;
     }
 
-    if (commitAffectsBackend(sha)) {
+    if (ancestorChangedBackend) {
       const reason =
         state.kind === "skipped"
           ? "Vercel skipped it"

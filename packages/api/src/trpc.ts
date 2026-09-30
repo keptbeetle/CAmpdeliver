@@ -16,6 +16,8 @@ import { eq } from "@acme/db";
 import { db } from "@acme/db/client";
 import { profiles } from "@acme/db/schema";
 
+import { getRequestAuthSource } from "./services/request-auth";
+
 /**
  * 1. CONTEXT
  *
@@ -61,17 +63,18 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
     },
   });
 
-  // Authenticate user via Authorization Header (Bearer token for Mobile) or Cookies (Web)
-  const authHeader = opts.headers.get("authorization");
+  // Authenticate only when the request actually carries auth material.
+  // Mobile public procedures such as sign-in have neither a Bearer token nor
+  // cookies, so they must not pay for an unnecessary Supabase getUser() call.
+  const authSource = getRequestAuthSource(opts.headers);
   let user: User | null = null;
 
-  if (authHeader?.startsWith("Bearer ")) {
-    const token = authHeader.substring(7);
-    const { data } = await supabase.auth.getUser(token);
+  if (authSource?.type === "bearer") {
+    const { data } = await supabase.auth.getUser(authSource.token);
     if (data.user) {
       user = data.user;
     }
-  } else {
+  } else if (authSource?.type === "cookie") {
     // Server authorization must come from Supabase's verified user lookup.
     // getSession() only reads locally supplied session material and is not an
     // authorization source for protected/admin procedures.

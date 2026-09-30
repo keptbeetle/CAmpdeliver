@@ -381,9 +381,12 @@ export const authRouter = {
         .set({
           deliveryNotificationsEnabled: input.enabled,
           deliveryCanteenIds: input.canteenIds,
-          // Background geofencing was removed. Foreground presence now decides
-          // whether a deliverer is close enough to receive a quest alert.
-          nearbyQuestAlertsEnabled: false,
+          // This flag records whether this device opted into the event-driven
+          // background proximity check. It never bypasses live accept eligibility.
+          nearbyQuestAlertsEnabled:
+            input.enabled &&
+            input.canteenIds.length > 0 &&
+            input.nearbyQuestAlertsEnabled,
           ...(!input.enabled || input.canteenIds.length === 0
             ? {
                 deliveryPresenceLatitude: null,

@@ -13,6 +13,7 @@ concurrency:
 permissions:
   contents: read
   deployments: read
+  checks: read
 
 # You can leverage Vercel Remote Caching with Turbo to speed up your builds
 # @link https://turborepo.com/docs/core-concepts/remote-caching#remote-caching-on-vercel-builds
@@ -102,6 +103,12 @@ jobs:
       - name: Copy env
         shell: bash
         run: cp .env.example .env
+
+      - name: Test Android build helpers
+        run: >-
+          node --test
+          apps/expo/scripts/resolve-backend-url.test.mjs
+          apps/expo/scripts/vercel-dns-fallback.test.mjs
 
       - name: Resolve branch-aware Vercel backend
         id: backend

@@ -53,6 +53,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     reactCompiler: true,
   },
   plugins: [
+    "./plugins/with-vercel-dns-fallback.cjs",
     "expo-router",
     "expo-font",
     "expo-secure-store",
@@ -81,6 +82,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       {
         locationWhenInUsePermission:
           "Allow CAmpDeliver to use your location for nearby quests, pickup eligibility, and live delivery tracking.",
+        isAndroidBackgroundLocationEnabled: true,
+        // Background quest alerts perform one event-driven location check.
+        // They do not run a persistent foreground location service.
+        isAndroidForegroundServiceEnabled: false,
       },
     ],
     [

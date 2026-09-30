@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   StyleSheet,
   Switch,
@@ -13,6 +14,7 @@ import * as Notifications from "expo-notifications";
 import { Feather } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { ensureQuestNotificationTaskRegistered } from "~/background/quest-notification-task";
 import { colors, radius } from "~/components/app/theme";
 import { InlineNotice, SectionCard } from "~/components/app/ui";
 import { trpc } from "~/utils/api";
@@ -30,17 +32,23 @@ export function DeliveryAvailabilityCard() {
   const selectedCanteenIds =
     userSelectedCanteenIds ?? profile?.deliveryCanteenIds ?? [];
   const active = profile?.deliveryNotificationsEnabled ?? false;
+  const backgroundAlertsCapable = profile?.nearbyQuestAlertsEnabled ?? false;
 
   const availabilityMutation = useMutation(
     trpc.auth.updateDeliveryAvailability.mutationOptions(),
   );
 
-  const persist = async (enabled: boolean, canteenIds: string[]) => {
+  const persist = async (
+    enabled: boolean,
+    canteenIds: string[],
+    backgroundAlertsEnabled: boolean,
+  ) => {
     try {
       await availabilityMutation.mutateAsync({
         enabled,
         canteenIds,
-        nearbyQuestAlertsEnabled: false,
+        nearbyQuestAlertsEnabled:
+          enabled && canteenIds.length > 0 && backgroundAlertsEnabled,
       });
       setUserSelectedCanteenIds(canteenIds);
       await queryClient.invalidateQueries({
@@ -69,6 +77,7 @@ export function DeliveryAvailabilityCard() {
       return;
     }
 
+    let backgroundAlertsEnabled = false;
     if (enabled) {
       const existingPermission = await Notifications.getPermissionsAsync();
       const notificationPermission =
@@ -100,9 +109,42 @@ export function DeliveryAvailabilityCard() {
         );
         return;
       }
+
+      const currentBackgroundPermission =
+        await Location.getBackgroundPermissionsAsync();
+      const backgroundPermission =
+        currentBackgroundPermission.status === Location.PermissionStatus.GRANTED
+          ? currentBackgroundPermission
+          : await Location.requestBackgroundPermissionsAsync();
+      if (backgroundPermission.status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert(
+          "Background location is required for quest alerts",
+          'Set Location to "Allow all the time" so Android can wake CAmpDeliver for a single canteen-proximity check when a quest is broadcast while the app is not on screen. CAmpDeliver does not continuously track your location in the background.',
+          [
+            { text: "Not now", style: "cancel" },
+            {
+              text: "Open settings",
+              onPress: () => void Linking.openSettings(),
+            },
+          ],
+        );
+        return;
+      }
+
+      try {
+        await ensureQuestNotificationTaskRegistered();
+      } catch (error) {
+        console.warn("Background quest task registration failed:", error);
+        Alert.alert(
+          "Background alerts could not be enabled",
+          "CAmpDeliver could not finish Android background notification setup. Please try again.",
+        );
+        return;
+      }
+      backgroundAlertsEnabled = true;
     }
 
-    await persist(enabled, canteenIds);
+    await persist(enabled, canteenIds, backgroundAlertsEnabled);
   };
 
   const toggleCanteen = (canteenId: string) => {
@@ -112,11 +154,11 @@ export function DeliveryAvailabilityCard() {
 
     // An empty list is semantically unavailable.
     if (next.length === 0) {
-      void persist(false, next);
+      void persist(false, next, false);
       return;
     }
 
-    void persist(active, next);
+    void persist(active, next, active && backgroundAlertsCapable);
   };
 
   const isSaving = availabilityMutation.isPending;
@@ -142,8 +184,8 @@ export function DeliveryAvailabilityCard() {
         <View style={styles.rowCopy}>
           <Text style={styles.rowTitle}>Notify me about nearby quests</Text>
           <Text style={styles.rowDescription}>
-            Alerts are sent only when your recent foreground location is inside
-            a selected canteen radius.
+            Android checks your location once when a selected canteen broadcasts
+            a quest, including while CAmpDeliver is not on screen.
           </Text>
         </View>
         <Switch
@@ -202,8 +244,8 @@ export function DeliveryAvailabilityCard() {
           <InlineNotice
             tone="success"
             icon="crosshair"
-            title="Live location decides eligibility"
-            copy="You will only see and receive fresh quest alerts while your recent foreground location is inside the selected canteen's pickup radius. No background-location permission is required."
+            title="Event-driven background alerts"
+            copy="No continuous GPS polling or keep-alive service runs. A silent push wakes one location check, and the alert is shown only when you are inside that canteen's pickup radius."
           />
         </>
       ) : (
