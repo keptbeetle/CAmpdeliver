@@ -51,11 +51,10 @@ export default function QuestsPage() {
     }),
   );
 
-  const acceptQuest = (orderId: string, allowPayAtDelivery: boolean) => {
+  const acceptQuest = (orderId: string) => {
     if (!location) return;
     acceptOrderMutation.mutate({
       orderId,
-      allowPayAtDelivery,
       latitude: location.latitude,
       longitude: location.longitude,
     });
@@ -74,7 +73,7 @@ export default function QuestsPage() {
         <div>
           <h1 className="text-xl font-black text-white">Available Quests</h1>
           <p className="text-xs text-zinc-400">
-            Pick up deliveries for campus peers & earn payouts
+            Pick up deliveries for campus peers & earn delivery fees
           </p>
         </div>
       </div>
@@ -86,7 +85,7 @@ export default function QuestsPage() {
           </p>
           <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
             Your connection is working. Quest acceptance will resume after the
-            payment/security database migration is applied.
+            database migration is applied.
           </p>
         </div>
       )}
@@ -133,43 +132,51 @@ export default function QuestsPage() {
                   </div>
 
                   <div className="text-right">
-                    <span className="text-xs text-zinc-400">Earn Fee</span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase">
+                      Your Earning
+                    </span>
                     <p className="text-base font-black text-emerald-400">
-                      ₹{(quest.deliveryFee / 100).toFixed(0)}
+                      +₹{(quest.deliveryFee / 100).toFixed(0)}
                     </p>
                   </div>
                 </div>
 
-                <p className="text-[11px] leading-relaxed text-zinc-400">
-                  Advance only is safer: CAmpDeliver verifies buyer payment
-                  before you spend. If you offer Pay at Delivery, you may front
-                  the canteen cost until handover.
-                </p>
-                <div className="flex items-center justify-between gap-3 border-t border-indigo-500/20 pt-3">
-                  <span className="text-[11px] text-zinc-400">
-                    Food Order Value: ₹{(quest.foodPrice / 100).toFixed(0)}
-                  </span>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    <button
-                      disabled={acceptOrderMutation.isPending}
-                      onClick={() => acceptQuest(quest.id, false)}
-                      className="rounded-xl border border-indigo-500/40 bg-indigo-950/50 px-3 py-2 text-[11px] font-extrabold text-indigo-200 transition-all hover:bg-indigo-900/60 disabled:opacity-50"
-                    >
-                      Advance only
-                    </button>
-                    <button
-                      disabled={acceptOrderMutation.isPending}
-                      onClick={() => acceptQuest(quest.id, true)}
-                      className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-[11px] font-extrabold text-white shadow-lg shadow-indigo-600/30 transition-all hover:bg-indigo-500 active:scale-95 disabled:opacity-50"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      <span>
-                        {acceptOrderMutation.isPending
-                          ? "Accepting..."
-                          : "Offer Pay at Delivery"}
-                      </span>
-                    </button>
+                <div className="grid grid-cols-2 gap-2 rounded-xl border border-indigo-500/20 bg-zinc-950/40 p-2.5 text-xs">
+                  <div>
+                    <span className="text-[10px] text-zinc-400">
+                      Pay at canteen
+                    </span>
+                    <p className="font-bold text-zinc-200">
+                      ₹{(quest.foodPrice / 100).toFixed(0)}
+                    </p>
                   </div>
+                  <div>
+                    <span className="text-[10px] text-zinc-400">
+                      Collect from buyer
+                    </span>
+                    <p className="font-bold text-purple-300">
+                      ₹
+                      {((quest.foodPrice + quest.deliveryFee) / 100).toFixed(0)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 border-t border-indigo-500/20 pt-3">
+                  <p className="text-[11px] text-zinc-400">
+                    Pay canteen with your money • Collect full amount after OTP
+                  </p>
+                  <button
+                    disabled={acceptOrderMutation.isPending}
+                    onClick={() => acceptQuest(quest.id)}
+                    className="flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-purple-600/30 transition-all hover:bg-purple-500 active:scale-95 disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    <span>
+                      {acceptOrderMutation.isPending
+                        ? "Accepting..."
+                        : "Accept Quest"}
+                    </span>
+                  </button>
                 </div>
               </div>
             ),

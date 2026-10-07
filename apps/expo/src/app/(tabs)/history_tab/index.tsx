@@ -123,8 +123,8 @@ export default function OrdersTab() {
               <InlineNotice
                 icon="database"
                 tone="warning"
-                title="Payment upgrade pending"
-                copy="The app is connected to CAmpDeliver, but the server database has not been upgraded to the new payment schema yet. Existing orders remain visible; new payment and delivery actions are paused until the migration is applied."
+                title="Direct Pay on Delivery upgrade pending"
+                copy="The app is connected to CAmpDeliver, but the server database has not been upgraded to the direct Pay on Delivery schema yet. Existing orders remain visible; new delivery actions are paused until the migration is applied."
               />
             ) : null}
 
@@ -162,8 +162,8 @@ export default function OrdersTab() {
           ) : paymentConfig?.databaseReady === false ? (
             <EmptyState
               icon="database"
-              title="Payment upgrade is not active yet"
-              copy="Your connection is working. CAmpDeliver is waiting for the server database migration before new payment-enabled deliveries can run."
+              title="Direct Pay on Delivery upgrade pending"
+              copy="Your connection is working. CAmpDeliver is waiting for the server database migration before new deliveries can run."
             />
           ) : filter === "active" ? (
             <EmptyState
@@ -277,7 +277,10 @@ function OrderCard({
   isBuyer: boolean;
   onPress: () => void;
 }) {
-  const total = order.foodPrice + order.deliveryFee;
+  const isDirectPod = order.paymentModel === "DIRECT_PAY_ON_DELIVERY";
+  const total = isDirectPod
+    ? order.foodPrice + order.deliveryFee
+    : order.foodPrice + order.deliveryFee + order.platformFee;
   return (
     <Pressable
       accessibilityRole="button"
@@ -314,10 +317,32 @@ function OrderCard({
       <View style={styles.cardBottom}>
         <StatusBadge status={order.status} />
         <View style={styles.amountBox}>
-          <Text style={styles.amountLabel}>Order value</Text>
+          <Text style={styles.amountLabel}>
+            {isDirectPod ? "Paid at delivery" : "Historical total"}
+          </Text>
           <Text style={styles.amountText}>{formatCurrency(total)}</Text>
         </View>
       </View>
+      {isDirectPod ? (
+        <View style={styles.priceBreakdown}>
+          <View style={styles.priceColumn}>
+            <Text style={styles.amountLabel}>Food</Text>
+            <Text style={styles.priceText}>
+              {formatCurrency(order.foodPrice)}
+            </Text>
+          </View>
+          <View style={styles.priceColumn}>
+            <Text style={styles.amountLabel}>Delivery fee</Text>
+            <Text style={styles.priceText}>
+              {formatCurrency(order.deliveryFee)}
+            </Text>
+          </View>
+          <View style={styles.priceColumn}>
+            <Text style={styles.amountLabel}>Total</Text>
+            <Text style={styles.priceText}>{formatCurrency(total)}</Text>
+          </View>
+        </View>
+      ) : null}
       <View style={styles.metaFooter}>
         <Text style={styles.orderId}>#{shortId(order.id)}</Text>
         <Text style={styles.dateText}>
@@ -460,6 +485,23 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
+  },
+  priceBreakdown: {
+    backgroundColor: colors.bgElevated,
+    borderRadius: radius.md,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
+    padding: 10,
+  },
+  priceColumn: {
+    flex: 1,
+  },
+  priceText: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "800",
+    marginTop: 2,
   },
   rolePill: {
     backgroundColor: colors.accentSoft,

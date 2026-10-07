@@ -1,5 +1,5 @@
 const DEFAULT_DELIVERY_FEE_PAISE = 500;
-const DEFAULT_PLATFORM_FEE_PAISE = 300;
+const DEFAULT_PLATFORM_FEE_PAISE = 0;
 
 const DEFAULT_TTLS_SECONDS = {
   broadcasted: 10 * 60,
@@ -30,10 +30,9 @@ export function getPaymentConfig() {
       "DELIVERY_FEE_PAISE",
       DEFAULT_DELIVERY_FEE_PAISE,
     ),
-    platformFeePaise: readNonNegativeInt(
-      "PLATFORM_FEE_PAISE",
-      DEFAULT_PLATFORM_FEE_PAISE,
-    ),
+    // New orders use direct buyer-to-deliverer Pay on Delivery. The
+    // platform never collects a fee in this model.
+    platformFeePaise: DEFAULT_PLATFORM_FEE_PAISE,
     ttls: {
       broadcasted: readPositiveInt(
         "ORDER_BROADCAST_TTL_SECONDS",

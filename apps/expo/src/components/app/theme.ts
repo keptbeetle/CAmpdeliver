@@ -75,6 +75,7 @@ export const ACTIVE_ORDER_STATUSES = [
   "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
+  "PAYMENT_DUE",
 ];
 
 export const statusLabels: Record<string, string> = {
@@ -84,6 +85,7 @@ export const statusLabels: Record<string, string> = {
   PURCHASED: "Purchased at canteen",
   ON_THE_WAY: "On the way",
   NEAR_YOU: "Near you",
+  PAYMENT_DUE: "Payment due at delivery",
   DELIVERED: "Delivered",
   CANCELLED: "Cancelled",
   FAILED: "Needs admin review",
@@ -97,7 +99,8 @@ export const statusProgress: Record<string, number> = {
   ITEM_AVAILABLE: 42,
   PURCHASED: 60,
   ON_THE_WAY: 78,
-  NEAR_YOU: 92,
+  NEAR_YOU: 90,
+  PAYMENT_DUE: 96,
   DELIVERED: 100,
   CANCELLED: 100,
   FAILED: 100,
@@ -111,6 +114,13 @@ export function statusTone(status: string) {
       backgroundColor: colors.successSoft,
       borderColor: "#B7DEC8",
       color: colors.success,
+    };
+  }
+  if (status === "PAYMENT_DUE") {
+    return {
+      backgroundColor: colors.warningSoft,
+      borderColor: "#FAD8B8",
+      color: colors.warning,
     };
   }
   if (status === "CANCELLED") {

@@ -44,6 +44,7 @@ export async function expireStaleOrders(now = new Date()) {
       const [current] = await tx
         .select({
           id: orders.id,
+          paymentModel: orders.paymentModel,
           status: orders.status,
           stateExpiresAt: orders.stateExpiresAt,
         })
@@ -61,37 +62,37 @@ export async function expireStaleOrders(now = new Date()) {
         return { expired: false, refundRequired: false };
       }
 
-      const [payment] = await tx
-        .select({ status: orderPayments.status })
-        .from(orderPayments)
-        .where(eq(orderPayments.orderId, current.id))
-        .limit(1);
+      let refundRequired = false;
+      if (current.paymentModel === "LEGACY") {
+        const [payment] = await tx
+          .select({ status: orderPayments.status })
+          .from(orderPayments)
+          .where(eq(orderPayments.orderId, current.id))
+          .limit(1);
 
-      const paymentDisposition = prePurchaseCancellationDisposition(
-        payment?.status ?? null,
-      );
-      const refundRequired = paymentDisposition === "REFUND_REQUIRED";
-      if (payment && paymentDisposition === "REFUND_REQUIRED") {
-        await tx
-          .update(orderPayments)
-          .set({
-            status: "REFUND_REQUIRED",
-            updatedAt: now,
-          })
-          .where(eq(orderPayments.orderId, current.id));
-      } else if (payment && paymentDisposition === "REJECTED") {
-        // A submitted payment reference may represent real money that already
-        // reached the pilot UPI account. Keep PENDING_VERIFICATION intact even
-        // though the order expires so an admin can verify it and queue a
-        // refund instead of silently discarding that reconciliation work.
-        await tx
-          .update(orderPayments)
-          .set({
-            status: "REJECTED",
-            rejectionReason: "Order expired before payment was submitted.",
-            updatedAt: now,
-          })
-          .where(eq(orderPayments.orderId, current.id));
+        const paymentDisposition = prePurchaseCancellationDisposition(
+          payment?.status ?? null,
+        );
+        refundRequired = paymentDisposition === "REFUND_REQUIRED";
+        if (payment && paymentDisposition === "REFUND_REQUIRED") {
+          await tx
+            .update(orderPayments)
+            .set({
+              status: "REFUND_REQUIRED",
+              updatedAt: now,
+            })
+            .where(eq(orderPayments.orderId, current.id));
+        } else if (payment && paymentDisposition === "REJECTED") {
+          // Legacy reconciliation remains intact for historical payment flows.
+          await tx
+            .update(orderPayments)
+            .set({
+              status: "REJECTED",
+              rejectionReason: "Order expired before payment was submitted.",
+              updatedAt: now,
+            })
+            .where(eq(orderPayments.orderId, current.id));
+        }
       }
 
       await tx

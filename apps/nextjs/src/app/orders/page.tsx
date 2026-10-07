@@ -42,11 +42,12 @@ export default function MyOrdersPage() {
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-amber-100">
           <Database className="mt-0.5 h-5 w-5 shrink-0" />
           <div>
-            <p className="text-sm font-black">Payment upgrade pending</p>
+            <p className="text-sm font-black">
+              Direct Pay on Delivery upgrade pending
+            </p>
             <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-              Existing order history remains readable, but new payment and
-              delivery actions are paused until the server database migration is
-              applied.
+              Existing order history remains readable, but new delivery actions
+              are paused until the server database migration is applied.
             </p>
           </div>
         </div>
@@ -70,10 +71,17 @@ export default function MyOrdersPage() {
               deliveryLocationName: string;
               foodPrice: number;
               deliveryFee: number;
+              platformFee: number;
+              paymentModel: "LEGACY" | "DIRECT_PAY_ON_DELIVERY";
               status: string;
               createdAt: Date;
             }) => {
               const isBuyer = order.buyerId === profile?.id;
+              const isDirectPod =
+                order.paymentModel === "DIRECT_PAY_ON_DELIVERY";
+              const total = isDirectPod
+                ? order.foodPrice + order.deliveryFee
+                : order.foodPrice + order.deliveryFee + order.platformFee;
 
               return (
                 <Link
@@ -97,17 +105,40 @@ export default function MyOrdersPage() {
                     </div>
 
                     <div className="text-right">
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase">
+                        {isDirectPod ? "Paid at delivery" : "Historical total"}
+                      </p>
                       <p className="text-sm font-black text-white">
-                        ₹
-                        {((order.foodPrice + order.deliveryFee) / 100).toFixed(
-                          0,
-                        )}
+                        ₹{(total / 100).toFixed(0)}
                       </p>
                       <span className="mt-1 inline-block rounded-md border border-zinc-800 bg-zinc-950 px-2 py-0.5 text-[10px] font-bold text-purple-400">
-                        {order.status}
+                        {order.status.replaceAll("_", " ")}
                       </span>
                     </div>
                   </div>
+
+                  {isDirectPod && (
+                    <div className="grid grid-cols-3 gap-2 rounded-xl bg-zinc-950/50 p-2 text-[10px]">
+                      <div>
+                        <span className="text-zinc-500">Food</span>
+                        <p className="font-bold text-zinc-200">
+                          ₹{(order.foodPrice / 100).toFixed(0)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Delivery fee</span>
+                        <p className="font-bold text-zinc-200">
+                          ₹{(order.deliveryFee / 100).toFixed(0)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-zinc-500">Total</span>
+                        <p className="font-black text-purple-300">
+                          ₹{(total / 100).toFixed(0)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between border-t border-zinc-800/60 pt-2 text-xs text-zinc-500">
                     <span className="flex items-center gap-1">

@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import {
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -37,19 +36,17 @@ import { trpc } from "~/utils/api";
 import { confirmAppAction, showAppAlert } from "~/utils/dialog";
 
 type Order = RouterOutputs["order"]["myOrders"][number];
-type PaymentMethod = "ADVANCE" | "PAY_AT_DELIVERY";
 
 type ActionKey =
   | "cancelBuyer"
   | "availability"
   | "cancelDeliverer"
-  | "chooseAdvance"
-  | "choosePod"
-  | "submitPayment"
   | "purchase"
   | "onTheWay"
   | "nearYou"
   | "verify"
+  | "confirmPaymentReceived"
+  | "reportIssue"
   | null;
 
 const steps = [
@@ -58,7 +55,8 @@ const steps = [
   { key: "ITEM_AVAILABLE", label: "Available", icon: "shopping-bag" },
   { key: "PURCHASED", label: "Purchased", icon: "check-square" },
   { key: "ON_THE_WAY", label: "On route", icon: "navigation" },
-  { key: "DELIVERED", label: "Delivered", icon: "check-circle" },
+  { key: "PAYMENT_DUE", label: "Payment", icon: "credit-card" },
+  { key: "DELIVERED", label: "Done", icon: "check-circle" },
 ] as const;
 
 function getStepIndex(status: string) {
@@ -75,9 +73,11 @@ function getStepIndex(status: string) {
     case "ON_THE_WAY":
     case "NEAR_YOU":
       return 4;
+    case "PAYMENT_DUE":
+      return 5;
     case "DELIVERED":
     case "COMPLETED":
-      return 5;
+      return 6;
     default:
       return 0;
   }
@@ -90,7 +90,7 @@ export default function OrderStatusScreen() {
   const queryClient = useQueryClient();
   const [activeAction, setActiveAction] = useState<ActionKey>(null);
   const [otpInput, setOtpInput] = useState("");
-  const [utrInput, setUtrInput] = useState("");
+  const [issueReason, setIssueReason] = useState("");
 
   const { data: profile } = useQuery(trpc.auth.getMyProfile.queryOptions());
   const { data: paymentConfig } = useQuery(trpc.payment.config.queryOptions());
@@ -127,11 +127,11 @@ export default function OrderStatusScreen() {
   const verifyDeliveryMutation = useMutation(
     trpc.order.verifyDelivery.mutationOptions(),
   );
-  const chooseMethodMutation = useMutation(
-    trpc.payment.chooseMethod.mutationOptions(),
+  const confirmPaymentReceivedMutation = useMutation(
+    trpc.order.confirmPaymentReceived.mutationOptions(),
   );
-  const submitReferenceMutation = useMutation(
-    trpc.payment.submitReference.mutationOptions(),
+  const reportPaymentIssueMutation = useMutation(
+    trpc.order.reportPaymentIssue.mutationOptions(),
   );
 
   const refreshOrder = async () => {
@@ -171,7 +171,7 @@ export default function OrderStatusScreen() {
         <View style={styles.centerState}>
           <LoadingState
             title="Loading order"
-            copy="Syncing delivery and payment state."
+            copy="Syncing delivery and handover state."
           />
         </View>
       </SafeAreaView>
@@ -212,88 +212,34 @@ export default function OrderStatusScreen() {
 
   const isBuyer = order.buyerId === profile?.id;
   const isDeliverer = order.delivererId === profile?.id;
-  const payment = order.payment;
-  const paymentStatus = payment?.status ?? "NOT_STARTED";
-  const paymentMethod = payment?.method ?? null;
-  const paymentDatabaseReady = paymentConfig?.databaseReady === true;
-  const expectedAmount =
-    payment?.expectedAmount ??
-    order.foodPrice + order.deliveryFee + order.platformFee;
-  const receivingUpiId = payment?.destinationUpiId ?? null;
-  const receivingPayeeName = payment?.destinationUpiPayeeName ?? "CAmpDeliver";
+  const isDirectPod = order.paymentModel === "DIRECT_PAY_ON_DELIVERY";
+  const databaseReady = paymentConfig?.databaseReady === true;
+  const totalDue = order.foodPrice + order.deliveryFee;
   const isTerminal = ["DELIVERED", "COMPLETED", "CANCELLED", "FAILED"].includes(
     order.status,
   );
+  const canCancelBeforePurchase =
+    isDirectPod &&
+    order.purchasedAt === null &&
+    ["BROADCASTED", "ACCEPTED", "ITEM_AVAILABLE"].includes(order.status);
+  const canReportPostPurchaseIssue =
+    databaseReady &&
+    isDirectPod &&
+    (isBuyer || isDeliverer) &&
+    order.purchasedAt !== null &&
+    ["PURCHASED", "ON_THE_WAY", "NEAR_YOU", "PAYMENT_DUE"].includes(
+      order.status,
+    ) &&
+    order.paymentReceivedAt === null &&
+    (!order.paymentIssueAt || Boolean(order.paymentIssueResolvedAt));
   const currentStep = getStepIndex(order.status);
   const tone = statusTone(order.status);
 
-  const choosePaymentMethod = (method: PaymentMethod) =>
-    void runAction(
-      method === "ADVANCE" ? "chooseAdvance" : "choosePod",
-      () => chooseMethodMutation.mutateAsync({ orderId: order.id, method }),
-      "Could not choose payment method",
-    );
-
-  const openUpi = async () => {
-    if (!receivingUpiId) {
-      showAppAlert(
-        "UPI is not configured",
-        "The admin has not configured the pilot UPI account yet.",
-      );
-      return;
-    }
-    // UPI intents are URI query strings, not HTML form bodies. Encode each
-    // value with percent escapes (spaces become %20, not '+'). This pilot is
-    // not merchant-onboarded, so never fabricate merchant metadata such as MCC,
-    // merchant transaction IDs, org IDs, or signatures.
-    const upiParameters: [string, string][] = [
-      ["pa", receivingUpiId],
-      ["pn", receivingPayeeName],
-      ["tn", `CAmpDeliver ${shortId(order.id)}`],
-      ["am", (expectedAmount / 100).toFixed(2)],
-      ["cu", "INR"],
-    ];
-    const params = upiParameters
-      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
-      .join("&");
-    const uri = `upi://pay?${params}`;
-    try {
-      await Linking.openURL(uri);
-    } catch {
-      showAppAlert(
-        "Could not open a UPI app",
-        "Open your UPI app manually, pay the exact amount to the shown UPI ID, then submit the transaction reference here.",
-      );
-    }
-  };
-
-  const submitReference = () => {
-    const trimmed = utrInput.trim();
-    if (trimmed.length < 5) {
-      showAppAlert(
-        "Transaction reference required",
-        "Enter the UPI transaction reference or UTR.",
-      );
-      return;
-    }
-    void runAction(
-      "submitPayment",
-      async () => {
-        await submitReferenceMutation.mutateAsync({
-          orderId: order.id,
-          utrNumber: trimmed,
-        });
-        setUtrInput("");
-      },
-      "Could not submit payment",
-    );
-  };
-
   const confirmBuyerCancel = () =>
     confirmAppAction({
-      title: "Cancel this broadcast?",
+      title: "Cancel this order?",
       message:
-        "Cancellation is available only before a deliverer accepts the order.",
+        "Cancellation is available only before the deliverer pays the canteen.",
       cancelLabel: "Keep order",
       confirmLabel: "Cancel order",
       destructive: true,
@@ -305,32 +251,29 @@ export default function OrderStatusScreen() {
         ),
     });
 
-  const confirmDelivererCancel = () => {
-    const itemsUnavailable = order.status === "ACCEPTED";
+  const confirmDelivererCancel = () =>
     confirmAppAction({
-      title: itemsUnavailable
-        ? "Items unavailable?"
-        : "Cancel after secured payment?",
-      message: itemsUnavailable
-        ? "Use this only when the canteen cannot fulfil the requested items. The order will end before the buyer pays."
-        : "The buyer's payment is already secured. Cancelling before purchase will put the full buyer payment into the admin refund queue.",
+      title: "End this delivery?",
+      message:
+        "Use this only before canteen purchase, for example when the requested items are unavailable.",
       cancelLabel: "Keep delivery",
-      confirmLabel: itemsUnavailable ? "Mark unavailable" : "Cancel & refund",
+      confirmLabel: "End delivery",
       destructive: true,
       onConfirm: () =>
         void runAction(
           "cancelDeliverer",
           () => rejectOrderMutation.mutateAsync({ orderId: order.id }),
-          "Could not cancel delivery",
+          "Could not end delivery",
         ),
     });
-  };
 
   const confirmPurchase = () =>
     confirmAppAction({
       title: "Confirm canteen purchase",
       message:
-        "Only continue after you have actually paid the canteen or placed the order. This is the irreversible boundary: normal cancellation ends after confirmation.",
+        "Confirm that you paid " +
+        formatCurrency(order.foodPrice) +
+        " at the canteen from your own money. Normal cancellation ends after this step.",
       cancelLabel: "Not yet",
       confirmLabel: "I paid the canteen",
       onConfirm: () =>
@@ -349,8 +292,52 @@ export default function OrderStatusScreen() {
           orderId: order.id,
           otp: otpInput,
         }),
-      "Could not complete delivery",
+      "Could not verify handover code",
     );
+
+  const confirmPaymentReceived = () =>
+    confirmAppAction({
+      title: "Confirm payment received?",
+      message:
+        "Confirm that you received " +
+        formatCurrency(totalDue) +
+        " directly from the buyer. This completes the order and records " +
+        formatCurrency(order.deliveryFee) +
+        " as your delivery earning.",
+      cancelLabel: "Not yet",
+      confirmLabel: "Payment received",
+      onConfirm: () =>
+        void runAction(
+          "confirmPaymentReceived",
+          () =>
+            confirmPaymentReceivedMutation.mutateAsync({
+              orderId: order.id,
+            }),
+          "Could not confirm payment",
+        ),
+    });
+
+  const submitIssue = () => {
+    const reason = issueReason.trim();
+    if (reason.length < 3) {
+      showAppAlert(
+        "Describe the issue",
+        "Add a short note explaining the payment problem for admin review.",
+      );
+      return;
+    }
+    void runAction(
+      "reportIssue",
+      async () => {
+        await reportPaymentIssueMutation.mutateAsync({
+          orderId: order.id,
+          reason,
+        });
+        setIssueReason("");
+      },
+      "Could not report payment issue",
+    );
+  };
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
@@ -408,18 +395,24 @@ export default function OrderStatusScreen() {
               {order.status}
             </Text>
           </View>
+
           <Text style={styles.statusTitle}>{headline(order, isDeliverer)}</Text>
           <Text style={styles.statusCopy}>
             {statusCopy(order, isDeliverer)}
           </Text>
 
-          {!isTerminal ? (
+          {!isTerminal && isDirectPod ? (
             <View style={styles.timeline}>
               {steps.map((step, index) => {
                 const done = currentStep > index;
                 const current = currentStep === index;
                 return (
                   <View key={step.key} style={styles.step}>
+                    {index < steps.length - 1 ? (
+                      <View
+                        style={[styles.stepLine, done && styles.stepLineActive]}
+                      />
+                    ) : null}
                     <View
                       style={[
                         styles.stepNode,
@@ -427,18 +420,12 @@ export default function OrderStatusScreen() {
                       ]}
                     >
                       <Feather
-                        name={step.icon}
+                        name={done ? "check" : step.icon}
                         size={13}
                         color={done || current ? colors.white : colors.faint}
                       />
                     </View>
-                    {index < steps.length - 1 ? (
-                      <View
-                        style={[styles.stepLine, done && styles.stepLineActive]}
-                      />
-                    ) : null}
                     <Text
-                      numberOfLines={2}
                       style={[
                         styles.stepLabel,
                         (done || current) && styles.stepLabelActive,
@@ -453,6 +440,105 @@ export default function OrderStatusScreen() {
           ) : null}
         </MotionView>
 
+        {!isDirectPod ? (
+          <InlineNotice
+            icon="archive"
+            title="Legacy payment record"
+            copy="This older order keeps its historical financial data for reference. Historical financial actions are read-only in the current app."
+          />
+        ) : null}
+
+        {!databaseReady ? (
+          <InlineNotice
+            icon="database"
+            tone="warning"
+            title="Server upgrade pending"
+            copy="Delivery actions are paused until the direct Pay on Delivery database migration is available on the backend."
+          />
+        ) : null}
+
+        {isDirectPod ? (
+          <MotionView style={styles.paymentCard}>
+            <View style={styles.sectionHeading}>
+              <View style={styles.sectionIcon}>
+                <Feather name="shield" size={16} color={colors.primary} />
+              </View>
+              <View style={styles.sectionHeadingCopy}>
+                <Text style={styles.sectionEyebrow}>PAY ON DELIVERY</Text>
+                <Text style={styles.sectionTitle}>Direct buyer payment</Text>
+              </View>
+            </View>
+
+            <SummaryLine
+              label="Food reimbursement"
+              value={formatCurrency(order.foodPrice)}
+            />
+            <SummaryLine
+              label="Delivery earning"
+              value={formatCurrency(order.deliveryFee)}
+            />
+            <View style={styles.summaryDivider} />
+            <SummaryLine
+              label="Buyer pays deliverer"
+              value={formatCurrency(totalDue)}
+              strong
+            />
+
+            {order.status === "PAYMENT_DUE" ? (
+              <InlineNotice
+                icon="credit-card"
+                tone="warning"
+                title={
+                  isDeliverer
+                    ? "Collect " + formatCurrency(totalDue)
+                    : "Pay " + formatCurrency(totalDue) + " to your deliverer"
+                }
+                copy={
+                  isDeliverer
+                    ? "OTP is verified. Collect the full amount directly from the buyer using cash or your own payment method, then confirm receipt."
+                    : "OTP is verified. Pay the full amount directly to your deliverer. CAmpDeliver does not receive or verify this payment."
+                }
+              />
+            ) : order.status === "DELIVERED" ? (
+              <InlineNotice
+                icon="check-circle"
+                tone="success"
+                title="Direct payment confirmed"
+                copy={
+                  "This order is complete. The deliverer's earning is " +
+                  formatCurrency(order.deliveryFee) +
+                  "."
+                }
+              />
+            ) : (
+              <InlineNotice
+                icon="info"
+                title="No payment needed in the app"
+                copy="The deliverer pays the canteen first. Buyer payment becomes due only after the handover OTP is verified."
+              />
+            )}
+
+            {order.paymentIssueAt ? (
+              <InlineNotice
+                icon="alert-triangle"
+                tone={order.paymentIssueResolvedAt ? "success" : "warning"}
+                title={
+                  order.paymentIssueResolvedAt
+                    ? "Payment issue reviewed"
+                    : "Payment issue reported"
+                }
+                copy={
+                  order.paymentIssueResolvedAt
+                    ? (order.paymentIssueResolution ??
+                      "An administrator reviewed this issue.")
+                    : (order.paymentIssueReason ??
+                      "An administrator needs to review this handover.")
+                }
+              />
+            ) : null}
+          </MotionView>
+        ) : null}
+
         {!isTerminal && order.delivererId ? (
           <MotionView style={styles.toolsCard}>
             <Text style={styles.sectionEyebrow}>LIVE TOOLS</Text>
@@ -461,43 +547,29 @@ export default function OrderStatusScreen() {
                 icon="map"
                 label="Live map"
                 onPress={() =>
-                  router.push(`/order/${order.id}/tracker` as never)
+                  router.push(("/order/" + order.id + "/tracker") as never)
                 }
               />
               <ToolButton
                 icon="message-square"
                 label="Order chat"
-                onPress={() => router.push(`/order/${order.id}/chat` as never)}
+                onPress={() =>
+                  router.push(("/order/" + order.id + "/chat") as never)
+                }
               />
             </View>
           </MotionView>
         ) : null}
 
-        <PaymentCard
-          order={order}
-          isBuyer={isBuyer}
-          isDeliverer={isDeliverer}
-          paymentConfig={paymentConfig}
-          expectedAmount={expectedAmount}
-          paymentMethod={paymentMethod}
-          paymentStatus={paymentStatus}
-          utrInput={utrInput}
-          setUtrInput={setUtrInput}
-          activeAction={activeAction}
-          choosePaymentMethod={choosePaymentMethod}
-          openUpi={() => void openUpi()}
-          submitReference={submitReference}
-        />
-
-        {paymentDatabaseReady && isBuyer && order.status === "BROADCASTED" ? (
+        {databaseReady && isDirectPod && isBuyer && canCancelBeforePurchase ? (
           <MotionView style={styles.actionCard}>
             <InlineNotice
-              icon="clock"
-              title="Still looking for a deliverer"
-              copy="You can cancel while this order is still being broadcast. After someone accepts, the backend locks buyer cancellation."
+              icon="x-circle"
+              title="Cancellation is still available"
+              copy="You may cancel until the deliverer confirms they paid the canteen. After purchase, admin review is required for exceptional problems."
             />
             <AppButton
-              label="Cancel Broadcast"
+              label="Cancel order"
               icon="x"
               tone="warning"
               loading={activeAction === "cancelBuyer"}
@@ -507,7 +579,40 @@ export default function OrderStatusScreen() {
           </MotionView>
         ) : null}
 
-        {paymentDatabaseReady && isDeliverer && !isTerminal ? (
+        {canReportPostPurchaseIssue ? (
+          <MotionView style={styles.actionCard}>
+            <InlineNotice
+              icon="alert-triangle"
+              tone="warning"
+              title={
+                order.status === "PAYMENT_DUE"
+                  ? "Problem with payment or handover?"
+                  : "Problem after canteen purchase?"
+              }
+              copy="Report a delivery or handover problem for admin review. This is the exception path after the deliverer has spent real money."
+            />
+            <TextInput
+              value={issueReason}
+              onChangeText={setIssueReason}
+              editable={activeAction === null}
+              placeholder="Describe the delivery, handover, or payment problem"
+              placeholderTextColor={colors.faint}
+              multiline
+              maxLength={300}
+              style={styles.issueInput}
+            />
+            <AppButton
+              label="Report handover issue"
+              icon="alert-triangle"
+              tone="warning"
+              loading={activeAction === "reportIssue"}
+              disabled={activeAction !== null || issueReason.trim().length < 3}
+              onPress={submitIssue}
+            />
+          </MotionView>
+        ) : null}
+
+        {databaseReady && isDirectPod && isDeliverer && !isTerminal ? (
           <MotionView style={styles.actionCard}>
             <Text style={styles.sectionEyebrow}>YOUR NEXT ACTION</Text>
             <Text style={styles.sectionTitle}>Deliverer controls</Text>
@@ -517,10 +622,10 @@ export default function OrderStatusScreen() {
                 <InlineNotice
                   icon="shopping-bag"
                   title="Check item availability"
-                  copy="Confirm only after the canteen can fulfil the items. No buyer money is committed at this stage."
+                  copy="Confirm only after the canteen can fulfil the requested items."
                 />
                 <AppButton
-                  label="Items Are Available"
+                  label="Items are available"
                   icon="check"
                   loading={activeAction === "availability"}
                   disabled={
@@ -538,7 +643,7 @@ export default function OrderStatusScreen() {
                   }
                 />
                 <AppButton
-                  label="Items Unavailable"
+                  label="Items unavailable"
                   icon="x"
                   tone="warning"
                   loading={activeAction === "cancelDeliverer"}
@@ -552,68 +657,37 @@ export default function OrderStatusScreen() {
 
             {order.status === "ITEM_AVAILABLE" ? (
               <>
-                {paymentMethod === null ? (
-                  <InlineNotice
-                    icon="clock"
-                    title="Waiting for buyer payment choice"
-                    copy={
-                      order.delivererAllowsPayAtDelivery
-                        ? "The buyer can choose advance payment or Pay at Delivery because you offered both."
-                        : "The buyer must choose advance payment before you spend at the canteen."
-                    }
-                  />
-                ) : paymentMethod === "ADVANCE" && paymentStatus !== "PAID" ? (
-                  <InlineNotice
-                    icon="shield"
-                    title="Wait for verified payment"
-                    copy="Do not pay the canteen yet. CAmpDeliver will mark this payment Paid only after an admin verifies the submitted UPI transaction."
-                  />
-                ) : paymentMethod === "PAY_AT_DELIVERY" ? (
-                  <InlineNotice
-                    tone="warning"
-                    icon="alert-triangle"
-                    title="You offered Pay at Delivery"
-                    copy="You are choosing to front the food cost. The buyer must make a verified digital payment before the handover OTP can complete the order."
-                  />
-                ) : (
-                  <InlineNotice
-                    tone="success"
-                    icon="shield"
-                    title="Buyer payment secured"
-                    copy="The advance payment is verified. You can now pay the canteen and confirm purchase."
-                  />
-                )}
-
+                <InlineNotice
+                  icon="credit-card"
+                  tone="warning"
+                  title={
+                    "Pay " + formatCurrency(order.foodPrice) + " at the canteen"
+                  }
+                  copy={
+                    "Use your own money for the food purchase. At handover you will collect " +
+                    formatCurrency(totalDue) +
+                    " from the buyer and keep " +
+                    formatCurrency(order.deliveryFee) +
+                    " as your earning."
+                  }
+                />
                 <AppButton
-                  label="I Paid the Canteen / Order Placed"
+                  label="I paid the canteen / Confirm purchase"
                   icon="shopping-bag"
                   loading={activeAction === "purchase"}
-                  disabled={
-                    activeAction !== null ||
-                    paymentMethod === null ||
-                    (paymentMethod === "ADVANCE" && paymentStatus !== "PAID")
-                  }
+                  disabled={activeAction !== null}
                   onPress={confirmPurchase}
                 />
-                {paymentStatus === "PAID" ? (
-                  <AppButton
-                    label="Cancel & Queue Refund"
-                    icon="x"
-                    tone="warning"
-                    loading={activeAction === "cancelDeliverer"}
-                    disabled={
-                      activeAction !== null &&
-                      activeAction !== "cancelDeliverer"
-                    }
-                    onPress={confirmDelivererCancel}
-                  />
-                ) : (
-                  <InlineNotice
-                    icon="clock"
-                    title="Cancellation is server-managed while payment is pending"
-                    copy="After you confirm item availability, wait for the buyer/payment flow. If either side disappears, the backend TTL cancels the order automatically. Manual deliverer cancellation becomes available only after CAmpDeliver verifies advance payment and before you purchase."
-                  />
-                )}
+                <AppButton
+                  label="End delivery before purchase"
+                  icon="x"
+                  tone="warning"
+                  loading={activeAction === "cancelDeliverer"}
+                  disabled={
+                    activeAction !== null && activeAction !== "cancelDeliverer"
+                  }
+                  onPress={confirmDelivererCancel}
+                />
               </>
             ) : null}
 
@@ -622,11 +696,11 @@ export default function OrderStatusScreen() {
                 <InlineNotice
                   tone="success"
                   icon="check-circle"
-                  title="Purchase confirmed"
-                  copy="The irreversible boundary has passed. Normal cancellation is disabled; continue to the buyer."
+                  title="Canteen purchase confirmed"
+                  copy="Normal cancellation is now disabled. Continue to the fixed delivery point."
                 />
                 <AppButton
-                  label="Start Delivery"
+                  label="Start delivery"
                   icon="navigation"
                   loading={activeAction === "onTheWay"}
                   disabled={
@@ -652,10 +726,10 @@ export default function OrderStatusScreen() {
                 <InlineNotice
                   icon="map-pin"
                   title="Deliver to the fixed drop-off"
-                  copy="Use the live map and order chat. Mark Near You only when you reach the meeting area."
+                  copy="Use the live map and chat. Mark Near You only when you reach the handover point."
                 />
                 <AppButton
-                  label="Mark Near You"
+                  label="Mark near you"
                   icon="map-pin"
                   loading={activeAction === "nearYou"}
                   disabled={activeAction !== null && activeAction !== "nearYou"}
@@ -675,55 +749,56 @@ export default function OrderStatusScreen() {
             ) : null}
 
             {order.status === "NEAR_YOU" ? (
-              paymentStatus === "PAID" ? (
-                <>
-                  <InlineNotice
-                    tone="success"
-                    icon="key"
-                    title="Payment verified — complete handover"
-                    copy="Ask the buyer for the 4-digit handover code only while physically handing over the order."
-                  />
-                  <View style={styles.otpInputRow}>
-                    <TextInput
-                      value={otpInput}
-                      onChangeText={(value) =>
-                        setOtpInput(value.replace(/\D/g, "").slice(0, 4))
-                      }
-                      keyboardType="number-pad"
-                      maxLength={4}
-                      accessibilityLabel="Delivery OTP"
-                      placeholder="0000"
-                      placeholderTextColor={colors.faint}
-                      style={styles.otpInput}
-                    />
-                    <View style={styles.verifyAction}>
-                      <AppButton
-                        label="Verify"
-                        loading={activeAction === "verify"}
-                        disabled={
-                          otpInput.length !== 4 || activeAction !== null
-                        }
-                        onPress={verifyOtp}
-                      />
-                    </View>
-                  </View>
-                </>
-              ) : (
+              <>
                 <InlineNotice
-                  tone="warning"
-                  icon="credit-card"
-                  title="Waiting for verified payment"
-                  copy="Do not hand over the order or ask for the OTP yet. The buyer must pay and an admin must verify the UPI reference first."
+                  tone="success"
+                  icon="key"
+                  title="Verify handover OTP first"
+                  copy="Ask the buyer for the 4-digit code while physically handing over the food. Payment becomes due only after this succeeds."
                 />
-              )
+                <View style={styles.otpInputRow}>
+                  <TextInput
+                    value={otpInput}
+                    onChangeText={(value) =>
+                      setOtpInput(value.replace(/\D/g, "").slice(0, 4))
+                    }
+                    keyboardType="number-pad"
+                    maxLength={4}
+                    accessibilityLabel="Delivery OTP"
+                    placeholder="0000"
+                    placeholderTextColor={colors.faint}
+                    style={styles.otpInput}
+                  />
+                  <View style={styles.verifyAction}>
+                    <AppButton
+                      label="Verify"
+                      loading={activeAction === "verify"}
+                      disabled={otpInput.length !== 4 || activeAction !== null}
+                      onPress={verifyOtp}
+                    />
+                  </View>
+                </View>
+              </>
+            ) : null}
+
+            {order.status === "PAYMENT_DUE" ? (
+              <>
+                <AppButton
+                  label={"Payment received · " + formatCurrency(totalDue)}
+                  icon="check-circle"
+                  loading={activeAction === "confirmPaymentReceived"}
+                  disabled={
+                    activeAction !== null &&
+                    activeAction !== "confirmPaymentReceived"
+                  }
+                  onPress={confirmPaymentReceived}
+                />
+              </>
             ) : null}
           </MotionView>
         ) : null}
 
-        {isBuyer &&
-        order.otp &&
-        paymentStatus === "PAID" &&
-        order.status === "NEAR_YOU" ? (
+        {isBuyer && isDirectPod && order.otp && order.status === "NEAR_YOU" ? (
           <MotionView style={styles.otpCard}>
             <View style={styles.otpIcon}>
               <Feather name="key" size={19} color={colors.primary} />
@@ -733,8 +808,9 @@ export default function OrderStatusScreen() {
               {order.otp}
             </Text>
             <Text style={styles.otpCopy}>
-              Share this code only when the food is physically handed to you. It
-              completes the order and creates the deliverer's settlement.
+              Share this code only while physically receiving the food. After
+              OTP verification, pay {formatCurrency(totalDue)} directly to your
+              deliverer.
             </Text>
           </MotionView>
         ) : null}
@@ -745,12 +821,8 @@ export default function OrderStatusScreen() {
             icon="slash"
             title="Order cancelled"
             copy={
-              paymentStatus === "REFUND_REQUIRED"
-                ? "Your payment was verified, so an admin refund is now required."
-                : paymentStatus === "PENDING_VERIFICATION"
-                  ? "The order ended while a submitted payment is still being reconciled. Admin can verify it and queue a refund if the money arrived."
-                  : (order.cancellationReason ??
-                    "This order ended before purchase.")
+              order.cancellationReason ??
+              "This order ended before canteen purchase."
             }
           />
         ) : null}
@@ -761,7 +833,7 @@ export default function OrderStatusScreen() {
           <SummaryLine label="Drop-off" value={order.deliveryLocationName} />
           <SummaryLine label="Food" value={formatCurrency(order.foodPrice)} />
           <SummaryLine
-            label="Delivery earning"
+            label="Delivery fee"
             value={formatCurrency(order.deliveryFee)}
           />
           <SummaryLine
@@ -770,252 +842,17 @@ export default function OrderStatusScreen() {
           />
           <View style={styles.summaryDivider} />
           <SummaryLine
-            label="Buyer total"
-            value={formatCurrency(expectedAmount)}
+            label={isDirectPod ? "Pay on Delivery total" : "Historical total"}
+            value={formatCurrency(
+              isDirectPod
+                ? totalDue
+                : order.foodPrice + order.deliveryFee + order.platformFee,
+            )}
             strong
           />
         </MotionView>
       </ScrollView>
     </SafeAreaView>
-  );
-}
-
-function PaymentCard({
-  order,
-  isBuyer,
-  isDeliverer,
-  paymentConfig,
-  expectedAmount,
-  paymentMethod,
-  paymentStatus,
-  utrInput,
-  setUtrInput,
-  activeAction,
-  choosePaymentMethod,
-  openUpi,
-  submitReference,
-}: {
-  order: Order;
-  isBuyer: boolean;
-  isDeliverer: boolean;
-  paymentConfig: RouterOutputs["payment"]["config"] | undefined;
-  expectedAmount: number;
-  paymentMethod: PaymentMethod | null;
-  paymentStatus: string;
-  utrInput: string;
-  setUtrInput: (value: string) => void;
-  activeAction: ActionKey;
-  choosePaymentMethod: (method: PaymentMethod) => void;
-  openUpi: () => void;
-  submitReference: () => void;
-}) {
-  if (paymentConfig?.databaseReady === false) {
-    return (
-      <MotionView style={styles.paymentCard}>
-        <InlineNotice
-          icon="database"
-          tone="warning"
-          title="Payment upgrade pending"
-          copy="This order is available in read-only compatibility mode. Payment and delivery actions will resume after the server database migration is applied."
-        />
-      </MotionView>
-    );
-  }
-
-  const receivingUpiId = order.payment?.destinationUpiId ?? null;
-
-  const canSelectMethod =
-    isBuyer &&
-    order.status === "ITEM_AVAILABLE" &&
-    ["AWAITING_SELECTION", "REJECTED"].includes(paymentStatus) &&
-    paymentMethod === null;
-  const podNeedsPayment =
-    paymentMethod === "PAY_AT_DELIVERY" && order.status === "NEAR_YOU";
-  const showPaymentEntry =
-    isBuyer &&
-    paymentMethod !== null &&
-    ["AWAITING_PAYMENT", "REJECTED"].includes(paymentStatus) &&
-    (paymentMethod === "ADVANCE" || podNeedsPayment);
-
-  return (
-    <MotionView style={styles.paymentCard}>
-      <View style={styles.sectionHeading}>
-        <View style={styles.sectionIcon}>
-          <Feather name="shield" size={16} color={colors.primary} />
-        </View>
-        <View style={styles.sectionHeadingCopy}>
-          <Text style={styles.sectionEyebrow}>PAYMENT</Text>
-          <Text style={styles.sectionTitle}>Secure payment state</Text>
-        </View>
-      </View>
-
-      {paymentMethod ? (
-        <View style={styles.paymentMetaRow}>
-          <Text style={styles.paymentMetaLabel}>Method</Text>
-          <Text style={styles.paymentMetaValue}>
-            {paymentMethod === "ADVANCE"
-              ? "Advance payment"
-              : "Pay at Delivery"}
-          </Text>
-        </View>
-      ) : null}
-      <View style={styles.paymentMetaRow}>
-        <Text style={styles.paymentMetaLabel}>Amount</Text>
-        <Text style={styles.paymentMetaValue}>
-          {formatCurrency(expectedAmount)}
-        </Text>
-      </View>
-
-      {canSelectMethod ? (
-        <>
-          <InlineNotice
-            icon="shield"
-            title="Choose how to pay"
-            copy="Advance payment protects both sides: CAmpDeliver verifies your payment before the deliverer spends at the canteen."
-          />
-          <AppButton
-            label="Pay Now — Advance"
-            icon="shield"
-            loading={activeAction === "chooseAdvance"}
-            disabled={activeAction !== null && activeAction !== "chooseAdvance"}
-            onPress={() => choosePaymentMethod("ADVANCE")}
-          />
-          {order.delivererAllowsPayAtDelivery ? (
-            <AppButton
-              label="Pay at Delivery"
-              icon="clock"
-              tone="secondary"
-              loading={activeAction === "choosePod"}
-              disabled={activeAction !== null && activeAction !== "choosePod"}
-              onPress={() => choosePaymentMethod("PAY_AT_DELIVERY")}
-            />
-          ) : (
-            <InlineNotice
-              icon="info"
-              title="Pay at Delivery unavailable"
-              copy="This deliverer accepted the quest with advance payment only."
-            />
-          )}
-        </>
-      ) : null}
-
-      {isBuyer &&
-      paymentMethod === "PAY_AT_DELIVERY" &&
-      !podNeedsPayment &&
-      paymentStatus === "AWAITING_PAYMENT" ? (
-        <InlineNotice
-          icon="clock"
-          title="Payment happens at handover"
-          copy="The deliverer may purchase using their own money. When they reach you, pay digitally to CAmpDeliver, submit the UTR, and wait for admin verification before sharing the OTP."
-        />
-      ) : null}
-
-      {showPaymentEntry ? (
-        <>
-          {paymentStatus === "REJECTED" ? (
-            <InlineNotice
-              tone="warning"
-              icon="alert-circle"
-              title="Reference was rejected"
-              copy={
-                order.payment?.rejectionReason ??
-                "Check the UPI transaction and submit the correct reference again."
-              }
-            />
-          ) : null}
-          <View style={styles.upiBox}>
-            <Text style={styles.upiLabel}>Pay exact amount to</Text>
-            <Text selectable style={styles.upiId}>
-              {receivingUpiId ?? "UPI ID not configured"}
-            </Text>
-            <Text style={styles.upiAmount}>
-              {formatCurrency(expectedAmount)}
-            </Text>
-            <Text style={styles.upiReference}>
-              Reference: CD-{shortId(order.id)}
-            </Text>
-          </View>
-          <AppButton
-            label="Open UPI App"
-            icon="external-link"
-            tone="secondary"
-            disabled={!receivingUpiId || activeAction !== null}
-            onPress={openUpi}
-          />
-          <InlineNotice
-            icon="info"
-            title="If the UPI app blocks this launch"
-            copy="Open Google Pay, PhonePe, or your UPI app manually, choose Pay UPI ID, long-press the UPI ID above to copy it, and pay the exact amount. Then return here and submit the UTR. This avoids app-to-app intent restrictions while keeping the same CAmpDeliver verification flow."
-          />
-          <TextInput
-            value={utrInput}
-            onChangeText={setUtrInput}
-            autoCapitalize="characters"
-            placeholder="UPI transaction reference / UTR"
-            placeholderTextColor={colors.faint}
-            style={styles.referenceInput}
-            maxLength={80}
-          />
-          <AppButton
-            label="Submit for Admin Verification"
-            icon="send"
-            loading={activeAction === "submitPayment"}
-            disabled={utrInput.trim().length < 5 || activeAction !== null}
-            onPress={submitReference}
-          />
-          <Text style={styles.paymentFinePrint}>
-            A UPI app success screen is not treated as proof. The backend
-            changes payment to Paid only after an admin matches your transaction
-            in the CAmpDeliver account.
-          </Text>
-        </>
-      ) : null}
-
-      {paymentStatus === "PENDING_VERIFICATION" ? (
-        <InlineNotice
-          icon="clock"
-          title="Payment submitted for verification"
-          copy={
-            isBuyer
-              ? `Submitted reference: ${order.payment?.submittedReferenceDisplay ?? "received"}. Keep the order open while an admin checks the bank credit.`
-              : "The buyer submitted a transaction reference. Do not treat it as secured until the status becomes Paid."
-          }
-        />
-      ) : null}
-      {paymentStatus === "PAID" ? (
-        <InlineNotice
-          tone="success"
-          icon="check-circle"
-          title="Payment verified"
-          copy="CAmpDeliver has confirmed the incoming payment."
-        />
-      ) : null}
-      {paymentStatus === "REFUND_REQUIRED" ? (
-        <InlineNotice
-          tone="warning"
-          icon="rotate-ccw"
-          title="Refund required"
-          copy="The payment was received but this order ended before purchase. It is now in the admin refund queue."
-        />
-      ) : null}
-      {paymentStatus === "REFUNDED" ? (
-        <InlineNotice
-          tone="success"
-          icon="check-circle"
-          title="Refund completed"
-          copy="The admin has recorded the outgoing refund transfer."
-        />
-      ) : null}
-      {isDeliverer &&
-      paymentStatus === "NOT_STARTED" &&
-      order.status === "ACCEPTED" ? (
-        <InlineNotice
-          icon="info"
-          title="Payment starts after availability"
-          copy="First confirm the canteen can fulfil the order. The buyer then chooses an allowed payment method."
-        />
-      ) : null}
-    </MotionView>
   );
 }
 
@@ -1074,7 +911,9 @@ function headline(order: Order, isDeliverer: boolean) {
         : "A deliverer accepted your order";
     case "ITEM_AVAILABLE":
     case "PREPARING":
-      return isDeliverer ? "Waiting on payment decision" : "Choose how to pay";
+      return isDeliverer
+        ? "Purchase the food at the canteen"
+        : "Your deliverer is preparing to purchase";
     case "PURCHASED":
       return isDeliverer
         ? "Purchase confirmed"
@@ -1083,8 +922,12 @@ function headline(order: Order, isDeliverer: boolean) {
       return isDeliverer ? "Deliver to the buyer" : "Your order is on the way";
     case "NEAR_YOU":
       return isDeliverer
-        ? "Complete the secure handover"
+        ? "Verify the handover code"
         : "Your deliverer is nearby";
+    case "PAYMENT_DUE":
+      return isDeliverer
+        ? "Collect payment from the buyer"
+        : "Pay your deliverer directly";
     case "DELIVERED":
     case "COMPLETED":
       return "Delivery completed";
@@ -1103,24 +946,30 @@ function statusCopy(order: Order, isDeliverer: boolean) {
       return "Eligible students near the canteen can see and accept this delivery quest.";
     case "ACCEPTED":
       return isDeliverer
-        ? "Verify item availability before the buyer commits a payment method."
-        : "The deliverer is checking whether the canteen can fulfil your items.";
+        ? "Check whether the canteen can fulfil the requested items."
+        : "The deliverer is checking item availability.";
     case "ITEM_AVAILABLE":
     case "PREPARING":
-      return "Payment and purchase are kept as separate server-verified steps.";
+      return isDeliverer
+        ? "Pay the canteen from your own money, then confirm the purchase."
+        : "No payment is due yet. You will pay the deliverer only at handover after OTP verification.";
     case "PURCHASED":
       return "The canteen purchase is confirmed, so normal cancellation is no longer available.";
     case "ON_THE_WAY":
       return "Live map and chat remain available while the delivery is active.";
     case "NEAR_YOU":
-      return "Payment must be verified before the 4-digit handover code can complete delivery.";
+      return "The handover OTP must be verified before buyer payment becomes due.";
+    case "PAYMENT_DUE":
+      return isDeliverer
+        ? "Collect food reimbursement plus your delivery fee directly from the buyer, then confirm receipt."
+        : "Pay the full order amount directly to the deliverer. CAmpDeliver does not handle this payment.";
     case "DELIVERED":
     case "COMPLETED":
-      return "The OTP handover is complete. The deliverer can request reimbursement from Earnings.";
+      return "OTP and direct payment confirmation are complete.";
     case "CANCELLED":
       return order.cancellationReason ?? "This order ended before delivery.";
     case "FAILED":
-      return "An exceptional failure needs admin reconciliation rather than a normal cancellation.";
+      return "An exceptional failure needs admin review.";
     default:
       return "The latest order state is syncing from the backend.";
   }
@@ -1168,6 +1017,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 42,
   },
+  issueBox: {
+    backgroundColor: colors.warningSoft,
+    borderColor: "#FAD8B8",
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12,
+  },
+  issueInput: {
+    backgroundColor: colors.panel,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    color: colors.text,
+    fontSize: 12,
+    minHeight: 78,
+    padding: 12,
+    textAlignVertical: "top",
+  },
+  issueLabel: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   otpCard: {
     alignItems: "center",
     backgroundColor: colors.panel,
@@ -1214,7 +1087,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     textAlign: "center",
   },
-  otpInputRow: { alignItems: "center", flexDirection: "row", gap: 10 },
+  otpInputRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
   otpValue: {
     color: colors.text,
     fontSize: 34,
@@ -1231,26 +1108,8 @@ const styles = StyleSheet.create({
     padding: 16,
     ...shadow,
   },
-  paymentFinePrint: { color: colors.faint, fontSize: 10, lineHeight: 15 },
-  paymentMetaLabel: { color: colors.muted, fontSize: 12 },
-  paymentMetaRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  paymentMetaValue: { color: colors.text, fontSize: 12, fontWeight: "800" },
   pressed: { opacity: 0.76, transform: [{ scale: 0.99 }] },
   rawStatus: { color: colors.faint, fontSize: 9, fontWeight: "800" },
-  referenceInput: {
-    backgroundColor: colors.bgElevated,
-    borderColor: colors.borderStrong,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    color: colors.text,
-    fontSize: 14,
-    minHeight: 50,
-    paddingHorizontal: 14,
-  },
   rolePill: {
     backgroundColor: colors.primarySoft,
     borderColor: "#BAD9D7",
@@ -1259,7 +1118,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  roleText: { color: colors.primaryStrong, fontSize: 10, fontWeight: "900" },
+  roleText: {
+    color: colors.primaryStrong,
+    fontSize: 10,
+    fontWeight: "900",
+  },
   root: { backgroundColor: colors.bg, flex: 1 },
   sectionEyebrow: {
     color: colors.primary,
@@ -1268,7 +1131,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  sectionHeading: { alignItems: "center", flexDirection: "row", gap: 10 },
+  sectionHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+  },
   sectionHeadingCopy: { flex: 1 },
   sectionIcon: {
     alignItems: "center",
@@ -1302,10 +1169,18 @@ const styles = StyleSheet.create({
     padding: 16,
     ...shadow,
   },
-  statusCopy: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  statusCopy: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   statusDot: { borderRadius: 4, height: 7, width: 7 },
   statusLabel: { fontSize: 10, fontWeight: "900" },
-  statusTitle: { color: colors.text, fontSize: 19, fontWeight: "900" },
+  statusTitle: {
+    color: colors.text,
+    fontSize: 19,
+    fontWeight: "900",
+  },
   statusTop: {
     alignItems: "center",
     flexDirection: "row",
@@ -1355,7 +1230,11 @@ const styles = StyleSheet.create({
   },
   summaryDivider: { backgroundColor: colors.border, height: 1 },
   summaryLabel: { color: colors.muted, flex: 1, fontSize: 12 },
-  summaryLine: { alignItems: "center", flexDirection: "row", gap: 16 },
+  summaryLine: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 16,
+  },
   summaryStrong: { color: colors.text, fontWeight: "900" },
   summaryValue: {
     color: colors.text,
@@ -1384,7 +1263,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 32,
   },
-  toolLabel: { color: colors.text, flex: 1, fontSize: 11, fontWeight: "800" },
+  toolLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "800",
+  },
   toolRow: { flexDirection: "row", gap: 10 },
   toolsCard: {
     backgroundColor: colors.panel,
@@ -1394,27 +1278,5 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 14,
   },
-  upiAmount: {
-    color: colors.success,
-    fontSize: 24,
-    fontWeight: "900",
-    marginTop: 5,
-  },
-  upiBox: {
-    alignItems: "center",
-    backgroundColor: colors.bgElevated,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    padding: 14,
-  },
-  upiId: { color: colors.text, fontSize: 16, fontWeight: "900", marginTop: 3 },
-  upiLabel: {
-    color: colors.muted,
-    fontSize: 10,
-    fontWeight: "800",
-    textTransform: "uppercase",
-  },
-  upiReference: { color: colors.faint, fontSize: 10, marginTop: 6 },
   verifyAction: { minWidth: 104 },
 });

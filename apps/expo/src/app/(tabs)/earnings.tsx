@@ -10,7 +10,7 @@ import {
   useSafeAreaInsets,
 } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
 import { ShellHeader } from "~/components/app/ShellHeader";
 import {
@@ -21,7 +21,6 @@ import {
   shortId,
 } from "~/components/app/theme";
 import {
-  AppButton,
   EmptyState,
   InlineNotice,
   LoadingState,
@@ -29,26 +28,17 @@ import {
   SectionCard,
 } from "~/components/app/ui";
 import { trpc } from "~/utils/api";
-import { showAppAlert } from "~/utils/dialog";
 
 export default function EarningsTab() {
   const insets = useSafeAreaInsets();
   const earnings = useQuery(trpc.payment.earnings.queryOptions());
-  const requestSettlement = useMutation(
-    trpc.payment.requestSettlement.mutationOptions({
-      onSuccess: () => void earnings.refetch(),
-      onError: (error) =>
-        showAppAlert("Could not request reimbursement", error.message),
-    }),
-  );
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
       <ShellHeader
         title="Earnings"
-        subtitle="Delivery earnings, reimbursements, and settlements"
+        subtitle="Completed deliveries and what you earned"
       />
-
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -65,22 +55,22 @@ export default function EarningsTab() {
       >
         {earnings.isLoading ? (
           <LoadingState
-            title="Loading your delivery activity"
-            copy="Calculating completed deliveries and settlement totals."
+            title="Loading your earnings"
+            copy="Calculating completed Pay on Delivery orders."
           />
         ) : earnings.isError || !earnings.data ? (
           <EmptyState
             icon="alert-circle"
             title="Earnings could not be loaded"
-            copy="Your settlement data has not been changed. Pull down or retry when your connection is available."
+            copy="Your order history is safe. Pull down or retry when your connection is available."
             actionLabel="Retry"
             onAction={() => void earnings.refetch()}
           />
         ) : !earnings.data.databaseReady ? (
           <EmptyState
             icon="database"
-            title="Payment upgrade pending"
-            copy="Your connection is working. Earnings will appear after the CAmpDeliver server database is upgraded to the new payment and settlement schema."
+            title="Server upgrade pending"
+            copy="Earnings will appear after the direct Pay on Delivery database migration is applied."
             actionLabel="Check again"
             onAction={() => void earnings.refetch()}
           />
@@ -103,169 +93,101 @@ export default function EarningsTab() {
                 </View>
               </View>
               <Text style={styles.heroHelper}>
-                Earnings count only the delivery fee you earned. Money spent on
-                food is tracked separately as reimbursement.
+                Only delivery fees from completed orders count as earnings. Food
+                money is recovered directly from the buyer at handover.
               </Text>
             </MotionView>
 
             <View style={styles.metricsGrid}>
               <MetricCard
-                icon="check-circle"
-                label="Paid earnings"
-                value={formatCurrency(earnings.data.paidEarnings)}
-              />
-              <MetricCard
-                icon="shopping-bag"
-                label="Food reimbursed"
-                value={formatCurrency(earnings.data.foodReimbursed)}
-              />
-              <MetricCard
-                icon="download"
-                label="Ready to request"
-                value={formatCurrency(earnings.data.availableSettlementAmount)}
-              />
-              <MetricCard
-                icon="clock"
-                label="Pending settlement"
-                value={formatCurrency(earnings.data.pendingSettlementAmount)}
-              />
-              <MetricCard
-                icon="check"
-                label="Paid settlements"
-                value={String(earnings.data.paidSettlements)}
-              />
-              <MetricCard
-                icon="arrow-up-right"
-                label="Paid settlement total"
-                value={formatCurrency(earnings.data.paidSettlementAmount)}
-              />
-              <MetricCard
                 icon="package"
-                label="Deliveries"
+                label="Completed deliveries"
                 value={String(earnings.data.completedDeliveries)}
               />
+              <MetricCard
+                icon="dollar-sign"
+                label="Delivery fees earned"
+                value={formatCurrency(earnings.data.lifetimeEarnings)}
+              />
             </View>
 
-            {earnings.data.availableSettlementAmount > 0 ? (
-              <InlineNotice
-                icon="download"
-                title="Reimbursement ready to request"
-                copy="A completed delivery has money ready for reimbursement. Request it below and the admin will see it in the nightly settlement queue."
-              />
-            ) : earnings.data.pendingSettlementAmount > 0 ? (
-              <InlineNotice
-                icon="clock"
-                tone="warning"
-                title="Settlement requested"
-                copy="Your reimbursement request is in the admin settlement queue. The pilot records the outgoing transfer reference when it is paid."
-              />
-            ) : (
-              <InlineNotice
-                icon="shield"
-                tone="success"
-                title="No settlement is waiting"
-                copy="A completed delivery creates a reimbursement record here after verified payment and handover. You choose when to request the transfer."
-              />
-            )}
+            <InlineNotice
+              icon="shield"
+              tone="success"
+              title="Paid directly at handover"
+              copy="You pay the canteen yourself, then collect the food cost plus your delivery fee directly from the buyer after OTP verification. CAmpDeliver never holds your money."
+            />
 
             <View style={styles.sectionHeading}>
-              <View>
-                <Text style={styles.sectionTitle}>Recent settlements</Text>
-                <Text style={styles.sectionSubtitle}>
-                  System-generated records for deliveries you completed
-                </Text>
-              </View>
-              {earnings.data.paidSettlements > 0 ? (
-                <Text style={styles.paidCount}>
-                  {earnings.data.paidSettlements} paid
-                </Text>
-              ) : null}
+              <Text style={styles.sectionTitle}>Completed deliveries</Text>
+              <Text style={styles.sectionSubtitle}>
+                Recent direct Pay on Delivery orders
+              </Text>
             </View>
 
-            {earnings.data.recent.length === 0 ? (
+            {earnings.data.completedDirectDeliveries.length === 0 ? (
               <EmptyState
                 icon="navigation"
                 title="No delivery earnings yet"
-                copy="Every student account can buy or deliver. Your settlement history will appear here after you complete a delivery."
+                copy="Completed deliveries will appear here after the buyer's payment is confirmed."
               />
             ) : (
               <View style={styles.list}>
-                {earnings.data.recent.map((entry, index) => (
-                  <MotionView key={entry.id} delay={Math.min(index * 35, 180)}>
-                    <SectionCard style={styles.settlementCard}>
-                      <View style={styles.settlementHeader}>
-                        <View style={styles.referenceRow}>
-                          <View style={styles.smallIcon}>
-                            <Feather
-                              name="package"
-                              size={15}
-                              color={colors.primary}
-                            />
+                {earnings.data.completedDirectDeliveries
+                  .slice(0, 20)
+                  .map((entry, index) => (
+                    <MotionView
+                      key={entry.id}
+                      delay={Math.min(index * 35, 180)}
+                    >
+                      <SectionCard style={styles.orderCard}>
+                        <View style={styles.orderHeader}>
+                          <View style={styles.referenceRow}>
+                            <View style={styles.smallIcon}>
+                              <Feather
+                                name="check-circle"
+                                size={15}
+                                color={colors.success}
+                              />
+                            </View>
+                            <View style={styles.orderTitleWrap}>
+                              <Text style={styles.reference}>
+                                Order {shortId(entry.id)}
+                              </Text>
+                              <Text numberOfLines={1} style={styles.dateText}>
+                                {entry.canteenName}
+                                {entry.paymentReceivedAt
+                                  ? " · " +
+                                    new Date(
+                                      entry.paymentReceivedAt,
+                                    ).toLocaleDateString()
+                                  : ""}
+                              </Text>
+                            </View>
                           </View>
-                          <View>
-                            <Text style={styles.reference}>
-                              Order {shortId(entry.orderId)}
-                            </Text>
-                            <Text style={styles.dateText}>
-                              {new Date(entry.createdAt).toLocaleDateString()}
-                            </Text>
-                          </View>
+                          <Text style={styles.earnedBadge}>
+                            +{formatCurrency(entry.deliveryFee)}
+                          </Text>
                         </View>
-                        <SettlementBadge status={entry.status} />
-                      </View>
-
-                      <View style={styles.moneyRows}>
-                        <MoneyRow
-                          label="Food reimbursement"
-                          value={entry.foodReimbursement}
-                        />
-                        <MoneyRow
-                          label="Delivery earning"
-                          value={entry.deliveryEarning}
-                          strong
-                        />
-                        <View style={styles.divider} />
-                        <MoneyRow
-                          label="Settlement total"
-                          value={entry.amountDue}
-                          strong
-                        />
-                      </View>
-
-                      {entry.status === "AVAILABLE" ? (
-                        <AppButton
-                          label="Request Reimbursement"
-                          icon="download"
-                          loading={
-                            requestSettlement.isPending &&
-                            requestSettlement.variables.settlementId ===
-                              entry.id
-                          }
-                          disabled={requestSettlement.isPending}
-                          onPress={() =>
-                            requestSettlement.mutate({ settlementId: entry.id })
-                          }
-                        />
-                      ) : null}
-
-                      {entry.status === "ON_HOLD" && entry.holdReason ? (
-                        <InlineNotice
-                          icon="alert-triangle"
-                          tone="warning"
-                          title="Settlement on hold"
-                          copy={entry.holdReason}
-                        />
-                      ) : entry.status === "FAILED" ? (
-                        <InlineNotice
-                          icon="alert-circle"
-                          tone="warning"
-                          title="Transfer needs admin attention"
-                          copy="The delivery is still complete. Only the outgoing settlement needs to be retried."
-                        />
-                      ) : null}
-                    </SectionCard>
-                  </MotionView>
-                ))}
+                        <View style={styles.moneyRows}>
+                          <MoneyRow
+                            label="Paid at canteen"
+                            value={entry.foodPrice}
+                          />
+                          <MoneyRow
+                            label="Collected from buyer"
+                            value={entry.totalAmount}
+                          />
+                          <View style={styles.divider} />
+                          <MoneyRow
+                            label="Your earning"
+                            value={entry.deliveryFee}
+                            strong
+                          />
+                        </View>
+                      </SectionCard>
+                    </MotionView>
+                  ))}
               </View>
             )}
           </>
@@ -314,62 +236,11 @@ function MoneyRow({
   );
 }
 
-function SettlementBadge({ status }: { status: string }) {
-  const label =
-    status === "PAID"
-      ? "Paid"
-      : status === "AVAILABLE"
-        ? "Ready"
-        : status === "ON_HOLD"
-          ? "On hold"
-          : status === "FAILED"
-            ? "Failed"
-            : "Pending";
-  const positive = status === "PAID";
-  return (
-    <View style={[styles.badge, positive && styles.badgePaid]}>
-      <Text style={[styles.badgeText, positive && styles.badgeTextPaid]}>
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  badge: {
-    backgroundColor: colors.warningSoft,
-    borderColor: "#E8CFAD",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  badgePaid: {
-    backgroundColor: colors.successSoft,
-    borderColor: "#B7DEC8",
-  },
-  badgeText: {
-    color: colors.warning,
-    fontSize: 10,
-    fontWeight: "800",
-  },
-  badgeTextPaid: {
-    color: colors.success,
-  },
-  content: {
-    gap: 14,
-    padding: 16,
-  },
-  dateText: {
-    color: colors.faint,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  divider: {
-    backgroundColor: colors.border,
-    height: 1,
-    marginVertical: 2,
-  },
+  content: { gap: 14, padding: 16 },
+  dateText: { color: colors.faint, fontSize: 11, marginTop: 2 },
+  divider: { backgroundColor: colors.border, height: 1, marginVertical: 2 },
+  earnedBadge: { color: colors.success, fontSize: 13, fontWeight: "900" },
   eyebrow: {
     color: colors.primaryStrong,
     fontSize: 11,
@@ -411,9 +282,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  list: {
-    gap: 10,
-  },
+  list: { gap: 10 },
   metricCard: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
@@ -437,82 +306,42 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 11,
   },
-  metricsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  moneyLabel: {
-    color: colors.muted,
-    fontSize: 12,
-  },
-  moneyLabelStrong: {
-    color: colors.text,
-    fontWeight: "700",
-  },
+  metricsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  moneyLabel: { color: colors.muted, fontSize: 12 },
+  moneyLabelStrong: { color: colors.text, fontWeight: "700" },
   moneyRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  moneyRows: {
-    gap: 9,
-  },
-  moneyValue: {
-    color: colors.text,
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  moneyRows: { gap: 9 },
+  moneyValue: { color: colors.text, fontSize: 12, fontWeight: "700" },
   moneyValueStrong: {
+    color: colors.success,
     fontSize: 13,
     fontWeight: "900",
   },
-  paidCount: {
-    color: colors.success,
-    fontSize: 11,
-    fontWeight: "800",
+  orderCard: { gap: 14 },
+  orderHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
-  reference: {
-    color: colors.text,
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  orderTitleWrap: { flexShrink: 1 },
+  reference: { color: colors.text, fontSize: 13, fontWeight: "800" },
   referenceRow: {
     alignItems: "center",
+    flex: 1,
     flexDirection: "row",
     gap: 9,
   },
-  root: {
-    backgroundColor: colors.bg,
-    flex: 1,
-  },
-  sectionHeading: {
-    alignItems: "flex-end",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  sectionSubtitle: {
-    color: colors.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "900",
-  },
-  settlementCard: {
-    gap: 14,
-  },
-  settlementHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
+  root: { backgroundColor: colors.bg, flex: 1 },
+  sectionHeading: { marginTop: 4 },
+  sectionSubtitle: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  sectionTitle: { color: colors.text, fontSize: 17, fontWeight: "900" },
   smallIcon: {
     alignItems: "center",
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.successSoft,
     borderRadius: radius.sm,
     height: 34,
     justifyContent: "center",

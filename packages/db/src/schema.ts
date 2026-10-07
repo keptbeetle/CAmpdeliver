@@ -82,6 +82,8 @@ export const profiles = pgTable(
   ],
 );
 
+export type OrderPaymentModel = "LEGACY" | "DIRECT_PAY_ON_DELIVERY";
+
 export type OrderStatus =
   | "BROADCASTED"
   | "ACCEPTED"
@@ -89,6 +91,7 @@ export type OrderStatus =
   | "PURCHASED"
   | "ON_THE_WAY"
   | "NEAR_YOU"
+  | "PAYMENT_DUE"
   | "DELIVERED"
   | "CANCELLED"
   | "FAILED"
@@ -218,6 +221,10 @@ export const orders = pgTable(
     canteenId: uuid("canteen_id").references(() => canteens.id, {
       onDelete: "set null",
     }),
+    paymentModel: text("payment_model")
+      .$type<OrderPaymentModel>()
+      .default("DIRECT_PAY_ON_DELIVERY")
+      .notNull(),
     status: text("status")
       .$type<OrderStatus>()
       .default("BROADCASTED")
@@ -225,7 +232,7 @@ export const orders = pgTable(
     items: jsonb("items").$type<OrderItem[]>().notNull(),
     foodPrice: integer("food_price").notNull(),
     deliveryFee: integer("delivery_fee").default(500).notNull(),
-    platformFee: integer("platform_fee").default(300).notNull(),
+    platformFee: integer("platform_fee").default(0).notNull(),
     delivererAllowsPayAtDelivery: boolean("deliverer_allows_pay_at_delivery")
       .default(false)
       .notNull(),
@@ -244,6 +251,14 @@ export const orders = pgTable(
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     itemsAvailableAt: timestamp("items_available_at", { withTimezone: true }),
     purchasedAt: timestamp("purchased_at", { withTimezone: true }),
+    otpVerifiedAt: timestamp("otp_verified_at", { withTimezone: true }),
+    paymentReceivedAt: timestamp("payment_received_at", { withTimezone: true }),
+    paymentIssueAt: timestamp("payment_issue_at", { withTimezone: true }),
+    paymentIssueReason: text("payment_issue_reason"),
+    paymentIssueResolvedAt: timestamp("payment_issue_resolved_at", {
+      withTimezone: true,
+    }),
+    paymentIssueResolution: text("payment_issue_resolution"),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     deliveryOtpFailedAttempts: integer("delivery_otp_failed_attempts")
       .default(0)
@@ -264,8 +279,12 @@ export const orders = pgTable(
   },
   (table) => [
     check(
+      "orders_payment_model_check",
+      sql`${table.paymentModel} in ('LEGACY','DIRECT_PAY_ON_DELIVERY')`,
+    ),
+    check(
       "orders_status_check",
-      sql`${table.status} in ('BROADCASTED','ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU','DELIVERED','CANCELLED','FAILED','PREPARING','COMPLETED')`,
+      sql`${table.status} in ('BROADCASTED','ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU','PAYMENT_DUE','DELIVERED','CANCELLED','FAILED','PREPARING','COMPLETED')`,
     ),
     check("orders_food_price_nonnegative", sql`${table.foodPrice} >= 0`),
     check("orders_delivery_fee_nonnegative", sql`${table.deliveryFee} >= 0`),
@@ -294,6 +313,18 @@ export const orders = pgTable(
       "orders_delivery_longitude_check",
       sql`${table.deliveryLongitude} between -180 and 180`,
     ),
+    check(
+      "orders_direct_payment_platform_fee_zero",
+      sql`${table.paymentModel} <> 'DIRECT_PAY_ON_DELIVERY' or ${table.platformFee} = 0`,
+    ),
+    check(
+      "orders_direct_payment_received_after_otp",
+      sql`${table.paymentReceivedAt} is null or ${table.otpVerifiedAt} is not null`,
+    ),
+    check(
+      "orders_payment_issue_pair_check",
+      sql`(${table.paymentIssueAt} is null and ${table.paymentIssueReason} is null) or (${table.paymentIssueAt} is not null and ${table.paymentIssueReason} is not null)`,
+    ),
     index("idx_orders_buyer_created").on(table.buyerId, table.createdAt),
     index("idx_orders_deliverer_created").on(
       table.delivererId,
@@ -303,12 +334,12 @@ export const orders = pgTable(
     uniqueIndex("orders_one_active_buyer_unique")
       .on(table.buyerId)
       .where(
-        sql`${table.status} in ('BROADCASTED','ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU')`,
+        sql`${table.status} in ('BROADCASTED','ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU','PAYMENT_DUE')`,
       ),
     uniqueIndex("orders_one_active_deliverer_unique")
       .on(table.delivererId)
       .where(
-        sql`${table.delivererId} is not null and ${table.status} in ('ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU')`,
+        sql`${table.delivererId} is not null and ${table.status} in ('ACCEPTED','ITEM_AVAILABLE','PURCHASED','ON_THE_WAY','NEAR_YOU','PAYMENT_DUE')`,
       ),
   ],
 );
@@ -565,7 +596,10 @@ export type PaymentAdminAction =
   | "PAYMENT_REJECTED"
   | "REFUND_COMPLETED"
   | "SETTLEMENT_PAID"
-  | "SETTLEMENT_HELD";
+  | "SETTLEMENT_HELD"
+  | "DIRECT_PAYMENT_ISSUE_RESOLVED"
+  | "DIRECT_ORDER_COMPLETED"
+  | "DIRECT_ORDER_FAILED";
 
 export const paymentAdminActionLogs = pgTable(
   "payment_admin_action_logs",
@@ -587,7 +621,7 @@ export const paymentAdminActionLogs = pgTable(
   (table) => [
     check(
       "payment_admin_action_logs_action_check",
-      sql`${table.action} in ('PAYMENT_VERIFIED','PAYMENT_REJECTED','REFUND_COMPLETED','SETTLEMENT_PAID','SETTLEMENT_HELD')`,
+      sql`${table.action} in ('PAYMENT_VERIFIED','PAYMENT_REJECTED','REFUND_COMPLETED','SETTLEMENT_PAID','SETTLEMENT_HELD','DIRECT_PAYMENT_ISSUE_RESOLVED','DIRECT_ORDER_COMPLETED','DIRECT_ORDER_FAILED')`,
     ),
     check(
       "payment_admin_action_logs_state_length",
