@@ -186,7 +186,7 @@ export function ShellHeader({
               <DrawerLink
                 icon="trending-up"
                 label="Earnings"
-                helper="Delivery earnings and settlements"
+                helper="Completed deliveries and delivery fees"
                 onPress={() => closeAndGo("/earnings")}
               />
             </View>
@@ -196,8 +196,8 @@ export function ShellHeader({
                 <Text style={styles.groupLabel}>Administration</Text>
                 <DrawerLink
                   icon="credit-card"
-                  label="Payments & settlements"
-                  helper="Verify UPI, refunds, and payouts"
+                  label="Order operations"
+                  helper="Delivery states and handover issues"
                   onPress={() => closeAndGo("/admin/payments")}
                 />
                 <DrawerLink

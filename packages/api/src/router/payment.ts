@@ -2,7 +2,7 @@ import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
-import { and, desc, eq, inArray, sql } from "@acme/db";
+import { and, desc, eq, inArray, isNotNull, sql } from "@acme/db";
 import { db } from "@acme/db/client";
 import {
   orderPayments,
@@ -26,12 +26,13 @@ import {
   normalizeUpiPayeeName,
 } from "../services/payment-config";
 import {
-  DEFAULT_UPI_PAYEE_NAME,
   getPaymentDestination,
   getPaymentDestinationHistory,
   PAYMENT_SETTINGS_ID,
 } from "../services/payment-destination";
 import {
+  canAdminCompleteDirectOrder,
+  canAdminFailDirectOrder,
   canSubmitPaymentReference,
   settlementRequestDisposition,
 } from "../services/payment-policy";
@@ -241,14 +242,11 @@ export const paymentRouter = {
   config: protectedProcedure.query(async () => {
     const config = getPaymentConfig();
     const database = await getPaymentSchemaReadiness();
-    const destination = database.ready
-      ? await getPaymentDestination()
-      : { upiId: null, upiPayeeName: DEFAULT_UPI_PAYEE_NAME, updatedAt: null };
     return {
+      paymentModel: "DIRECT_PAY_ON_DELIVERY" as const,
       deliveryFeePaise: config.deliveryFeePaise,
-      platformFeePaise: config.platformFeePaise,
-      paymentDestinationReady: Boolean(destination.upiId),
-      manualVerification: true as const,
+      platformFeePaise: 0,
+      directPayOnDelivery: true as const,
       databaseReady: database.ready,
       schemaVersion: database.version,
     };
@@ -370,6 +368,13 @@ export const paymentRouter = {
             message: "Order not found",
           });
         }
+        if (order.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not use platform payment methods.",
+          });
+        }
         if (order.buyerId !== ctx.user.id) {
           throw new TRPCError({
             code: "FORBIDDEN",
@@ -481,6 +486,13 @@ export const paymentRouter = {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Order not found",
+          });
+        }
+        if (order.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not accept transaction references.",
           });
         }
         if (order.buyerId !== ctx.user.id) {
@@ -641,21 +653,61 @@ export const paymentRouter = {
         paidSettlements: 0,
         completedDeliveries: 0,
         recent: [],
+        directEarnings: 0,
+        completedDirectDeliveries: [],
       };
     }
 
-    const settlements = await ctx.db
-      .select()
-      .from(orderSettlements)
-      .where(eq(orderSettlements.delivererId, ctx.user.id))
-      .orderBy(desc(orderSettlements.createdAt));
+    const [settlements, directOrders] = await Promise.all([
+      ctx.db
+        .select()
+        .from(orderSettlements)
+        .where(eq(orderSettlements.delivererId, ctx.user.id))
+        .orderBy(desc(orderSettlements.createdAt)),
+      ctx.db
+        .select()
+        .from(orders)
+        .where(
+          and(
+            eq(orders.delivererId, ctx.user.id),
+            eq(orders.status, "DELIVERED"),
+            eq(orders.paymentModel, "DIRECT_PAY_ON_DELIVERY"),
+            isNotNull(orders.paymentReceivedAt),
+          ),
+        )
+        .orderBy(desc(orders.deliveredAt)),
+    ]);
+
+    const directEarnings = directOrders.reduce(
+      (total, order) => total + order.deliveryFee,
+      0,
+    );
+    const legacyEarnings = settlements.reduce(
+      (total, settlement) => total + settlement.deliveryEarning,
+      0,
+    );
 
     return {
       databaseReady: true,
-      lifetimeEarnings: settlements.reduce(
-        (total, settlement) => total + settlement.deliveryEarning,
-        0,
-      ),
+      // Preserve delivery fees earned under the legacy model while all new
+      // earnings come directly from completed Pay on Delivery orders.
+      lifetimeEarnings: legacyEarnings + directEarnings,
+      directEarnings,
+      completedDeliveries: settlements.length + directOrders.length,
+      completedDirectDeliveries: directOrders.map((order) => ({
+        id: order.id,
+        canteenName: order.canteenName,
+        deliveryLocationName: order.deliveryLocationName,
+        foodPrice: order.foodPrice,
+        deliveryFee: order.deliveryFee,
+        totalAmount:
+          order.paymentModel === "DIRECT_PAY_ON_DELIVERY"
+            ? order.foodPrice + order.deliveryFee
+            : order.foodPrice + order.deliveryFee + order.platformFee,
+        deliveredAt: order.deliveredAt,
+        otpVerifiedAt: order.otpVerifiedAt,
+        paymentReceivedAt: order.paymentReceivedAt,
+      })),
       paidEarnings: settlements
         .filter((settlement) => settlement.status === "PAID")
         .reduce((total, settlement) => total + settlement.deliveryEarning, 0),
@@ -686,7 +738,6 @@ export const paymentRouter = {
       paidSettlements: settlements.filter(
         (settlement) => settlement.status === "PAID",
       ).length,
-      completedDeliveries: settlements.length,
       recent: settlements.slice(0, 20).map((settlement) => ({
         id: settlement.id,
         orderId: settlement.orderId,
@@ -729,6 +780,18 @@ export const paymentRouter = {
             code: "FORBIDDEN",
             message:
               "Only the deliverer who completed this order can request reimbursement.",
+          });
+        }
+        const [legacyOrder] = await tx
+          .select({ paymentModel: orders.paymentModel })
+          .from(orders)
+          .where(eq(orders.id, settlement.orderId))
+          .limit(1);
+        if (legacyOrder?.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not use platform settlements.",
           });
         }
         const requestDisposition = settlementRequestDisposition(
@@ -801,31 +864,129 @@ export const paymentRouter = {
       return {
         databaseReady: false,
         summary: {
+          totalOrders: 0,
+          activeOrders: 0,
+          deliveredOrders: 0,
+          unresolvedIssues: 0,
           pendingPaymentVerifications: 0,
           refundsRequired: 0,
           pendingSettlements: 0,
           pendingSettlementAmount: 0,
           platformFeesEarned: 0,
         },
+        orderOperations: [],
         paymentVerifications: [],
         refunds: [],
         settlements: [],
       };
     }
 
-    const queues = await getAdminQueueContext(ctx.user.id);
-    const delivered = await db
-      .select({
-        platformFee: orders.platformFee,
-        paymentStatus: orderPayments.status,
-      })
-      .from(orders)
-      .leftJoin(orderPayments, eq(orderPayments.orderId, orders.id))
-      .where(eq(orders.status, "DELIVERED"));
+    const [queues, allOrders, profileRows] = await Promise.all([
+      getAdminQueueContext(ctx.user.id),
+      ctx.db.select().from(orders).orderBy(desc(orders.createdAt)).limit(100),
+      ctx.db
+        .select({
+          id: profiles.id,
+          name: profiles.name,
+          email: profiles.email,
+          phoneNumber: profiles.phoneNumber,
+        })
+        .from(profiles),
+    ]);
+
+    const profileMap = new Map(profileRows.map((p) => [p.id, p]));
+
+    const orderOperations = allOrders.map((order) => {
+      const buyerProfile = profileMap.get(order.buyerId);
+      const buyer = {
+        id: order.buyerId,
+        name: buyerProfile?.name ?? "Unknown Buyer",
+        email: buyerProfile?.email ?? order.buyerId,
+        phoneNumber: buyerProfile?.phoneNumber ?? null,
+      };
+      const delivererProfile = order.delivererId
+        ? profileMap.get(order.delivererId)
+        : null;
+      const deliverer = order.delivererId
+        ? {
+            id: order.delivererId,
+            name: delivererProfile?.name ?? "Unknown Deliverer",
+            email: delivererProfile?.email ?? order.delivererId,
+            phoneNumber: delivererProfile?.phoneNumber ?? null,
+          }
+        : null;
+
+      const hasIssue = Boolean(
+        order.paymentIssueAt ??
+          (order.status === "PAYMENT_DUE" &&
+            order.stateExpiresAt !== null &&
+            order.stateExpiresAt < new Date()),
+      );
+
+      return {
+        id: order.id,
+        status: order.status,
+        paymentModel: order.paymentModel,
+        items: order.items,
+        canteenId: order.canteenId,
+        canteenName: order.canteenName,
+        canteenLatitude: order.canteenLatitude,
+        canteenLongitude: order.canteenLongitude,
+        deliveryLocationName: order.deliveryLocationName,
+        deliveryLatitude: order.deliveryLatitude,
+        deliveryLongitude: order.deliveryLongitude,
+        foodPrice: order.foodPrice,
+        deliveryFee: order.deliveryFee,
+        platformFee: order.platformFee,
+        totalAmount:
+          order.paymentModel === "DIRECT_PAY_ON_DELIVERY"
+            ? order.foodPrice + order.deliveryFee
+            : order.foodPrice + order.deliveryFee + order.platformFee,
+        buyer,
+        deliverer,
+        createdAt: order.createdAt,
+        acceptedAt: order.acceptedAt,
+        itemsAvailableAt: order.itemsAvailableAt,
+        updatedAt: order.updatedAt,
+        stateExpiresAt: order.stateExpiresAt,
+        purchasedAt: order.purchasedAt,
+        otpVerifiedAt: order.otpVerifiedAt,
+        paymentReceivedAt: order.paymentReceivedAt,
+        deliveredAt: order.deliveredAt,
+        cancelledAt: order.cancelledAt,
+        cancellationReason: order.cancellationReason,
+        cancelledBy: order.cancelledBy,
+        paymentIssueAt: order.paymentIssueAt,
+        paymentIssueReason: order.paymentIssueReason,
+        paymentIssueResolvedAt: order.paymentIssueResolvedAt,
+        paymentIssueResolution: order.paymentIssueResolution,
+        hasIssue,
+      };
+    });
+
+    const activeStatuses = [
+      "BROADCASTED",
+      "ACCEPTED",
+      "ITEM_AVAILABLE",
+      "PURCHASED",
+      "ON_THE_WAY",
+      "NEAR_YOU",
+      "PAYMENT_DUE",
+    ];
+
+    const delivered = allOrders.filter((o) => o.status === "DELIVERED");
+    const active = allOrders.filter((o) => activeStatuses.includes(o.status));
+    const unresolvedIssues = allOrders.filter(
+      (o) => Boolean(o.paymentIssueAt) && !o.paymentIssueResolvedAt,
+    );
 
     return {
       databaseReady: true,
       summary: {
+        totalOrders: allOrders.length,
+        activeOrders: active.length,
+        deliveredOrders: delivered.length,
+        unresolvedIssues: unresolvedIssues.length,
         pendingPaymentVerifications: queues.paymentVerifications.length,
         refundsRequired: queues.refunds.length,
         pendingSettlements: queues.settlements.length,
@@ -833,13 +994,162 @@ export const paymentRouter = {
           (total, settlement) => total + settlement.amountDue,
           0,
         ),
-        platformFeesEarned: delivered
-          .filter((row) => row.paymentStatus === "PAID")
-          .reduce((total, row) => total + row.platformFee, 0),
+        platformFeesEarned: delivered.reduce(
+          (total, row) => total + row.platformFee,
+          0,
+        ),
       },
+      orderOperations,
       ...queues,
     };
   }),
+
+  adminResolvePaymentIssue: adminProcedure
+    .input(
+      z
+        .object({
+          orderId: z.string().uuid(),
+          resolution: z.string().trim().min(3).max(500),
+          outcome: z
+            .enum(["NOTE_ONLY", "COMPLETE_PAID", "CLOSE_FAILED"])
+            .default("NOTE_ONLY"),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
+      const now = new Date();
+
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
+        );
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, input.orderId))
+          .limit(1);
+
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        if (order.paymentModel !== "DIRECT_PAY_ON_DELIVERY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only direct Pay on Delivery issues can be resolved here.",
+          });
+        }
+        if (!order.paymentIssueAt) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This order has no recorded handover issue.",
+          });
+        }
+        assertAdminCanReconcileOrder(ctx.user.id, order);
+
+        if (
+          input.outcome === "COMPLETE_PAID" &&
+          order.status === "DELIVERED" &&
+          order.paymentReceivedAt
+        ) {
+          return { success: true, order, alreadyResolved: true };
+        }
+        if (input.outcome === "CLOSE_FAILED" && order.status === "FAILED") {
+          return { success: true, order, alreadyResolved: true };
+        }
+        if (input.outcome === "NOTE_ONLY" && order.paymentIssueResolvedAt) {
+          return { success: true, order, alreadyResolved: true };
+        }
+
+        if (
+          input.outcome === "COMPLETE_PAID" &&
+          !canAdminCompleteDirectOrder({
+            status: order.status,
+            otpVerifiedAt: order.otpVerifiedAt,
+            paymentReceivedAt: order.paymentReceivedAt,
+          })
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "An admin can complete the order as paid only after the handover OTP has been verified.",
+          });
+        }
+        if (
+          input.outcome === "CLOSE_FAILED" &&
+          !canAdminFailDirectOrder({
+            status: order.status,
+            purchasedAt: order.purchasedAt,
+            paymentReceivedAt: order.paymentReceivedAt,
+          })
+        ) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Only an active post-purchase direct order can be closed as failed.",
+          });
+        }
+
+        const terminalUpdate =
+          input.outcome === "COMPLETE_PAID"
+            ? {
+                status: "DELIVERED" as const,
+                paymentReceivedAt: now,
+                deliveredAt: now,
+                stateExpiresAt: null,
+              }
+            : input.outcome === "CLOSE_FAILED"
+              ? {
+                  status: "FAILED" as const,
+                  stateExpiresAt: null,
+                }
+              : {};
+
+        const [updated] = await tx
+          .update(orders)
+          .set({
+            ...terminalUpdate,
+            paymentIssueResolvedAt: now,
+            paymentIssueResolution: input.resolution,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(orders.id, order.id),
+              eq(orders.paymentModel, "DIRECT_PAY_ON_DELIVERY"),
+            ),
+          )
+          .returning();
+
+        if (!updated) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Order state changed before the issue could be resolved.",
+          });
+        }
+
+        const action =
+          input.outcome === "COMPLETE_PAID"
+            ? "DIRECT_ORDER_COMPLETED"
+            : input.outcome === "CLOSE_FAILED"
+              ? "DIRECT_ORDER_FAILED"
+              : "DIRECT_PAYMENT_ISSUE_RESOLVED";
+
+        await tx.insert(paymentAdminActionLogs).values({
+          adminId: ctx.user.id,
+          action,
+          orderId: order.id,
+          fromState: order.status,
+          toState: input.outcome === "NOTE_ONLY" ? "RESOLVED" : updated.status,
+          createdAt: now,
+        });
+
+        return { success: true, order: updated, alreadyResolved: false };
+      });
+    }),
 
   adminConfirmPayment: adminProcedure
     .input(orderIdInput)
@@ -882,10 +1192,11 @@ export const paymentRouter = {
           .from(orders)
           .where(eq(orders.id, payment.orderId))
           .limit(1);
-        if (!order || order.status === "DELIVERED") {
+        if (order?.paymentModel !== "LEGACY" || order.status === "DELIVERED") {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "The related order cannot accept payment verification.",
+            message:
+              "Only legacy orders can accept platform payment verification.",
           });
         }
         assertAdminCanReconcileOrder(ctx.user.id, order);
@@ -1039,6 +1350,12 @@ export const paymentRouter = {
             message: "Order not found",
           });
         }
+        if (relatedOrder.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Only legacy orders can use platform payment review.",
+          });
+        }
         assertAdminCanReconcileOrder(ctx.user.id, relatedOrder);
 
         const [rejected] = await tx
@@ -1140,6 +1457,13 @@ export const paymentRouter = {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Order not found",
+          });
+        }
+        if (order.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not use platform refunds.",
           });
         }
         assertAdminCanReconcileOrder(ctx.user.id, order);
@@ -1264,6 +1588,13 @@ export const paymentRouter = {
             message: "Order not found",
           });
         }
+        if (order.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not use platform settlements.",
+          });
+        }
         assertAdminCanReconcileOrder(ctx.user.id, order);
 
         if (settlement.status === "PAID") {
@@ -1380,6 +1711,13 @@ export const paymentRouter = {
           throw new TRPCError({
             code: "NOT_FOUND",
             message: "Order not found",
+          });
+        }
+        if (order.paymentModel !== "LEGACY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "Direct Pay on Delivery orders do not use platform settlements.",
           });
         }
         assertAdminCanReconcileOrder(ctx.user.id, order);

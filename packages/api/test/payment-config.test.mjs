@@ -39,7 +39,7 @@ test("uses safe pilot fee and TTL defaults", () => {
   withCleanPaymentEnv(() => {
     const config = getPaymentConfig();
     assert.equal(config.deliveryFeePaise, 500);
-    assert.equal(config.platformFeePaise, 300);
+    assert.equal(config.platformFeePaise, 0);
     assert.deepEqual(config.ttls, {
       broadcasted: 600,
       accepted: 300,
@@ -58,7 +58,8 @@ test("reads configured fees and positive TTLs", () => {
 
     const config = getPaymentConfig();
     assert.equal(config.deliveryFeePaise, 700);
-    assert.equal(config.platformFeePaise, 300);
+    // Direct Pay-on-Delivery pins platform fee strictly to 0
+    assert.equal(config.platformFeePaise, 0);
     assert.equal(config.ttls.broadcasted, 120);
   });
 });
@@ -71,7 +72,7 @@ test("invalid fee or TTL configuration falls back instead of weakening invariant
 
     const config = getPaymentConfig();
     assert.equal(config.deliveryFeePaise, 500);
-    assert.equal(config.platformFeePaise, 300);
+    assert.equal(config.platformFeePaise, 0);
     assert.equal(config.ttls.accepted, 300);
   });
 });

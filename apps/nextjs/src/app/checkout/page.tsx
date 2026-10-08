@@ -171,25 +171,17 @@ export default function CheckoutPage() {
   }
 
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
-  const platformFee = paymentConfig?.platformFeePaise ?? 300;
+  const platformFee = 0;
   const finalTotal = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady =
-    paymentConfig?.paymentDestinationReady === true;
-  const orderReady = databaseReady && paymentDestinationReady;
+  const orderReady = databaseReady;
 
   const handlePlaceOrder = () => {
     setErrorMsg(null);
 
     if (!databaseReady) {
       setErrorMsg(
-        "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
-      );
-      return;
-    }
-    if (!paymentDestinationReady) {
-      setErrorMsg(
-        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Your cart is safe; try again after it is configured.",
+        "CAmpDeliver is connected, but new orders are paused until the direct Pay on Delivery database upgrade is complete.",
       );
       return;
     }
@@ -238,7 +230,7 @@ export default function CheckoutPage() {
         <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
           <p className="font-black">Payment service unavailable</p>
           <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-            CAmpDeliver could not confirm payment readiness. Check your
+            CAmpDeliver could not confirm server readiness. Check your
             connection and try again; your cart is unchanged.
           </p>
         </div>
@@ -246,17 +238,8 @@ export default function CheckoutPage() {
         <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
           <p className="font-black">New orders are temporarily paused</p>
           <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-            Your connection is working. This build is waiting for the
-            payment/security database migration before payment-enabled orders
-            can be broadcast.
-          </p>
-        </div>
-      ) : !paymentDestinationReady ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-sm text-amber-100">
-          <p className="font-black">Receiving UPI is not configured</p>
-          <p className="mt-1 text-xs leading-relaxed text-amber-200/80">
-            An administrator needs to save the CAmpDeliver receiving UPI ID
-            before new orders can be placed. Your cart is safe.
+            Your connection is working. This build is waiting for the database
+            migration before orders can be broadcast.
           </p>
         </div>
       ) : null}
@@ -412,21 +395,19 @@ export default function CheckoutPage() {
           </div>
           <div className="flex justify-between">
             <span className="text-zinc-400">Platform fee</span>
-            <span className="font-bold text-white">
-              ₹{(platformFee / 100).toFixed(0)}
-            </span>
+            <span className="font-bold text-emerald-400">Free (₹0)</span>
           </div>
           <div className="flex justify-between border-t border-zinc-800/80 pt-2 text-sm font-black text-white">
-            <span>Estimated total</span>
+            <span>Pay on Delivery Total</span>
             <span className="text-purple-400">
               ₹{(finalTotal / 100).toFixed(0)}
             </span>
           </div>
         </div>
         <p className="text-xs leading-relaxed text-zinc-500">
-          No money is taken at broadcast. After a deliverer confirms
-          availability, you choose advance payment or Pay at Delivery when
-          offered. The server revalidates menu prices before creating the order.
+          Pay on Delivery only. The deliverer pays the canteen from their own
+          funds. You pay ₹{(finalTotal / 100).toFixed(0)} directly to the
+          deliverer only after delivery OTP verification at handover.
         </p>
       </div>
 
@@ -455,11 +436,9 @@ export default function CheckoutPage() {
               ? "Payment service unavailable"
               : !databaseReady
                 ? "Server upgrade pending"
-                : !paymentDestinationReady
-                  ? "UPI setup pending"
-                  : createOrderMutation.isPending
-                    ? "Broadcasting Order…"
-                    : `Place Order • ₹${(finalTotal / 100).toFixed(0)}`}
+                : createOrderMutation.isPending
+                  ? "Broadcasting Order…"
+                  : `Place Order (Pay on Delivery) • ₹${(finalTotal / 100).toFixed(0)}`}
         </span>
       </button>
     </div>

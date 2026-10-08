@@ -172,23 +172,15 @@ export function CanteenMenu({
     0,
   );
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? 500;
-  const platformFee = paymentConfig?.platformFeePaise ?? 300;
-  const totalCost = totalFoodPrice + deliveryFee + platformFee;
+  const platformFee = 0;
+  const totalCost = totalFoodPrice + deliveryFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady =
-    paymentConfig?.paymentDestinationReady === true;
-  const orderReady = databaseReady && paymentDestinationReady;
+  const orderReady = databaseReady;
 
   const handlePlaceOrder = async () => {
     if (!databaseReady) {
       setError(
-        "CAmpDeliver is connected, but new orders are paused until the payment/security database upgrade is complete.",
-      );
-      return;
-    }
-    if (!paymentDestinationReady) {
-      setError(
-        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Try again after it is configured.",
+        "CAmpDeliver is connected, but new orders are paused until the direct Pay on Delivery database upgrade is complete.",
       );
       return;
     }
@@ -401,10 +393,10 @@ export function CanteenMenu({
                   <span>{formatCurrency(totalCost)}</span>
                 </div>
                 <p className="pt-2 text-xs leading-relaxed text-zinc-500">
-                  No money is taken at broadcast. After item availability is
-                  confirmed, the buyer chooses advance payment or Pay at
-                  Delivery when the deliverer offered it. Menu prices are
-                  revalidated by the server.
+                  Pay on Delivery only. The deliverer pays the canteen first,
+                  then you pay the food total plus delivery fee directly to the
+                  deliverer after OTP verification. Menu prices are revalidated
+                  by the server.
                 </p>
               </div>
 
@@ -422,13 +414,8 @@ export function CanteenMenu({
                 </div>
               ) : paymentConfig?.databaseReady === false ? (
                 <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
-                  New orders are paused until the payment/security database
-                  upgrade is complete.
-                </div>
-              ) : !paymentDestinationReady ? (
-                <div className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs leading-relaxed text-amber-200">
-                  New orders are paused until an administrator saves the
-                  CAmpDeliver receiving UPI ID.
+                  New orders are paused until the direct Pay on Delivery
+                  database upgrade is complete.
                 </div>
               ) : null}
               <Button
@@ -447,11 +434,9 @@ export function CanteenMenu({
                     ? "Payment service unavailable"
                     : !databaseReady
                       ? "Server upgrade pending"
-                      : !paymentDestinationReady
-                        ? "UPI setup pending"
-                        : placingOrder || createOrderMutation.isPending
-                          ? "Broadcasting..."
-                          : "Broadcast Order"}
+                      : placingOrder || createOrderMutation.isPending
+                        ? "Broadcasting..."
+                        : "Broadcast Order · Pay on Delivery"}
               </Button>
             </div>
           )}

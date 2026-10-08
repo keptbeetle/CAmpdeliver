@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import {
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -8,12 +7,14 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Redirect, useRouter } from "expo-router";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
-import type { RouterOutputs } from "~/utils/api";
+import { ShellHeader } from "~/components/app/ShellHeader";
 import {
   colors,
   formatCurrency,
@@ -27,380 +28,439 @@ import {
   InlineNotice,
   LoadingState,
   MotionView,
+  SectionCard,
 } from "~/components/app/ui";
 import { trpc } from "~/utils/api";
-import { showAppAlert } from "~/utils/dialog";
+import { confirmAppAction, showAppAlert } from "~/utils/dialog";
 
-type AdminDashboard = RouterOutputs["payment"]["adminDashboard"];
-type AdminPaymentSettings = RouterOutputs["payment"]["adminPaymentSettings"];
-type Verification = AdminDashboard["paymentVerifications"][number];
-type Refund = AdminDashboard["refunds"][number];
-type Settlement = AdminDashboard["settlements"][number];
+type Filter = "ALL" | "ACTIVE" | "COMPLETED" | "PROBLEMS" | "CANCELLED";
 
-export default function AdminPaymentsScreen() {
-  const router = useRouter();
-  const queryClient = useQueryClient();
-  const [refreshing, setRefreshing] = useState(false);
-  const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [references, setReferences] = useState<Record<string, string>>({});
-  const [rejectionReasons, setRejectionReasons] = useState<
-    Record<string, string>
-  >({});
-  const [holdReasons, setHoldReasons] = useState<Record<string, string>>({});
-  const [upiId, setUpiId] = useState("");
-  const [upiPayeeName, setUpiPayeeName] = useState("CAmpDeliver");
+const ACTIVE = new Set([
+  "BROADCASTED",
+  "ACCEPTED",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
+  "ON_THE_WAY",
+  "NEAR_YOU",
+  "PAYMENT_DUE",
+]);
 
-  const { data: profile, isLoading: profileLoading } = useQuery(
-    trpc.auth.getMyProfile.queryOptions(),
-  );
-  const isAdmin = profile?.role === "ADMIN";
-  const { data, isLoading, isError, refetch } = useQuery({
-    ...trpc.payment.adminDashboard.queryOptions(),
-    enabled: isAdmin,
-    refetchInterval: isAdmin ? 10000 : false,
-  });
-  const paymentSettings = useQuery({
-    ...trpc.payment.adminPaymentSettings.queryOptions(),
-    enabled: isAdmin && data?.databaseReady === true,
-  });
+export default function AdminOrderOperationsScreen() {
+  const insets = useSafeAreaInsets();
+  const dashboard = useQuery(trpc.payment.adminDashboard.queryOptions());
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [resolutions, setResolutions] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    if (!paymentSettings.data) return;
-    setUpiId(paymentSettings.data.upiId ?? "");
-    setUpiPayeeName(paymentSettings.data.upiPayeeName);
-  }, [paymentSettings.data]);
-
-  const confirmPaymentMutation = useMutation(
-    trpc.payment.adminConfirmPayment.mutationOptions(),
-  );
-  const rejectPaymentMutation = useMutation(
-    trpc.payment.adminRejectPayment.mutationOptions(),
-  );
-  const refundMutation = useMutation(
-    trpc.payment.adminCompleteRefund.mutationOptions(),
-  );
-  const settlementMutation = useMutation(
-    trpc.payment.adminMarkSettlementPaid.mutationOptions(),
-  );
-  const holdSettlementMutation = useMutation(
-    trpc.payment.adminHoldSettlement.mutationOptions(),
-  );
-  const updatePaymentDestinationMutation = useMutation(
-    trpc.payment.adminUpdatePaymentDestination.mutationOptions(),
+  const resolveIssue = useMutation(
+    trpc.payment.adminResolvePaymentIssue.mutationOptions({
+      onSuccess: () => void dashboard.refetch(),
+      onError: (error) =>
+        showAppAlert("Could not resolve issue", error.message),
+    }),
   );
 
-  const refresh = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.adminDashboard.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.order.myOrders.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.earnings.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.adminPaymentSettings.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.config.queryKey(),
-      }),
-    ]);
-  }, [queryClient]);
-
-  const runAdminAction = async (
-    key: string,
-    operation: () => Promise<unknown>,
-    successTitle: string,
-  ) => {
-    if (busyKey) return;
-    setBusyKey(key);
-    try {
-      await operation();
-      await refresh();
-      showAppAlert(successTitle);
-    } catch (error) {
-      showAppAlert(
-        "Admin action failed",
-        error instanceof Error ? error.message : "Please try again.",
+  const orders = useMemo(() => {
+    const source = dashboard.data?.orderOperations ?? [];
+    if (filter === "ACTIVE") {
+      return source.filter((order) => ACTIVE.has(order.status));
+    }
+    if (filter === "COMPLETED") {
+      return source.filter((order) => order.status === "DELIVERED");
+    }
+    if (filter === "PROBLEMS") {
+      return source.filter(
+        (order) => order.paymentIssueAt && !order.paymentIssueResolvedAt,
       );
-    } finally {
-      setBusyKey(null);
     }
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await refetch();
-    } finally {
-      setRefreshing(false);
+    if (filter === "CANCELLED") {
+      return source.filter((order) => order.status === "CANCELLED");
     }
-  }, [refetch]);
-
-  if (profileLoading) {
-    return (
-      <SafeAreaView style={styles.root}>
-        <View style={styles.centerState}>
-          <LoadingState title="Checking admin access" />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!isAdmin) return <Redirect href="/" />;
+    return source;
+  }, [dashboard.data?.orderOperations, filter]);
 
   return (
     <SafeAreaView style={styles.root} edges={["top"]}>
-      <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Go back"
-          onPress={() => router.back()}
-          style={({ pressed }) => [
-            styles.iconButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Feather name="arrow-left" size={20} color={colors.text} />
-        </Pressable>
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerTitle}>Payments & settlements</Text>
-          <Text style={styles.headerSubtitle}>Admin reconciliation center</Text>
-        </View>
-        <View style={styles.adminBadge}>
-          <Feather name="shield" size={13} color={colors.primaryStrong} />
-          <Text style={styles.adminBadgeText}>ADMIN</Text>
-        </View>
-      </View>
-
+      <ShellHeader
+        title="Order operations"
+        subtitle="Full delivery lifecycle and handover issues"
+      />
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: Math.max(80, insets.bottom + 40) },
+        ]}
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
+            refreshing={dashboard.isRefetching}
+            onRefresh={() => void dashboard.refetch()}
             tintColor={colors.primary}
-            colors={[colors.primary]}
           />
         }
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
       >
-        <InlineNotice
-          tone="warning"
-          icon="shield"
-          title="Bank history is the source of truth"
-          copy="Confirm a payment only after the amount and submitted UTR match the actual CAmpDeliver bank/UPI credit. Screenshots and client callbacks are not proof."
-        />
-
-        {isLoading ? (
+        {dashboard.isLoading ? (
           <LoadingState
-            title="Loading finance queues"
-            copy="Fetching pending verifications, refunds and settlements."
+            title="Loading order operations"
+            copy="Fetching recent orders and handover states."
           />
-        ) : isError || !data ? (
+        ) : dashboard.isError || !dashboard.data ? (
           <EmptyState
-            icon="wifi-off"
-            title="Finance queues could not be loaded"
-            copy="Check the connection and retry."
+            icon="alert-circle"
+            title="Order operations unavailable"
+            copy="Check the connection and retry. No order data was changed."
             actionLabel="Retry"
-            onAction={() => void refetch()}
+            onAction={() => void dashboard.refetch()}
           />
-        ) : !data.databaseReady ? (
+        ) : !dashboard.data.databaseReady ? (
           <EmptyState
             icon="database"
-            title="Payment database upgrade pending"
-            copy="The admin backend is online, but payment verification, refunds, and settlements stay paused until the security migration is applied."
+            title="Server upgrade pending"
+            copy="Order operations will become available after the direct Pay on Delivery migration is applied."
             actionLabel="Check again"
-            onAction={() => void refetch()}
+            onAction={() => void dashboard.refetch()}
           />
         ) : (
           <>
-            <PaymentDestinationCard
-              settings={paymentSettings.data}
-              loading={paymentSettings.isLoading}
-              error={paymentSettings.isError}
-              upiId={upiId}
-              payeeName={upiPayeeName}
-              busy={busyKey === "payment-destination"}
-              onChangeUpiId={setUpiId}
-              onChangePayeeName={setUpiPayeeName}
-              onRetry={() => void paymentSettings.refetch()}
-              onSave={() =>
-                void runAdminAction(
-                  "payment-destination",
-                  () =>
-                    updatePaymentDestinationMutation.mutateAsync({
-                      upiId,
-                      upiPayeeName,
-                    }),
-                  "Payment destination updated",
-                )
-              }
+            <View style={styles.metrics}>
+              <Metric
+                label="Active"
+                value={dashboard.data.summary.activeOrders}
+                icon="activity"
+              />
+              <Metric
+                label="Completed"
+                value={dashboard.data.summary.deliveredOrders}
+                icon="check-circle"
+              />
+              <Metric
+                label="Problems"
+                value={dashboard.data.summary.unresolvedIssues}
+                icon="alert-triangle"
+              />
+              <Metric
+                label="Total"
+                value={dashboard.data.summary.totalOrders}
+                icon="package"
+              />
+            </View>
+
+            <InlineNotice
+              icon="shield"
+              tone="success"
+              title="Direct Pay on Delivery"
+              copy="CAmpDeliver does not hold or settle money for new orders. Admin operations focus on order state, OTP handover and unresolved payment issues."
             />
-            <Summary data={data} />
 
-            <QueueSection
-              eyebrow="INCOMING MONEY"
-              title="Payments to verify"
-              count={data.paymentVerifications.length}
-              emptyCopy="No submitted UPI references are waiting for verification."
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
             >
-              {data.paymentVerifications.map((payment) => (
-                <VerificationCard
-                  key={payment.id}
-                  payment={payment}
-                  busyKey={busyKey}
-                  reason={rejectionReasons[payment.id] ?? ""}
-                  setReason={(value) =>
-                    setRejectionReasons((current) => ({
-                      ...current,
-                      [payment.id]: value,
-                    }))
+              {(
+                [
+                  "ALL",
+                  "ACTIVE",
+                  "COMPLETED",
+                  "PROBLEMS",
+                  "CANCELLED",
+                ] as Filter[]
+              ).map((item) => (
+                <AppButton
+                  key={item}
+                  label={
+                    item === "ALL"
+                      ? "All"
+                      : item.charAt(0) + item.slice(1).toLowerCase()
                   }
-                  onConfirm={() =>
-                    void runAdminAction(
-                      `verify:${payment.id}`,
-                      () =>
-                        confirmPaymentMutation.mutateAsync({
-                          orderId: payment.orderId,
-                        }),
-                      "Payment verified",
-                    )
-                  }
-                  onReject={() => {
-                    const reason = rejectionReasons[payment.id]?.trim() ?? "";
-                    if (reason.length < 3) {
-                      showAppAlert(
-                        "Reason required",
-                        "Enter a short reason the buyer can use to correct the payment reference.",
-                      );
-                      return;
-                    }
-                    void runAdminAction(
-                      `reject:${payment.id}`,
-                      () =>
-                        rejectPaymentMutation.mutateAsync({
-                          orderId: payment.orderId,
-                          reason,
-                        }),
-                      "Payment reference rejected",
-                    );
-                  }}
+                  tone={filter === item ? "primary" : "secondary"}
+                  onPress={() => setFilter(item)}
                 />
               ))}
-            </QueueSection>
+            </ScrollView>
 
-            <QueueSection
-              eyebrow="OUTGOING MONEY"
-              title="Refunds required"
-              count={data.refunds.length}
-              emptyCopy="There are no buyer refunds waiting to be sent."
-            >
-              {data.refunds.map((payment) => (
-                <RefundCard
-                  key={payment.id}
-                  payment={payment}
-                  busyKey={busyKey}
-                  reference={references[`refund:${payment.id}`] ?? ""}
-                  setReference={(value) =>
-                    setReferences((current) => ({
-                      ...current,
-                      [`refund:${payment.id}`]: value,
-                    }))
-                  }
-                  onComplete={() => {
-                    const reference =
-                      references[`refund:${payment.id}`]?.trim() ?? "";
-                    if (reference.length < 5) {
-                      showAppAlert(
-                        "Refund reference required",
-                        "Make the refund first, then enter its outgoing UPI/UTR reference.",
-                      );
-                      return;
-                    }
-                    void runAdminAction(
-                      `refund:${payment.id}`,
-                      () =>
-                        refundMutation.mutateAsync({
-                          orderId: payment.orderId,
-                          refundReference: reference,
-                        }),
-                      "Refund recorded",
-                    );
-                  }}
-                />
-              ))}
-            </QueueSection>
+            {orders.length === 0 ? (
+              <EmptyState
+                icon="inbox"
+                title="No orders in this view"
+                copy="Change the filter or pull down to refresh."
+              />
+            ) : (
+              <View style={styles.list}>
+                {orders.map((order, index) => {
+                  const issueOpen = Boolean(
+                    order.paymentIssueAt && !order.paymentIssueResolvedAt,
+                  );
+                  const resolution = resolutions[order.id] ?? "";
+                  const canCompletePaid =
+                    order.status === "PAYMENT_DUE" &&
+                    Boolean(order.otpVerifiedAt) &&
+                    !order.paymentReceivedAt;
+                  const canCloseFailed =
+                    Boolean(order.purchasedAt) &&
+                    [
+                      "PURCHASED",
+                      "ON_THE_WAY",
+                      "NEAR_YOU",
+                      "PAYMENT_DUE",
+                    ].includes(order.status) &&
+                    !order.paymentReceivedAt;
+                  return (
+                    <MotionView
+                      key={order.id}
+                      delay={Math.min(index * 25, 150)}
+                    >
+                      <SectionCard style={styles.orderCard}>
+                        <View style={styles.orderTop}>
+                          <View style={styles.orderTitleWrap}>
+                            <Text style={styles.orderTitle}>
+                              Order {shortId(order.id)}
+                            </Text>
+                            <Text style={styles.orderSub}>
+                              {order.canteenName} · {order.paymentModel}
+                            </Text>
+                          </View>
+                          <StatusBadge
+                            status={order.status}
+                            problem={issueOpen}
+                          />
+                        </View>
 
-            <QueueSection
-              eyebrow="DELIVERER MONEY"
-              title="Settlements"
-              count={data.settlements.length}
-              emptyCopy="No completed deliveries are waiting for settlement."
-            >
-              {data.settlements.map((settlement) => (
-                <SettlementCard
-                  key={settlement.id}
-                  settlement={settlement}
-                  busyKey={busyKey}
-                  reference={references[`settlement:${settlement.id}`] ?? ""}
-                  setReference={(value) =>
-                    setReferences((current) => ({
-                      ...current,
-                      [`settlement:${settlement.id}`]: value,
-                    }))
-                  }
-                  holdReason={holdReasons[settlement.id] ?? ""}
-                  setHoldReason={(value) =>
-                    setHoldReasons((current) => ({
-                      ...current,
-                      [settlement.id]: value,
-                    }))
-                  }
-                  onHold={() => {
-                    const reason = holdReasons[settlement.id]?.trim() ?? "";
-                    if (reason.length < 3) {
-                      showAppAlert(
-                        "Hold reason required",
-                        "Enter why this settlement should wait before transfer.",
-                      );
-                      return;
-                    }
-                    void runAdminAction(
-                      `hold:${settlement.id}`,
-                      () =>
-                        holdSettlementMutation.mutateAsync({
-                          settlementId: settlement.id,
-                          reason,
-                        }),
-                      "Settlement placed on hold",
-                    );
-                  }}
-                  onComplete={() => {
-                    const reference =
-                      references[`settlement:${settlement.id}`]?.trim() ?? "";
-                    if (reference.length < 5) {
-                      showAppAlert(
-                        "Payout reference required",
-                        "Transfer the settlement first, then enter its outgoing UPI/UTR reference.",
-                      );
-                      return;
-                    }
-                    void runAdminAction(
-                      `settlement:${settlement.id}`,
-                      () =>
-                        settlementMutation.mutateAsync({
-                          settlementId: settlement.id,
-                          payoutReference: reference,
-                        }),
-                      "Settlement recorded",
-                    );
-                  }}
-                />
-              ))}
-            </QueueSection>
+                        <View style={styles.participants}>
+                          <InfoLine label="Buyer" value={order.buyer.name} />
+                          <InfoLine
+                            label="Buyer contact"
+                            value={order.buyer.phoneNumber ?? order.buyer.email}
+                          />
+                          <InfoLine
+                            label="Deliverer"
+                            value={
+                              order.deliverer?.name ??
+                              order.deliverer?.email ??
+                              (order.deliverer
+                                ? shortId(order.deliverer.id)
+                                : "Not assigned")
+                            }
+                          />
+                          <InfoLine
+                            label="Deliverer contact"
+                            value={
+                              order.deliverer?.phoneNumber ??
+                              order.deliverer?.email ??
+                              "—"
+                            }
+                          />
+                          <InfoLine
+                            label="Drop-off"
+                            value={order.deliveryLocationName}
+                          />
+                          <InfoLine
+                            label="Drop-off coordinates"
+                            value={
+                              order.deliveryLatitude.toFixed(5) +
+                              ", " +
+                              order.deliveryLongitude.toFixed(5)
+                            }
+                          />
+                          <InfoLine
+                            label="Canteen coordinates"
+                            value={
+                              order.canteenLatitude.toFixed(5) +
+                              ", " +
+                              order.canteenLongitude.toFixed(5)
+                            }
+                          />
+                        </View>
+
+                        <View style={styles.itemsPanel}>
+                          <Text style={styles.itemsTitle}>Items</Text>
+                          {order.items.map((item) => (
+                            <InfoLine
+                              key={item.menuItemId}
+                              label={item.quantity + "× " + item.name}
+                              value={formatCurrency(item.price * item.quantity)}
+                            />
+                          ))}
+                        </View>
+
+                        <View style={styles.moneyPanel}>
+                          <MoneyLine label="Food" value={order.foodPrice} />
+                          <MoneyLine
+                            label="Delivery fee"
+                            value={order.deliveryFee}
+                          />
+                          <MoneyLine
+                            label="Buyer total"
+                            value={order.totalAmount}
+                            strong
+                          />
+                        </View>
+
+                        <View style={styles.timeline}>
+                          <TimelineLine
+                            label="Created"
+                            value={formatDate(order.createdAt)}
+                          />
+                          <TimelineLine
+                            label="Accepted"
+                            value={formatDate(order.acceptedAt)}
+                          />
+                          <TimelineLine
+                            label="Items available"
+                            value={formatDate(order.itemsAvailableAt)}
+                          />
+                          <TimelineLine
+                            label="Purchased"
+                            value={formatDate(order.purchasedAt)}
+                          />
+                          <TimelineLine
+                            label="OTP verified"
+                            value={formatDate(order.otpVerifiedAt)}
+                          />
+                          <TimelineLine
+                            label="Payment received"
+                            value={formatDate(order.paymentReceivedAt)}
+                          />
+                          <TimelineLine
+                            label="Completed"
+                            value={formatDate(order.deliveredAt)}
+                          />
+                        </View>
+
+                        {issueOpen ? (
+                          <View style={styles.issuePanel}>
+                            <InlineNotice
+                              icon="alert-triangle"
+                              tone="warning"
+                              title="Handover payment issue"
+                              copy={
+                                order.paymentIssueReason ??
+                                "Payment has not been confirmed."
+                              }
+                            />
+                            <TextInput
+                              value={resolution}
+                              onChangeText={(value) =>
+                                setResolutions((current) => ({
+                                  ...current,
+                                  [order.id]: value,
+                                }))
+                              }
+                              placeholder="Admin resolution note"
+                              placeholderTextColor={colors.faint}
+                              multiline
+                              style={styles.resolutionInput}
+                            />
+                            <AppButton
+                              label="Save resolution note"
+                              icon="file-text"
+                              tone="secondary"
+                              loading={
+                                resolveIssue.isPending &&
+                                resolveIssue.variables.orderId === order.id &&
+                                resolveIssue.variables.outcome === "NOTE_ONLY"
+                              }
+                              disabled={
+                                resolveIssue.isPending ||
+                                resolution.trim().length < 3
+                              }
+                              onPress={() =>
+                                resolveIssue.mutate({
+                                  orderId: order.id,
+                                  resolution: resolution.trim(),
+                                  outcome: "NOTE_ONLY",
+                                })
+                              }
+                            />
+                            {canCompletePaid ? (
+                              <AppButton
+                                label="Resolve as paid & complete"
+                                icon="check-circle"
+                                loading={
+                                  resolveIssue.isPending &&
+                                  resolveIssue.variables.orderId === order.id &&
+                                  resolveIssue.variables.outcome ===
+                                    "COMPLETE_PAID"
+                                }
+                                disabled={
+                                  resolveIssue.isPending ||
+                                  resolution.trim().length < 3
+                                }
+                                onPress={() =>
+                                  confirmAppAction({
+                                    title: "Complete this order as paid?",
+                                    message:
+                                      "The OTP was verified. This records buyer payment as received, completes the order, and counts the delivery fee as earned.",
+                                    cancelLabel: "Cancel",
+                                    confirmLabel: "Complete as paid",
+                                    onConfirm: () =>
+                                      resolveIssue.mutate({
+                                        orderId: order.id,
+                                        resolution: resolution.trim(),
+                                        outcome: "COMPLETE_PAID",
+                                      }),
+                                  })
+                                }
+                              />
+                            ) : null}
+                            {canCloseFailed ? (
+                              <AppButton
+                                label="Close order as failed"
+                                icon="x-circle"
+                                tone="danger"
+                                loading={
+                                  resolveIssue.isPending &&
+                                  resolveIssue.variables.orderId === order.id &&
+                                  resolveIssue.variables.outcome ===
+                                    "CLOSE_FAILED"
+                                }
+                                disabled={
+                                  resolveIssue.isPending ||
+                                  resolution.trim().length < 3
+                                }
+                                onPress={() =>
+                                  confirmAppAction({
+                                    title: "Close this order as failed?",
+                                    message:
+                                      "This is a terminal exception action. It releases the buyer and deliverer from the active order but does not record payment or delivery earnings.",
+                                    cancelLabel: "Keep open",
+                                    confirmLabel: "Close as failed",
+                                    destructive: true,
+                                    onConfirm: () =>
+                                      resolveIssue.mutate({
+                                        orderId: order.id,
+                                        resolution: resolution.trim(),
+                                        outcome: "CLOSE_FAILED",
+                                      }),
+                                  })
+                                }
+                              />
+                            ) : null}
+                          </View>
+                        ) : order.paymentIssueResolvedAt ? (
+                          <InlineNotice
+                            icon="check-circle"
+                            tone="success"
+                            title="Issue resolved"
+                            copy={
+                              order.paymentIssueResolution ??
+                              "Admin marked this issue resolved."
+                            }
+                          />
+                        ) : null}
+
+                        {order.cancellationReason ? (
+                          <InlineNotice
+                            icon="x-circle"
+                            tone="warning"
+                            title="Order cancelled"
+                            copy={order.cancellationReason}
+                          />
+                        ) : null}
+                      </SectionCard>
+                    </MotionView>
+                  );
+                })}
+              </View>
+            )}
           </>
         )}
       </ScrollView>
@@ -408,487 +468,41 @@ export default function AdminPaymentsScreen() {
   );
 }
 
-function PaymentDestinationCard({
-  settings,
-  loading,
-  error,
-  upiId,
-  payeeName,
-  busy,
-  onChangeUpiId,
-  onChangePayeeName,
-  onRetry,
-  onSave,
-}: {
-  settings: AdminPaymentSettings | undefined;
-  loading: boolean;
-  error: boolean;
-  upiId: string;
-  payeeName: string;
-  busy: boolean;
-  onChangeUpiId: (value: string) => void;
-  onChangePayeeName: (value: string) => void;
-  onRetry: () => void;
-  onSave: () => void;
-}) {
-  return (
-    <MotionView style={styles.destinationCard}>
-      <View style={styles.summaryHeader}>
-        <View style={styles.destinationHeadingCopy}>
-          <Text style={styles.eyebrow}>PAYMENT DESTINATION</Text>
-          <Text style={styles.sectionTitle}>CAmpDeliver receiving UPI</Text>
-          <Text style={styles.destinationCopy}>
-            New payment selections use the latest saved destination immediately.
-            Orders that already started payment keep their original UPI for safe
-            reconciliation.
-          </Text>
-        </View>
-        <Feather name="credit-card" size={20} color={colors.primary} />
-      </View>
-
-      {loading ? (
-        <LoadingState title="Loading payment destination" />
-      ) : error ? (
-        <EmptyState
-          icon="wifi-off"
-          title="Payment destination unavailable"
-          copy="Retry before changing where buyer payments are sent."
-          actionLabel="Retry"
-          onAction={onRetry}
-        />
-      ) : (
-        <>
-          {settings?.upiId ? (
-            <View style={styles.destinationCurrent}>
-              <Text style={styles.referenceLabel}>CURRENT RECEIVING UPI</Text>
-              <Text selectable style={styles.destinationCurrentId}>
-                {settings.upiId}
-              </Text>
-              <Text style={styles.destinationCurrentMeta}>
-                {settings.upiPayeeName}
-                {` - Updated ${new Date(settings.updatedAt).toLocaleString()}`}
-              </Text>
-            </View>
-          ) : (
-            <InlineNotice
-              tone="warning"
-              icon="alert-circle"
-              title="No receiving UPI configured"
-              copy="Buyer payment selection remains blocked until an ADMIN saves a valid UPI destination."
-            />
-          )}
-
-          <View style={styles.destinationField}>
-            <Text style={styles.destinationLabel}>UPI ID</Text>
-            <TextInput
-              value={upiId}
-              onChangeText={onChangeUpiId}
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="name@bank"
-              placeholderTextColor={colors.faint}
-              style={styles.input}
-              maxLength={100}
-            />
-          </View>
-          <View style={styles.destinationField}>
-            <Text style={styles.destinationLabel}>Payee name</Text>
-            <TextInput
-              value={payeeName}
-              onChangeText={onChangePayeeName}
-              autoCapitalize="words"
-              placeholder="Recipient name"
-              placeholderTextColor={colors.faint}
-              style={styles.input}
-              maxLength={80}
-            />
-            <Text style={styles.destinationCopy}>
-              Use the recipient name associated with this UPI ID. For a personal
-              VPA, avoid a platform nickname if it differs from the name shown
-              by the UPI app.
-            </Text>
-          </View>
-          <AppButton
-            label="Save UPI Destination"
-            icon="save"
-            loading={busy}
-            disabled={
-              busy || !upiId.trim().includes("@") || payeeName.trim().length < 2
-            }
-            onPress={onSave}
-          />
-
-          {settings?.history.length ? (
-            <View style={styles.destinationHistory}>
-              <Text style={styles.referenceLabel}>RECENT CHANGES</Text>
-              {settings.history.slice(0, 3).map((entry) => (
-                <View key={entry.id} style={styles.destinationHistoryRow}>
-                  <Text selectable style={styles.destinationHistoryId}>
-                    {entry.newUpiId}
-                  </Text>
-                  <Text style={styles.destinationHistoryDate}>
-                    {new Date(entry.createdAt).toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-        </>
-      )}
-    </MotionView>
-  );
+function formatDate(value: string | Date | null) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
 }
 
-function Summary({ data }: { data: AdminDashboard }) {
-  return (
-    <MotionView style={styles.summaryCard}>
-      <View style={styles.summaryHeader}>
-        <View>
-          <Text style={styles.eyebrow}>FINANCE OVERVIEW</Text>
-          <Text style={styles.sectionTitle}>Manual pilot ledger</Text>
-        </View>
-        <Feather name="activity" size={20} color={colors.primary} />
-      </View>
-      <View style={styles.metricGrid}>
-        <Metric
-          label="Verify"
-          value={String(data.summary.pendingPaymentVerifications)}
-        />
-        <Metric label="Refund" value={String(data.summary.refundsRequired)} />
-        <Metric
-          label="Settle"
-          value={String(data.summary.pendingSettlements)}
-        />
-        <Metric
-          label="Pending payout"
-          value={formatCurrency(data.summary.pendingSettlementAmount)}
-        />
-      </View>
-      <View style={styles.revenueRow}>
-        <Text style={styles.revenueLabel}>
-          Recorded platform fees on paid deliveries
-        </Text>
-        <Text style={styles.revenueValue}>
-          {formatCurrency(data.summary.platformFeesEarned)}
-        </Text>
-      </View>
-    </MotionView>
-  );
-}
-
-function QueueSection({
-  eyebrow,
-  title,
-  count,
-  emptyCopy,
-  children,
+function Metric({
+  label,
+  value,
+  icon,
 }: {
-  eyebrow: string;
-  title: string;
-  count: number;
-  emptyCopy: string;
-  children: React.ReactNode;
+  label: string;
+  value: number;
+  icon: keyof typeof Feather.glyphMap;
 }) {
   return (
-    <View style={styles.section}>
-      <View style={styles.sectionHeader}>
-        <View>
-          <Text style={styles.eyebrow}>{eyebrow}</Text>
-          <Text style={styles.sectionTitle}>{title}</Text>
-        </View>
-        <View style={styles.countPill}>
-          <Text style={styles.countText}>{count}</Text>
-        </View>
-      </View>
-      {count === 0 ? (
-        <View style={styles.emptyQueue}>
-          <Feather name="check-circle" size={17} color={colors.success} />
-          <Text style={styles.emptyQueueText}>{emptyCopy}</Text>
-        </View>
-      ) : (
-        <View style={styles.queueList}>{children}</View>
-      )}
+    <View style={styles.metric}>
+      <Feather name={icon} size={16} color={colors.primary} />
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
     </View>
   );
 }
 
-function VerificationCard({
-  payment,
-  busyKey,
-  reason,
-  setReason,
-  onConfirm,
-  onReject,
+function StatusBadge({
+  status,
+  problem,
 }: {
-  payment: Verification;
-  busyKey: string | null;
-  reason: string;
-  setReason: (value: string) => void;
-  onConfirm: () => void;
-  onReject: () => void;
+  status: string;
+  problem: boolean;
 }) {
   return (
-    <MotionView style={styles.queueCard}>
-      <CardHeading
-        title={`Order #${shortId(payment.orderId)}`}
-        subtitle={payment.order.canteenName}
-        amount={formatCurrency(payment.expectedAmount)}
-      />
-      <InfoLine label="Buyer" value={payment.order.buyer?.name ?? "Unknown"} />
-      <InfoLine
-        label="Method"
-        value={
-          payment.method === "PAY_AT_DELIVERY" ? "Pay at Delivery" : "Advance"
-        }
-      />
-      <InfoLine
-        label="Expected UPI"
-        value={payment.destinationUpiId ?? "Not captured"}
-      />
-      <View style={styles.referenceBox}>
-        <Text style={styles.referenceLabel}>SUBMITTED UPI / UTR</Text>
-        <Text selectable style={styles.referenceValue}>
-          {payment.submittedUtr ?? "Missing"}
-        </Text>
-      </View>
-      {payment.order.status === "CANCELLED" ||
-      payment.order.status === "FAILED" ? (
-        <InlineNotice
-          tone="warning"
-          icon="rotate-ccw"
-          title="Order already ended"
-          copy="If this UTR matches a real bank credit, Verify will send it directly to the refund queue rather than reopening the order."
-        />
-      ) : null}
-      {payment.conflictOfInterest ? (
-        <InlineNotice
-          tone="danger"
-          icon="shield"
-          title="Independent admin required"
-          copy="You are the buyer or deliverer on this order. Another administrator must verify or reject its payment."
-        />
-      ) : null}
-      <AppButton
-        label="Verify Bank Credit"
-        icon="check"
-        loading={busyKey === `verify:${payment.id}`}
-        disabled={
-          payment.conflictOfInterest ||
-          (busyKey !== null && busyKey !== `verify:${payment.id}`)
-        }
-        onPress={onConfirm}
-      />
-      <TextInput
-        value={reason}
-        onChangeText={setReason}
-        editable={!payment.conflictOfInterest}
-        placeholder="Reason if rejecting reference"
-        placeholderTextColor={colors.faint}
-        style={styles.input}
-        maxLength={300}
-      />
-      <AppButton
-        label="Reject Reference"
-        icon="x"
-        tone="warning"
-        loading={busyKey === `reject:${payment.id}`}
-        disabled={
-          payment.conflictOfInterest ||
-          reason.trim().length < 3 ||
-          busyKey !== null
-        }
-        onPress={onReject}
-      />
-    </MotionView>
-  );
-}
-
-function RefundCard({
-  payment,
-  busyKey,
-  reference,
-  setReference,
-  onComplete,
-}: {
-  payment: Refund;
-  busyKey: string | null;
-  reference: string;
-  setReference: (value: string) => void;
-  onComplete: () => void;
-}) {
-  return (
-    <MotionView style={styles.queueCard}>
-      <CardHeading
-        title={`Refund #${shortId(payment.orderId)}`}
-        subtitle={payment.order.buyer?.name ?? "Buyer"}
-        amount={formatCurrency(payment.expectedAmount)}
-      />
-      <InfoLine label="Order" value={payment.order.canteenName} />
-      <InfoLine
-        label="Incoming UTR"
-        value={payment.submittedUtr ?? "Verified"}
-      />
-      <InlineNotice
-        tone="warning"
-        icon="arrow-up-right"
-        title="Send money before marking complete"
-        copy="The app does not move bank funds. Transfer the exact refund manually, then record the outgoing reference below."
-      />
-      {payment.conflictOfInterest ? (
-        <InlineNotice
-          tone="danger"
-          icon="shield"
-          title="Independent admin required"
-          copy="Another administrator must complete this refund because you participated in the order."
-        />
-      ) : null}
-      <TextInput
-        value={reference}
-        onChangeText={setReference}
-        editable={!payment.conflictOfInterest}
-        autoCapitalize="characters"
-        placeholder="Outgoing refund UTR / reference"
-        placeholderTextColor={colors.faint}
-        style={styles.input}
-        maxLength={80}
-      />
-      <AppButton
-        label="Mark Refund Sent"
-        icon="check"
-        loading={busyKey === `refund:${payment.id}`}
-        disabled={
-          payment.conflictOfInterest ||
-          reference.trim().length < 5 ||
-          busyKey !== null
-        }
-        onPress={onComplete}
-      />
-    </MotionView>
-  );
-}
-
-function SettlementCard({
-  settlement,
-  busyKey,
-  reference,
-  setReference,
-  holdReason,
-  setHoldReason,
-  onHold,
-  onComplete,
-}: {
-  settlement: Settlement;
-  busyKey: string | null;
-  reference: string;
-  setReference: (value: string) => void;
-  holdReason: string;
-  setHoldReason: (value: string) => void;
-  onHold: () => void;
-  onComplete: () => void;
-}) {
-  return (
-    <MotionView style={styles.queueCard}>
-      <CardHeading
-        title={`Settlement #${shortId(settlement.orderId)}`}
-        subtitle={settlement.deliverer?.name ?? "Deliverer"}
-        amount={formatCurrency(settlement.amountDue)}
-      />
-      <InfoLine label="Canteen" value={settlement.order.canteenName} />
-      <InfoLine
-        label="Food reimbursement"
-        value={formatCurrency(settlement.foodReimbursement)}
-      />
-      <InfoLine
-        label="Delivery earning"
-        value={formatCurrency(settlement.deliveryEarning)}
-      />
-      {settlement.status !== "PENDING" ? (
-        <InlineNotice
-          tone="warning"
-          icon="alert-circle"
-          title={`Settlement is ${settlement.status.toLowerCase().replace("_", " ")}`}
-          copy={
-            settlement.holdReason ??
-            "Review this settlement before sending funds."
-          }
-        />
-      ) : null}
-      {settlement.conflictOfInterest ? (
-        <InlineNotice
-          tone="danger"
-          icon="shield"
-          title="Independent admin required"
-          copy="Another administrator must hold or pay this settlement because you participated in the order."
-        />
-      ) : null}
-      <TextInput
-        value={holdReason}
-        onChangeText={setHoldReason}
-        editable={!settlement.conflictOfInterest}
-        placeholder={
-          settlement.status === "ON_HOLD"
-            ? "Update hold reason"
-            : "Reason to put settlement on hold"
-        }
-        placeholderTextColor={colors.faint}
-        style={styles.input}
-        maxLength={300}
-      />
-      <AppButton
-        label={
-          settlement.status === "ON_HOLD" ? "Update Hold Reason" : "Put On Hold"
-        }
-        icon="pause-circle"
-        tone="warning"
-        loading={busyKey === `hold:${settlement.id}`}
-        disabled={
-          settlement.conflictOfInterest ||
-          holdReason.trim().length < 3 ||
-          busyKey !== null
-        }
-        onPress={onHold}
-      />
-      <TextInput
-        value={reference}
-        onChangeText={setReference}
-        editable={!settlement.conflictOfInterest}
-        autoCapitalize="characters"
-        placeholder="Outgoing payout UTR / reference"
-        placeholderTextColor={colors.faint}
-        style={styles.input}
-        maxLength={80}
-      />
-      <AppButton
-        label="Mark Settlement Paid"
-        icon="check"
-        loading={busyKey === `settlement:${settlement.id}`}
-        disabled={
-          settlement.conflictOfInterest ||
-          reference.trim().length < 5 ||
-          busyKey !== null
-        }
-        onPress={onComplete}
-      />
-    </MotionView>
-  );
-}
-
-function CardHeading({
-  title,
-  subtitle,
-  amount,
-}: {
-  title: string;
-  subtitle: string;
-  amount: string;
-}) {
-  return (
-    <View style={styles.cardHeading}>
-      <View style={styles.cardHeadingCopy}>
-        <Text style={styles.cardTitle}>{title}</Text>
-        <Text style={styles.cardSubtitle}>{subtitle}</Text>
-      </View>
-      <Text style={styles.cardAmount}>{amount}</Text>
+    <View style={[styles.badge, problem && styles.badgeProblem]}>
+      <Text style={[styles.badgeText, problem && styles.badgeTextProblem]}>
+        {problem ? "Problem" : status.replaceAll("_", " ")}
+      </Text>
     </View>
   );
 }
@@ -897,253 +511,151 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoLine}>
       <Text style={styles.infoLabel}>{label}</Text>
-      <Text selectable style={styles.infoValue}>
+      <Text numberOfLines={2} style={styles.infoValue}>
         {value}
       </Text>
     </View>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function MoneyLine({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
   return (
-    <View style={styles.metric}>
-      <Text style={styles.metricValue}>{value}</Text>
-      <Text style={styles.metricLabel}>{label}</Text>
+    <View style={styles.infoLine}>
+      <Text style={[styles.infoLabel, strong && styles.strong]}>{label}</Text>
+      <Text style={[styles.infoValue, strong && styles.strong]}>
+        {formatCurrency(value)}
+      </Text>
+    </View>
+  );
+}
+
+function TimelineLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.timelineLine}>
+      <Text style={styles.timelineLabel}>{label}</Text>
+      <Text style={styles.timelineValue}>{value}</Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  adminBadge: {
-    alignItems: "center",
+  badge: {
     backgroundColor: colors.primarySoft,
-    borderColor: "#BAD9D7",
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 5,
+    borderRadius: 999,
     paddingHorizontal: 9,
-    paddingVertical: 6,
+    paddingVertical: 5,
   },
-  adminBadgeText: {
+  badgeProblem: { backgroundColor: colors.warningSoft },
+  badgeText: {
     color: colors.primaryStrong,
     fontSize: 9,
     fontWeight: "900",
-  },
-  cardAmount: { color: colors.success, fontSize: 16, fontWeight: "900" },
-  cardHeading: { alignItems: "flex-start", flexDirection: "row", gap: 12 },
-  cardHeadingCopy: { flex: 1 },
-  cardSubtitle: { color: colors.muted, fontSize: 11, marginTop: 3 },
-  cardTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
-  centerState: { flex: 1, justifyContent: "center", padding: 22 },
-  content: { gap: 18, padding: 18, paddingBottom: 40 },
-  destinationCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    gap: 13,
-    padding: 16,
-    ...shadow,
-  },
-  destinationCopy: {
-    color: colors.muted,
-    fontSize: 11,
-    lineHeight: 17,
-    marginTop: 5,
-  },
-  destinationCurrent: {
-    backgroundColor: colors.bgElevated,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 12,
-  },
-  destinationCurrentId: {
-    color: colors.text,
-    fontSize: 17,
-    fontWeight: "900",
-    marginTop: 4,
-  },
-  destinationCurrentMeta: { color: colors.muted, fontSize: 10, marginTop: 3 },
-  destinationField: { gap: 6 },
-  destinationHeadingCopy: { flex: 1 },
-  destinationHistory: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    gap: 7,
-    paddingTop: 12,
-  },
-  destinationHistoryDate: { color: colors.faint, fontSize: 9 },
-  destinationHistoryId: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 10,
-    fontWeight: "700",
-  },
-  destinationHistoryRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "space-between",
-  },
-  destinationLabel: { color: colors.muted, fontSize: 11, fontWeight: "800" },
-  countPill: {
-    alignItems: "center",
-    backgroundColor: colors.primarySoft,
-    borderRadius: radius.pill,
-    height: 34,
-    justifyContent: "center",
-    minWidth: 34,
-    paddingHorizontal: 9,
-  },
-  countText: { color: colors.primaryStrong, fontSize: 11, fontWeight: "900" },
-  emptyQueue: {
-    alignItems: "center",
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 9,
-    padding: 14,
-  },
-  emptyQueueText: {
-    color: colors.muted,
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  eyebrow: {
-    color: colors.primary,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  header: {
-    alignItems: "center",
-    borderBottomColor: colors.border,
-    borderBottomWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 64,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-  },
-  headerCopy: { flex: 1 },
-  headerSubtitle: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: "900" },
-  iconButton: {
-    alignItems: "center",
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    height: 42,
-    justifyContent: "center",
-    width: 42,
-  },
+  badgeTextProblem: { color: colors.warning },
+  content: { gap: 14, padding: 16 },
+  filterRow: { gap: 8, paddingRight: 12 },
   infoLabel: { color: colors.muted, fontSize: 11 },
   infoLine: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
-    gap: 12,
+    gap: 14,
     justifyContent: "space-between",
   },
   infoValue: {
     color: colors.text,
-    flexShrink: 1,
+    flex: 1,
     fontSize: 11,
     fontWeight: "700",
     textAlign: "right",
   },
-  input: {
-    backgroundColor: colors.bgElevated,
-    borderColor: colors.borderStrong,
+  issuePanel: { gap: 10 },
+  itemsPanel: {
+    backgroundColor: colors.bg,
+    borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    color: colors.text,
-    fontSize: 13,
-    minHeight: 48,
-    paddingHorizontal: 13,
+    gap: 7,
+    padding: 12,
   },
+  itemsTitle: {
+    color: colors.text,
+    fontSize: 11,
+    fontWeight: "900",
+    marginBottom: 2,
+  },
+  list: { gap: 10 },
   metric: {
-    backgroundColor: colors.bgElevated,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 12,
-    width: "48%",
-  },
-  metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  metricLabel: {
-    color: colors.muted,
-    fontSize: 9,
-    marginTop: 3,
-    textTransform: "uppercase",
-  },
-  metricValue: { color: colors.text, fontSize: 17, fontWeight: "900" },
-  pressed: { opacity: 0.75, transform: [{ scale: 0.99 }] },
-  queueCard: {
     backgroundColor: colors.panel,
     borderColor: colors.border,
-    borderRadius: radius.xl,
+    borderRadius: radius.lg,
     borderWidth: 1,
-    gap: 11,
-    padding: 15,
+    flexBasis: "47%",
+    flexGrow: 1,
+    padding: 13,
     ...shadow,
   },
-  queueList: { gap: 12 },
-  referenceBox: {
-    backgroundColor: colors.bgElevated,
+  metricLabel: { color: colors.muted, fontSize: 10, marginTop: 3 },
+  metricValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+    marginTop: 8,
+  },
+  metrics: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
+  moneyPanel: {
+    backgroundColor: colors.bg,
+    borderRadius: radius.md,
+    gap: 7,
+    padding: 12,
+  },
+  orderCard: { gap: 13 },
+  orderSub: { color: colors.muted, fontSize: 10, marginTop: 3 },
+  orderTitle: { color: colors.text, fontSize: 15, fontWeight: "900" },
+  orderTitleWrap: { flex: 1 },
+  orderTop: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between",
+  },
+  participants: { gap: 8 },
+  resolutionInput: {
+    backgroundColor: colors.bg,
     borderColor: colors.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    padding: 12,
-  },
-  referenceLabel: { color: colors.faint, fontSize: 9, fontWeight: "900" },
-  referenceValue: {
     color: colors.text,
-    fontSize: 14,
-    fontWeight: "900",
-    marginTop: 4,
+    fontSize: 12,
+    minHeight: 76,
+    padding: 12,
+    textAlignVertical: "top",
   },
-  revenueLabel: { color: colors.muted, flex: 1, fontSize: 11 },
-  revenueRow: {
-    alignItems: "center",
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-    gap: 12,
-    paddingTop: 12,
-  },
-  revenueValue: { color: colors.success, fontSize: 14, fontWeight: "900" },
   root: { backgroundColor: colors.bg, flex: 1 },
-  section: { gap: 10 },
-  sectionHeader: {
-    alignItems: "center",
+  strong: { color: colors.success, fontWeight: "900" },
+  timeline: {
+    borderLeftColor: colors.border,
+    borderLeftWidth: 2,
+    gap: 7,
+    paddingLeft: 11,
+  },
+  timelineLabel: { color: colors.muted, fontSize: 10 },
+  timelineLine: {
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  sectionTitle: {
+  timelineValue: {
     color: colors.text,
-    fontSize: 17,
-    fontWeight: "900",
-    marginTop: 2,
-  },
-  summaryCard: {
-    backgroundColor: colors.panel,
-    borderColor: colors.border,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    gap: 12,
-    padding: 16,
-    ...shadow,
-  },
-  summaryHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    fontSize: 10,
+    fontWeight: "700",
+    textAlign: "right",
   },
 });

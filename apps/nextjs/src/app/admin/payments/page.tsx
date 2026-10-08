@@ -1,141 +1,83 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
-  CreditCard,
-  RefreshCw,
-  ShieldAlert,
+  Package,
+  ShieldCheck,
 } from "lucide-react";
 
 import { useTRPC } from "~/trpc/react";
 
-const formatCurrency = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
+const formatCurrency = (paise: number) => "₹" + (paise / 100).toFixed(2);
 
-export default function AdminPaymentsPage() {
+const ACTIVE = new Set([
+  "BROADCASTED",
+  "ACCEPTED",
+  "ITEM_AVAILABLE",
+  "PURCHASED",
+  "ON_THE_WAY",
+  "NEAR_YOU",
+  "PAYMENT_DUE",
+]);
+
+type Filter = "ALL" | "ACTIVE" | "COMPLETED" | "PROBLEMS" | "CANCELLED";
+
+export default function AdminOrderOperationsPage() {
   const trpc = useTRPC();
-  const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [refs, setRefs] = useState<Record<string, string>>({});
-  const [reasons, setReasons] = useState<Record<string, string>>({});
-  const [holdReasons, setHoldReasons] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<string | null>(null);
-  const [upiId, setUpiId] = useState("");
-  const [upiPayeeName, setUpiPayeeName] = useState("CAmpDeliver");
+  const dashboard = useQuery(trpc.payment.adminDashboard.queryOptions());
+  const [filter, setFilter] = useState<Filter>("ALL");
+  const [resolutions, setResolutions] = useState<Record<string, string>>({});
 
-  const { data: profile, isLoading: profileLoading } = useQuery(
-    trpc.auth.getMyProfile.queryOptions(),
+  const resolveIssue = useMutation(
+    trpc.payment.adminResolvePaymentIssue.mutationOptions({
+      onSuccess: () => void dashboard.refetch(),
+    }),
   );
-  const isAdmin = profile?.role === "ADMIN";
-  const dashboard = useQuery({
-    ...trpc.payment.adminDashboard.queryOptions(),
-    enabled: isAdmin,
-    refetchInterval: isAdmin ? 10000 : false,
-  });
-  const paymentSettings = useQuery({
-    ...trpc.payment.adminPaymentSettings.queryOptions(),
-    enabled: isAdmin && dashboard.data?.databaseReady === true,
-  });
 
-  useEffect(() => {
-    if (!paymentSettings.data) return;
-    setUpiId(paymentSettings.data.upiId ?? "");
-    setUpiPayeeName(paymentSettings.data.upiPayeeName);
-  }, [paymentSettings.data]);
-
-  const refresh = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.adminDashboard.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.earnings.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.adminPaymentSettings.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.payment.config.queryKey(),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: trpc.order.myOrders.queryKey(),
-      }),
-    ]);
-  };
-
-  const run = async (
-    key: string,
-    operation: () => Promise<unknown>,
-    success: string,
-  ) => {
-    if (busy) return;
-    setBusy(key);
-    setMessage(null);
-    try {
-      await operation();
-      await refresh();
-      setMessage(success);
-    } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "Admin action failed.",
-      );
-    } finally {
-      setBusy(null);
+  const visibleOrders = useMemo(() => {
+    const source = dashboard.data?.orderOperations ?? [];
+    if (filter === "ACTIVE") {
+      return source.filter((order) => ACTIVE.has(order.status));
     }
-  };
+    if (filter === "COMPLETED") {
+      return source.filter((order) => order.status === "DELIVERED");
+    }
+    if (filter === "PROBLEMS") {
+      return source.filter(
+        (order) => order.paymentIssueAt && !order.paymentIssueResolvedAt,
+      );
+    }
+    if (filter === "CANCELLED") {
+      return source.filter((order) => order.status === "CANCELLED");
+    }
+    return source;
+  }, [dashboard.data?.orderOperations, filter]);
 
-  const verify = useMutation(
-    trpc.payment.adminConfirmPayment.mutationOptions(),
-  );
-  const reject = useMutation(trpc.payment.adminRejectPayment.mutationOptions());
-  const refund = useMutation(
-    trpc.payment.adminCompleteRefund.mutationOptions(),
-  );
-  const settle = useMutation(
-    trpc.payment.adminMarkSettlementPaid.mutationOptions(),
-  );
-  const holdSettlement = useMutation(
-    trpc.payment.adminHoldSettlement.mutationOptions(),
-  );
-  const updatePaymentDestination = useMutation(
-    trpc.payment.adminUpdatePaymentDestination.mutationOptions(),
-  );
-
-  if (profileLoading) {
-    return <Loading text="Checking admin access…" />;
-  }
-  if (!isAdmin) {
+  if (dashboard.isLoading) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-3 px-4 py-16 text-center">
-        <ShieldAlert className="h-8 w-8 text-amber-400" />
-        <h1 className="text-xl font-black text-white">Admin access required</h1>
-        <p className="text-sm text-zinc-400">
-          Payment verification, refunds and settlements are restricted to ADMIN
-          accounts.
-        </p>
-        <Link
-          href="/"
-          className="rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
-        >
-          Return home
-        </Link>
+      <div className="flex min-h-[400px] items-center justify-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-500 border-t-transparent" />
       </div>
     );
   }
 
-  if (dashboard.isLoading) return <Loading text="Loading finance queues…" />;
   if (dashboard.isError || !dashboard.data) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-16 text-center">
+      <div className="mx-auto max-w-3xl px-4 py-10 text-center">
         <h1 className="text-xl font-black text-white">
-          Finance queues unavailable
+          Order operations unavailable
         </h1>
+        <p className="mt-2 text-sm text-zinc-400">
+          Check the connection and retry. No order data was changed.
+        </p>
         <button
           onClick={() => void dashboard.refetch()}
-          className="self-center rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
+          className="mt-4 rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
         >
           Retry
         </button>
@@ -143,30 +85,24 @@ export default function AdminPaymentsPage() {
     );
   }
 
-  if (!dashboard.data.databaseReady) {
+  const data = dashboard.data;
+
+  if (!data.databaseReady) {
     return (
-      <div className="mx-auto flex max-w-lg flex-col gap-4 px-4 py-16 text-center">
+      <div className="mx-auto max-w-3xl px-4 py-10 text-center">
         <h1 className="text-xl font-black text-white">
-          Payment database upgrade pending
+          Server upgrade pending
         </h1>
-        <p className="text-sm text-zinc-400">
-          The admin backend is online. Payment verification, refunds and
-          settlements will become available after the security migration is
-          applied.
+        <p className="mt-2 text-sm text-zinc-400">
+          Order operations will become available after the direct Pay on
+          Delivery migration is applied.
         </p>
-        <button
-          onClick={() => void dashboard.refetch()}
-          className="self-center rounded-xl bg-purple-600 px-5 py-2.5 text-sm font-bold text-white"
-        >
-          Check again
-        </button>
       </div>
     );
   }
 
-  const data = dashboard.data;
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6">
+    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 pb-24">
       <div className="flex items-center gap-3">
         <Link
           href="/"
@@ -174,549 +110,353 @@ export default function AdminPaymentsPage() {
         >
           <ArrowLeft className="h-5 w-5" />
         </Link>
-        <div className="min-w-0 flex-1">
-          <h1 className="text-xl font-black text-white">
-            Payments & Settlements
-          </h1>
+        <div>
+          <h1 className="text-2xl font-black text-white">Order operations</h1>
           <p className="text-xs text-zinc-400">
-            Manual pilot reconciliation center
+            Delivery lifecycle, handover state and payment issues.
           </p>
         </div>
-        <button
-          onClick={() => void dashboard.refetch()}
-          className="rounded-xl border border-zinc-800 bg-zinc-900 p-2 text-zinc-300"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
       </div>
 
-      <div className="rounded-2xl border border-amber-500/25 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-100">
-        Bank/UPI history is the source of truth. Confirm incoming money only
-        after the amount and submitted UTR match the actual CAmpDeliver credit.
-        The app never treats a screenshot or client callback as proof.
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Metric
+          icon={Package}
+          label="Active"
+          value={data.summary.activeOrders}
+        />
+        <Metric
+          icon={CheckCircle2}
+          label="Completed"
+          value={data.summary.deliveredOrders}
+        />
+        <Metric
+          icon={AlertTriangle}
+          label="Problems"
+          value={data.summary.unresolvedIssues}
+        />
+        <Metric icon={Package} label="Total" value={data.summary.totalOrders} />
       </div>
 
-      {message && (
-        <div className="rounded-xl border border-zinc-700 bg-zinc-900 p-3 text-xs text-zinc-200">
-          {message}
+      <div className="flex gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4 text-sm text-emerald-100">
+        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+        <p>
+          New orders use direct Pay on Delivery. CAmpDeliver does not hold,
+          verify, refund or settle money; this dashboard is operational only.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {(
+          ["ALL", "ACTIVE", "COMPLETED", "PROBLEMS", "CANCELLED"] as Filter[]
+        ).map((item) => (
+          <button
+            key={item}
+            onClick={() => setFilter(item)}
+            className={
+              "rounded-xl px-4 py-2 text-xs font-black transition " +
+              (filter === item
+                ? "bg-purple-600 text-white"
+                : "border border-zinc-800 bg-zinc-900 text-zinc-400 hover:bg-zinc-800")
+            }
+          >
+            {item.charAt(0) + item.slice(1).toLowerCase()}
+          </button>
+        ))}
+      </div>
+
+      {visibleOrders.length === 0 ? (
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-8 text-center text-sm text-zinc-400">
+          No orders in this view.
         </div>
-      )}
-
-      <section className="rounded-2xl border border-purple-500/25 bg-zinc-900/70 p-4 sm:p-5">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black tracking-[0.14em] text-purple-400 uppercase">
-                Payment destination
-              </p>
-              <h2 className="mt-1 text-lg font-black text-white">
-                CAmpDeliver receiving UPI
-              </h2>
-              <p className="mt-1 max-w-xl text-xs leading-relaxed text-zinc-400">
-                New payment selections use this destination immediately. Orders
-                that already started payment keep their original UPI, which
-                stays visible in the verification queue for reconciliation.
-              </p>
-            </div>
-            <CreditCard className="mt-1 h-5 w-5 shrink-0 text-purple-400" />
-          </div>
-
-          {paymentSettings.isLoading ? (
-            <p className="text-xs text-zinc-400">
-              Loading payment destination...
-            </p>
-          ) : paymentSettings.isError ? (
-            <div className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-950/20 p-3">
-              <p className="text-xs text-red-200">
-                Payment destination could not be loaded.
-              </p>
-              <button
-                onClick={() => void paymentSettings.refetch()}
-                className="rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-bold text-red-200"
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {visibleOrders.map((order) => {
+            const issueOpen = Boolean(
+              order.paymentIssueAt && !order.paymentIssueResolvedAt,
+            );
+            const resolution = resolutions[order.id] ?? "";
+            const canCompletePaid =
+              order.status === "PAYMENT_DUE" &&
+              Boolean(order.otpVerifiedAt) &&
+              !order.paymentReceivedAt;
+            const canCloseFailed =
+              Boolean(order.purchasedAt) &&
+              ["PURCHASED", "ON_THE_WAY", "NEAR_YOU", "PAYMENT_DUE"].includes(
+                order.status,
+              ) &&
+              !order.paymentReceivedAt;
+            return (
+              <article
+                key={order.id}
+                className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-5"
               >
-                Retry
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1.5 text-xs font-bold text-zinc-300">
-                  UPI ID
-                  <input
-                    value={upiId}
-                    onChange={(event) => setUpiId(event.target.value)}
-                    placeholder="name@bank"
-                    maxLength={100}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-purple-500"
-                  />
-                </label>
-                <label className="flex flex-col gap-1.5 text-xs font-bold text-zinc-300">
-                  Payee name
-                  <input
-                    value={upiPayeeName}
-                    onChange={(event) => setUpiPayeeName(event.target.value)}
-                    placeholder="CAmpDeliver"
-                    maxLength={80}
-                    className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-white outline-none focus:border-purple-500"
-                  />
-                </label>
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs text-zinc-500">
-                  {paymentSettings.data?.upiId ? (
-                    <>
-                      Current:{" "}
-                      <span className="font-bold text-zinc-200 select-all">
-                        {paymentSettings.data.upiId}
-                      </span>
-                      {` - Updated ${new Date(paymentSettings.data.updatedAt).toLocaleString()}`}
-                    </>
-                  ) : (
-                    <span className="text-amber-300">
-                      No receiving UPI is configured yet. Buyer payment
-                      selection remains blocked.
-                    </span>
-                  )}
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="font-black text-white">
+                      Order {order.id.slice(0, 8).toUpperCase()}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {order.canteenName} · {order.paymentModel}
+                    </p>
+                  </div>
+                  <span
+                    className={
+                      "rounded-full px-2.5 py-1 text-[10px] font-black uppercase " +
+                      (issueOpen
+                        ? "bg-amber-950/60 text-amber-300"
+                        : "bg-purple-950/60 text-purple-300")
+                    }
+                  >
+                    {issueOpen ? "Problem" : order.status.replaceAll("_", " ")}
+                  </span>
                 </div>
-                <button
-                  disabled={
-                    busy !== null ||
-                    !upiId.trim().includes("@") ||
-                    upiPayeeName.trim().length < 2
-                  }
-                  onClick={() =>
-                    void run(
-                      "payment-destination",
-                      () =>
-                        updatePaymentDestination.mutateAsync({
-                          upiId,
-                          upiPayeeName,
-                        }),
-                      "Payment destination updated.",
-                    )
-                  }
-                  className="rounded-xl bg-purple-600 px-5 py-2.5 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {busy === "payment-destination"
-                    ? "Saving..."
-                    : "Save UPI destination"}
-                </button>
-              </div>
 
-              {paymentSettings.data?.history.length ? (
-                <div className="border-t border-zinc-800 pt-3">
-                  <p className="text-[10px] font-black tracking-wide text-zinc-500 uppercase">
-                    Recent destination changes
-                  </p>
-                  <div className="mt-2 grid gap-1.5 text-[11px] text-zinc-500">
-                    {paymentSettings.data.history.slice(0, 3).map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex flex-wrap justify-between gap-2"
-                      >
-                        <span className="select-all">{entry.newUpiId}</span>
-                        <span>
-                          {new Date(entry.createdAt).toLocaleString()}
-                        </span>
-                      </div>
+                <div className="mt-4 space-y-2 border-t border-zinc-800 pt-3 text-xs">
+                  <Info label="Buyer" value={order.buyer.name} />
+                  <Info
+                    label="Buyer contact"
+                    value={order.buyer.phoneNumber ?? order.buyer.email}
+                  />
+                  <Info
+                    label="Deliverer"
+                    value={
+                      order.deliverer?.name ??
+                      order.deliverer?.email ??
+                      (order.deliverer
+                        ? order.deliverer.id.slice(0, 8)
+                        : "Not assigned")
+                    }
+                  />
+                  <Info
+                    label="Deliverer contact"
+                    value={
+                      order.deliverer?.phoneNumber ??
+                      order.deliverer?.email ??
+                      "—"
+                    }
+                  />
+                  <Info label="Drop-off" value={order.deliveryLocationName} />
+                  <Info
+                    label="Drop-off coordinates"
+                    value={
+                      order.deliveryLatitude.toFixed(5) +
+                      ", " +
+                      order.deliveryLongitude.toFixed(5)
+                    }
+                  />
+                  <Info
+                    label="Canteen coordinates"
+                    value={
+                      order.canteenLatitude.toFixed(5) +
+                      ", " +
+                      order.canteenLongitude.toFixed(5)
+                    }
+                  />
+                </div>
+
+                <div className="mt-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3 text-xs">
+                  <p className="mb-2 font-black text-white">Items</p>
+                  <div className="space-y-1.5">
+                    {order.items.map((item) => (
+                      <Info
+                        key={item.menuItemId}
+                        label={item.quantity + "× " + item.name}
+                        value={formatCurrency(item.price * item.quantity)}
+                      />
                     ))}
                   </div>
                 </div>
-              ) : null}
-            </>
-          )}
+
+                <div className="mt-4 rounded-xl bg-black/20 p-3 text-xs">
+                  <Money label="Food" value={order.foodPrice} />
+                  <Money label="Delivery fee" value={order.deliveryFee} />
+                  <Money label="Buyer total" value={order.totalAmount} strong />
+                </div>
+
+                <div className="mt-4 space-y-1.5 border-l-2 border-zinc-800 pl-3 text-[11px]">
+                  <Info label="Created" value={formatDate(order.createdAt)} />
+                  <Info label="Accepted" value={formatDate(order.acceptedAt)} />
+                  <Info
+                    label="Items available"
+                    value={formatDate(order.itemsAvailableAt)}
+                  />
+                  <Info
+                    label="Purchased"
+                    value={formatDate(order.purchasedAt)}
+                  />
+                  <Info
+                    label="OTP verified"
+                    value={formatDate(order.otpVerifiedAt)}
+                  />
+                  <Info
+                    label="Payment received"
+                    value={formatDate(order.paymentReceivedAt)}
+                  />
+                  <Info
+                    label="Completed"
+                    value={formatDate(order.deliveredAt)}
+                  />
+                </div>
+
+                {issueOpen && (
+                  <div className="mt-4 rounded-xl border border-amber-500/20 bg-amber-950/20 p-3">
+                    <p className="text-xs font-bold text-amber-200">
+                      {order.paymentIssueReason ??
+                        "Payment has not been confirmed."}
+                    </p>
+                    <textarea
+                      value={resolution}
+                      onChange={(event) =>
+                        setResolutions((current) => ({
+                          ...current,
+                          [order.id]: event.target.value,
+                        }))
+                      }
+                      placeholder="Admin resolution note"
+                      className="mt-3 min-h-20 w-full rounded-lg border border-zinc-700 bg-zinc-950 p-3 text-xs text-white outline-none focus:border-purple-500"
+                    />
+                    <div className="mt-3 flex flex-col gap-2">
+                      <button
+                        disabled={
+                          resolveIssue.isPending || resolution.trim().length < 3
+                        }
+                        onClick={() =>
+                          resolveIssue.mutate({
+                            orderId: order.id,
+                            resolution: resolution.trim(),
+                            outcome: "NOTE_ONLY",
+                          })
+                        }
+                        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-xs font-black text-zinc-200 disabled:opacity-50"
+                      >
+                        Save resolution note
+                      </button>
+                      {canCompletePaid && (
+                        <button
+                          disabled={
+                            resolveIssue.isPending ||
+                            resolution.trim().length < 3
+                          }
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Complete this order as paid? The OTP was verified; this records payment received and delivery earnings.",
+                              )
+                            ) {
+                              resolveIssue.mutate({
+                                orderId: order.id,
+                                resolution: resolution.trim(),
+                                outcome: "COMPLETE_PAID",
+                              });
+                            }
+                          }}
+                          className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          Resolve as paid & complete
+                        </button>
+                      )}
+                      {canCloseFailed && (
+                        <button
+                          disabled={
+                            resolveIssue.isPending ||
+                            resolution.trim().length < 3
+                          }
+                          onClick={() => {
+                            if (
+                              window.confirm(
+                                "Close this order as failed? This releases both users but does not record payment or delivery earnings.",
+                              )
+                            ) {
+                              resolveIssue.mutate({
+                                orderId: order.id,
+                                resolution: resolution.trim(),
+                                outcome: "CLOSE_FAILED",
+                              });
+                            }
+                          }}
+                          className="w-full rounded-lg bg-red-700 px-4 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          Close order as failed
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {order.paymentIssueResolvedAt && (
+                  <p className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-3 text-xs text-emerald-200">
+                    Resolved:{" "}
+                    {order.paymentIssueResolution ?? "Admin resolution saved."}
+                  </p>
+                )}
+
+                {order.cancellationReason && (
+                  <p className="mt-4 rounded-xl border border-zinc-700 bg-zinc-950/60 p-3 text-xs text-zinc-300">
+                    Cancelled: {order.cancellationReason}
+                  </p>
+                )}
+              </article>
+            );
+          })}
         </div>
-      </section>
-
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Metric
-          label="Verify"
-          value={String(data.summary.pendingPaymentVerifications)}
-        />
-        <Metric label="Refunds" value={String(data.summary.refundsRequired)} />
-        <Metric
-          label="Settle"
-          value={String(data.summary.pendingSettlements)}
-        />
-        <Metric
-          label="Pending payout"
-          value={formatCurrency(data.summary.pendingSettlementAmount)}
-        />
-      </section>
-
-      <Queue
-        title="Payments to verify"
-        empty={data.paymentVerifications.length === 0}
-      >
-        {data.paymentVerifications.map((payment) => {
-          const key = `verify:${payment.id}`;
-          const reason = reasons[payment.id] ?? "";
-          return (
-            <Card key={payment.id}>
-              <CardHeader
-                title={`Order ${payment.orderId.slice(0, 8).toUpperCase()}`}
-                amount={formatCurrency(payment.expectedAmount)}
-                subtitle={payment.order.canteenName}
-              />
-              <Info
-                label="Buyer"
-                value={payment.order.buyer?.name ?? "Unknown"}
-              />
-              <Info
-                label="Method"
-                value={
-                  payment.method === "PAY_AT_DELIVERY"
-                    ? "Pay at Delivery"
-                    : "Advance"
-                }
-              />
-              <Info
-                label="Expected UPI"
-                value={payment.destinationUpiId ?? "Not captured"}
-              />
-              <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-3">
-                <p className="text-[10px] font-black text-zinc-500 uppercase">
-                  Submitted UPI / UTR
-                </p>
-                <p className="mt-1 text-sm font-black text-white select-all">
-                  {payment.submittedUtr ?? "Missing"}
-                </p>
-              </div>
-              {["CANCELLED", "FAILED"].includes(payment.order.status) && (
-                <p className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs text-amber-200">
-                  Order already ended. If the UTR is a real credit, Verify moves
-                  it directly to the refund queue.
-                </p>
-              )}
-              {payment.conflictOfInterest && (
-                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
-                  Independent admin required. You are the buyer or deliverer on
-                  this order, so another administrator must reconcile it.
-                </p>
-              )}
-              <button
-                disabled={payment.conflictOfInterest || busy !== null}
-                onClick={() =>
-                  void run(
-                    key,
-                    () => verify.mutateAsync({ orderId: payment.orderId }),
-                    "Payment verified.",
-                  )
-                }
-                className="rounded-xl bg-emerald-600 py-2.5 text-xs font-black text-white disabled:opacity-50"
-              >
-                {busy === key ? "Verifying…" : "Verify bank credit"}
-              </button>
-              <input
-                value={reason}
-                onChange={(event) =>
-                  setReasons((current) => ({
-                    ...current,
-                    [payment.id]: event.target.value,
-                  }))
-                }
-                placeholder="Reason if rejecting reference"
-                maxLength={300}
-                disabled={payment.conflictOfInterest}
-                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
-              />
-              <button
-                disabled={
-                  payment.conflictOfInterest ||
-                  busy !== null ||
-                  reason.trim().length < 3
-                }
-                onClick={() =>
-                  void run(
-                    `reject:${payment.id}`,
-                    () =>
-                      reject.mutateAsync({
-                        orderId: payment.orderId,
-                        reason: reason.trim(),
-                      }),
-                    "Reference rejected.",
-                  )
-                }
-                className="rounded-xl border border-red-500/30 bg-red-950/20 py-2.5 text-xs font-black text-red-300 disabled:opacity-50"
-              >
-                Reject reference
-              </button>
-            </Card>
-          );
-        })}
-      </Queue>
-
-      <Queue title="Refunds required" empty={data.refunds.length === 0}>
-        {data.refunds.map((payment) => {
-          const key = `refund:${payment.id}`;
-          const reference = refs[key] ?? "";
-          return (
-            <Card key={payment.id}>
-              <CardHeader
-                title={`Refund ${payment.orderId.slice(0, 8).toUpperCase()}`}
-                amount={formatCurrency(payment.expectedAmount)}
-                subtitle={payment.order.buyer?.name ?? "Buyer"}
-              />
-              <Info label="Canteen" value={payment.order.canteenName} />
-              <Info
-                label="Incoming UTR"
-                value={payment.submittedUtr ?? "Verified"}
-              />
-              <p className="text-xs leading-relaxed text-amber-200">
-                Send the exact refund manually first, then record the outgoing
-                transfer reference.
-              </p>
-              {payment.conflictOfInterest && (
-                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
-                  Another administrator must complete this refund because you
-                  participated in the order.
-                </p>
-              )}
-              <input
-                value={reference}
-                onChange={(event) =>
-                  setRefs((current) => ({
-                    ...current,
-                    [key]: event.target.value,
-                  }))
-                }
-                placeholder="Outgoing refund UTR / reference"
-                maxLength={80}
-                disabled={payment.conflictOfInterest}
-                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
-              />
-              <button
-                disabled={
-                  payment.conflictOfInterest ||
-                  busy !== null ||
-                  reference.trim().length < 5
-                }
-                onClick={() =>
-                  void run(
-                    key,
-                    () =>
-                      refund.mutateAsync({
-                        orderId: payment.orderId,
-                        refundReference: reference.trim(),
-                      }),
-                    "Refund recorded.",
-                  )
-                }
-                className="rounded-xl bg-purple-600 py-2.5 text-xs font-black text-white disabled:opacity-50"
-              >
-                {busy === key ? "Saving…" : "Mark refund sent"}
-              </button>
-            </Card>
-          );
-        })}
-      </Queue>
-
-      <Queue
-        title="Deliverer settlements"
-        empty={data.settlements.length === 0}
-      >
-        {data.settlements.map((settlement) => {
-          const key = `settlement:${settlement.id}`;
-          const reference = refs[key] ?? "";
-          const holdReason = holdReasons[settlement.id] ?? "";
-          return (
-            <Card key={settlement.id}>
-              <CardHeader
-                title={`Settlement ${settlement.orderId.slice(0, 8).toUpperCase()}`}
-                amount={formatCurrency(settlement.amountDue)}
-                subtitle={settlement.deliverer?.name ?? "Deliverer"}
-              />
-              <Info
-                label="Food reimbursement"
-                value={formatCurrency(settlement.foodReimbursement)}
-              />
-              <Info
-                label="Delivery earning"
-                value={formatCurrency(settlement.deliveryEarning)}
-              />
-              {settlement.status !== "PENDING" && (
-                <p className="rounded-xl border border-amber-500/20 bg-amber-950/20 p-3 text-xs text-amber-200">
-                  {settlement.holdReason ??
-                    `Settlement is ${settlement.status.toLowerCase().replace("_", " ")}. Review it before sending funds.`}
-                </p>
-              )}
-              {settlement.conflictOfInterest && (
-                <p className="rounded-xl border border-red-500/30 bg-red-950/20 p-3 text-xs text-red-200">
-                  Another administrator must hold or pay this settlement because
-                  you participated in the order.
-                </p>
-              )}
-              <input
-                value={holdReason}
-                onChange={(event) =>
-                  setHoldReasons((current) => ({
-                    ...current,
-                    [settlement.id]: event.target.value,
-                  }))
-                }
-                placeholder={
-                  settlement.status === "ON_HOLD"
-                    ? "Update hold reason"
-                    : "Reason to put settlement on hold"
-                }
-                maxLength={300}
-                disabled={settlement.conflictOfInterest}
-                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
-              />
-              <button
-                disabled={
-                  settlement.conflictOfInterest ||
-                  busy !== null ||
-                  holdReason.trim().length < 3
-                }
-                onClick={() =>
-                  void run(
-                    `hold:${settlement.id}`,
-                    () =>
-                      holdSettlement.mutateAsync({
-                        settlementId: settlement.id,
-                        reason: holdReason.trim(),
-                      }),
-                    "Settlement placed on hold.",
-                  )
-                }
-                className="rounded-xl border border-amber-500/30 bg-amber-950/20 py-2.5 text-xs font-black text-amber-300 disabled:opacity-50"
-              >
-                {busy === `hold:${settlement.id}`
-                  ? "Saving hold…"
-                  : settlement.status === "ON_HOLD"
-                    ? "Update hold reason"
-                    : "Put settlement on hold"}
-              </button>
-              <input
-                value={reference}
-                onChange={(event) =>
-                  setRefs((current) => ({
-                    ...current,
-                    [key]: event.target.value,
-                  }))
-                }
-                placeholder="Outgoing payout UTR / reference"
-                maxLength={80}
-                disabled={settlement.conflictOfInterest}
-                className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-xs text-white"
-              />
-              <button
-                disabled={
-                  settlement.conflictOfInterest ||
-                  busy !== null ||
-                  reference.trim().length < 5
-                }
-                onClick={() =>
-                  void run(
-                    key,
-                    () =>
-                      settle.mutateAsync({
-                        settlementId: settlement.id,
-                        payoutReference: reference.trim(),
-                      }),
-                    "Settlement recorded.",
-                  )
-                }
-                className="rounded-xl bg-purple-600 py-2.5 text-xs font-black text-white disabled:opacity-50"
-              >
-                {busy === key ? "Saving…" : "Mark settlement paid"}
-              </button>
-            </Card>
-          );
-        })}
-      </Queue>
-
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs text-zinc-400">
-        Recorded platform fees on paid deliveries:{" "}
-        <strong className="text-white">
-          {formatCurrency(data.summary.platformFeesEarned)}
-        </strong>
-      </div>
+      )}
     </div>
   );
 }
 
-function Loading({ text }: { text: string }) {
-  return (
-    <div className="flex min-h-[420px] flex-col items-center justify-center gap-3">
-      <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-500 border-t-transparent" />
-      <p className="text-xs text-zinc-400">{text}</p>
-    </div>
-  );
+function formatDate(value: Date | string | null) {
+  return value ? new Date(value).toLocaleString() : "—";
 }
-function Metric({ label, value }: { label: string; value: string }) {
+
+function Metric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Package;
+  label: string;
+  value: number;
+}) {
   return (
     <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-      <p className="text-lg font-black text-white">{value}</p>
+      <Icon className="h-4 w-4 text-purple-400" />
+      <p className="mt-3 text-xl font-black text-white">{value}</p>
       <p className="mt-1 text-[10px] font-bold text-zinc-500 uppercase">
         {label}
       </p>
     </div>
   );
 }
-function Queue({
-  title,
-  empty,
-  children,
-}: {
-  title: string;
-  empty: boolean;
-  children: React.ReactNode;
-}) {
+
+function Info({ label, value }: { label: string; value: string }) {
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
-        <CreditCard className="h-4 w-4 text-purple-400" />
-        <h2 className="text-lg font-black text-white">{title}</h2>
-      </div>
-      {empty ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 text-xs text-zinc-400">
-          <CheckCircle2 className="h-4 w-4 text-emerald-400" /> Nothing waiting
-          in this queue.
-        </div>
-      ) : (
-        <div className="grid gap-3 lg:grid-cols-2">{children}</div>
-      )}
-    </section>
-  );
-}
-function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <article className="flex flex-col gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-      {children}
-    </article>
-  );
-}
-function CardHeader({
-  title,
-  subtitle,
-  amount,
-}: {
-  title: string;
-  subtitle: string;
-  amount: string;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-sm font-black text-white">{title}</p>
-        <p className="mt-1 text-xs text-zinc-500">{subtitle}</p>
-      </div>
-      <p className="text-sm font-black text-emerald-400">{amount}</p>
+    <div className="flex justify-between gap-4">
+      <span className="text-zinc-500">{label}</span>
+      <span className="text-right font-semibold text-zinc-200">{value}</span>
     </div>
   );
 }
-function Info({ label, value }: { label: string; value: string }) {
+
+function Money({
+  label,
+  value,
+  strong = false,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+}) {
   return (
-    <div className="flex justify-between gap-4 text-xs">
-      <span className="text-zinc-500">{label}</span>
-      <span className="text-right font-bold text-zinc-200 select-all">
-        {value}
+    <div className="flex justify-between gap-4 py-0.5">
+      <span className={strong ? "font-bold text-white" : "text-zinc-500"}>
+        {label}
+      </span>
+      <span
+        className={
+          strong ? "font-black text-emerald-300" : "font-semibold text-zinc-200"
+        }
+      >
+        {formatCurrency(value)}
       </span>
     </div>
   );

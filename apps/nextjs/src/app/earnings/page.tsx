@@ -1,34 +1,22 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
   CheckCircle2,
-  Clock3,
   Package,
-  ReceiptIndianRupee,
+  ShieldCheck,
   TrendingUp,
 } from "lucide-react";
 
 import { useTRPC } from "~/trpc/react";
 
-const formatCurrency = (paise: number) => `₹${(paise / 100).toFixed(2)}`;
+const formatCurrency = (paise: number) => "₹" + (paise / 100).toFixed(2);
 
 export default function EarningsPage() {
   const trpc = useTRPC();
-  const [requestError, setRequestError] = useState<string | null>(null);
   const earnings = useQuery(trpc.payment.earnings.queryOptions());
-  const requestSettlement = useMutation(
-    trpc.payment.requestSettlement.mutationOptions({
-      onSuccess: () => {
-        setRequestError(null);
-        void earnings.refetch();
-      },
-      onError: (error) => setRequestError(error.message),
-    }),
-  );
 
   if (earnings.isLoading) {
     return (
@@ -43,8 +31,8 @@ export default function EarningsPage() {
       <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-10 text-center">
         <h1 className="text-xl font-black text-white">Earnings unavailable</h1>
         <p className="text-sm text-zinc-400">
-          Your settlement records were not changed. Refresh when the connection
-          is available.
+          Your completed order history is safe. Refresh when the connection is
+          available.
         </p>
         <button
           onClick={() => void earnings.refetch()}
@@ -60,11 +48,11 @@ export default function EarningsPage() {
     return (
       <div className="mx-auto flex max-w-2xl flex-col gap-4 px-4 py-10 text-center">
         <h1 className="text-xl font-black text-white">
-          Payment upgrade pending
+          Server upgrade pending
         </h1>
         <p className="text-sm text-zinc-400">
-          The app and backend are connected. Earnings will become available
-          after the payment/security database migration is applied.
+          Earnings will become available after the direct Pay on Delivery
+          database migration is applied.
         </p>
         <button
           onClick={() => void earnings.refetch()}
@@ -77,6 +65,7 @@ export default function EarningsPage() {
   }
 
   const data = earnings.data;
+
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6">
       <div className="flex items-center gap-3">
@@ -87,11 +76,9 @@ export default function EarningsPage() {
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>
-          <h1 className="text-xl font-black text-white">
-            Earnings & Settlements
-          </h1>
+          <h1 className="text-xl font-black text-white">Earnings</h1>
           <p className="text-xs text-zinc-400">
-            Delivery earnings and food reimbursements are tracked separately.
+            Completed deliveries and the delivery fees you earned.
           </p>
         </div>
       </div>
@@ -111,135 +98,83 @@ export default function EarningsPage() {
           </div>
         </div>
         <p className="mt-4 max-w-xl text-xs leading-relaxed text-zinc-400">
-          This number is only what you earned for delivering. Food money you
-          fronted is reimbursement, not profit.
+          Only delivery fees from completed orders count as earnings. Food money
+          is recovered directly from the buyer and is not profit.
         </p>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        <Metric
-          icon={CheckCircle2}
-          label="Paid earnings"
-          value={formatCurrency(data.paidEarnings)}
-        />
-        <Metric
-          icon={ReceiptIndianRupee}
-          label="Food reimbursed"
-          value={formatCurrency(data.foodReimbursed)}
-        />
-        <Metric
-          icon={ReceiptIndianRupee}
-          label="Ready to request"
-          value={formatCurrency(data.availableSettlementAmount)}
-        />
-        <Metric
-          icon={Clock3}
-          label="Pending amount"
-          value={formatCurrency(data.pendingSettlementAmount)}
-        />
-        <Metric
-          icon={CheckCircle2}
-          label="Paid settlements"
-          value={String(data.paidSettlements)}
-        />
-        <Metric
-          icon={ReceiptIndianRupee}
-          label="Paid total"
-          value={formatCurrency(data.paidSettlementAmount)}
-        />
+      <div className="grid grid-cols-2 gap-3">
         <Metric
           icon={Package}
-          label="Deliveries"
+          label="Completed deliveries"
           value={String(data.completedDeliveries)}
+        />
+        <Metric
+          icon={CheckCircle2}
+          label="Delivery fees earned"
+          value={formatCurrency(data.lifetimeEarnings)}
         />
       </div>
 
-      {data.availableSettlementAmount > 0 ? (
-        <div className="rounded-2xl border border-purple-500/20 bg-purple-950/20 p-4 text-xs leading-relaxed text-purple-200">
-          A completed delivery has reimbursement ready. Request it from the
-          settlement card below and it will enter the admin transfer queue.
-        </div>
-      ) : data.pendingSettlementAmount > 0 ? (
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-950/20 p-4 text-xs leading-relaxed text-amber-200">
-          Your reimbursement request is waiting in the manual admin settlement
-          queue.
-        </div>
-      ) : null}
-
-      {requestError && (
-        <div className="rounded-2xl border border-red-500/20 bg-red-950/20 p-4 text-xs text-red-200">
-          {requestError}
-        </div>
-      )}
+      <div className="flex gap-3 rounded-2xl border border-emerald-500/20 bg-emerald-950/20 p-4 text-sm text-emerald-100">
+        <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+        <p className="leading-relaxed">
+          You are paid directly at handover. You pay the canteen yourself and
+          collect the food cost plus your delivery fee directly from the buyer
+          after OTP verification.
+        </p>
+      </div>
 
       <section className="flex flex-col gap-3">
         <div>
-          <h2 className="text-lg font-black text-white">Recent settlements</h2>
+          <h2 className="text-lg font-black text-white">
+            Completed deliveries
+          </h2>
           <p className="text-xs text-zinc-500">
-            Created automatically after verified payment and OTP handover.
+            Recent direct Pay on Delivery orders.
           </p>
         </div>
-        {data.recent.length === 0 ? (
+
+        {data.completedDirectDeliveries.length === 0 ? (
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-6 text-center text-sm text-zinc-400">
-            No delivery settlements yet. Every student account can buy and
-            deliver.
+            No delivery earnings yet.
           </div>
         ) : (
-          data.recent.map((settlement) => (
+          data.completedDirectDeliveries.slice(0, 20).map((order) => (
             <article
-              key={settlement.id}
+              key={order.id}
               className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-black text-white">
-                    Order {settlement.orderId.slice(0, 8).toUpperCase()}
+                    Order {order.id.slice(0, 8).toUpperCase()}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
-                    {new Date(settlement.createdAt).toLocaleDateString()}
+                    {order.canteenName}
+                    {order.paymentReceivedAt
+                      ? " · " +
+                        new Date(order.paymentReceivedAt).toLocaleDateString()
+                      : ""}
                   </p>
                 </div>
-                <span
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${settlement.status === "PAID" ? "bg-emerald-950/60 text-emerald-300" : "bg-amber-950/50 text-amber-300"}`}
-                >
-                  {settlement.status.replace("_", " ")}
+                <span className="rounded-full bg-emerald-950/60 px-2.5 py-1 text-xs font-black text-emerald-300">
+                  +{formatCurrency(order.deliveryFee)}
                 </span>
               </div>
+
               <div className="mt-4 space-y-2 border-t border-zinc-800 pt-3 text-xs">
+                <MoneyLine label="Paid at canteen" value={order.foodPrice} />
                 <MoneyLine
-                  label="Food reimbursement"
-                  value={settlement.foodReimbursement}
+                  label="Collected from buyer"
+                  value={order.totalAmount}
                 />
                 <MoneyLine
-                  label="Delivery earning"
-                  value={settlement.deliveryEarning}
-                />
-                <MoneyLine
-                  label="Settlement total"
-                  value={settlement.amountDue}
+                  label="Your earning"
+                  value={order.deliveryFee}
                   strong
                 />
               </div>
-              {settlement.status === "AVAILABLE" && (
-                <button
-                  disabled={requestSettlement.isPending}
-                  onClick={() => {
-                    setRequestError(null);
-                    requestSettlement.mutate({ settlementId: settlement.id });
-                  }}
-                  className="mt-3 w-full rounded-xl bg-purple-600 px-4 py-3 text-xs font-black text-white disabled:opacity-50"
-                >
-                  {requestSettlement.isPending &&
-                  requestSettlement.variables.settlementId === settlement.id
-                    ? "Requesting..."
-                    : "Request reimbursement"}
-                </button>
-              )}
-              {settlement.holdReason && (
-                <p className="mt-3 rounded-xl bg-amber-950/30 p-3 text-xs text-amber-200">
-                  {settlement.holdReason}
-                </p>
-              )}
             </article>
           ))
         )}
@@ -278,11 +213,17 @@ function MoneyLine({
   strong?: boolean;
 }) {
   return (
-    <div
-      className={`flex justify-between gap-4 ${strong ? "font-black text-white" : "text-zinc-400"}`}
-    >
-      <span>{label}</span>
-      <span>{formatCurrency(value)}</span>
+    <div className="flex items-center justify-between">
+      <span className={strong ? "font-bold text-white" : "text-zinc-400"}>
+        {label}
+      </span>
+      <span
+        className={
+          strong ? "font-black text-emerald-300" : "font-semibold text-zinc-200"
+        }
+      >
+        {formatCurrency(value)}
+      </span>
     </div>
   );
 }

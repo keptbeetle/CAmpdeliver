@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+﻿import { randomInt } from "node:crypto";
 import type { TRPCRouterRecord } from "@trpc/server";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
@@ -44,9 +44,10 @@ import {
   getPaymentConfig,
   maskTransactionReference,
 } from "../services/payment-config";
-import { getPaymentDestination } from "../services/payment-destination";
 import {
+  canBuyerCancelOrder,
   canConfirmCanteenPurchase,
+  canReportDirectOrderIssue,
   canRevealHandoverOtp,
   delivererPrePurchaseCancellationMode,
   prePurchaseCancellationDisposition,
@@ -67,6 +68,7 @@ const ACTIVE_LOCATION_STATUSES = [
   "PURCHASED",
   "ON_THE_WAY",
   "NEAR_YOU",
+  "PAYMENT_DUE",
 ] as const;
 
 const ACTIVE_ORDER_STATUSES = [
@@ -169,12 +171,19 @@ async function readLegacyOrders(database: typeof db, userId: string) {
     ...order,
     items: normalizeLegacyItems(order.items),
     platformFee: 0,
+    paymentModel: "LEGACY" as const,
     delivererAllowsPayAtDelivery: false,
     otp: null,
     stateExpiresAt: null,
     acceptedAt: null,
     itemsAvailableAt: null,
     purchasedAt: null,
+    otpVerifiedAt: null,
+    paymentReceivedAt: null,
+    paymentIssueAt: null,
+    paymentIssueReason: null,
+    paymentIssueResolvedAt: null,
+    paymentIssueResolution: null,
     deliveredAt: null,
     deliveryOtpFailedAttempts: 0,
     deliveryOtpLockedUntil: null,
@@ -220,7 +229,10 @@ export const orderRouter = {
     return rows.map((row) => {
       const isBuyer = row.order.buyerId === ctx.user.id;
       const canRevealOtp =
-        isBuyer && canRevealHandoverOtp(row.order.status, row.paymentStatus);
+        isBuyer &&
+        (row.order.paymentModel === "DIRECT_PAY_ON_DELIVERY"
+          ? row.order.status === "NEAR_YOU"
+          : canRevealHandoverOtp(row.order.status, row.paymentStatus));
       const canRevealPaymentDestination =
         isBuyer &&
         row.paymentStatus !== null &&
@@ -281,6 +293,7 @@ export const orderRouter = {
         .where(
           and(
             eq(orders.status, "BROADCASTED"),
+            eq(orders.paymentModel, "DIRECT_PAY_ON_DELIVERY"),
             ne(orders.buyerId, ctx.user.id),
           ),
         )
@@ -339,6 +352,8 @@ export const orderRouter = {
             nearestLandmarkName,
             foodPrice: order.foodPrice,
             deliveryFee: order.deliveryFee,
+            totalDue: order.foodPrice + order.deliveryFee,
+            paymentModel: order.paymentModel,
             createdAt: order.createdAt,
           };
         });
@@ -349,14 +364,6 @@ export const orderRouter = {
     .mutation(async ({ ctx, input }) => {
       await requirePaymentSchemaReady();
       await expireStaleOrders();
-      const destination = await getPaymentDestination();
-      if (!destination.upiId) {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message:
-            "CAmpDeliver is not accepting new orders until an administrator configures the receiving UPI ID.",
-        });
-      }
 
       const uniqueIds = new Set(input.items.map((item) => item.menuItemId));
       if (uniqueIds.size !== input.items.length) {
@@ -421,8 +428,6 @@ export const orderRouter = {
         0,
       );
       const config = getPaymentConfig();
-      const expectedAmount =
-        foodPrice + config.deliveryFeePaise + config.platformFeePaise;
       const now = new Date();
 
       const newOrder = await ctx.db.transaction(async (tx) => {
@@ -451,11 +456,13 @@ export const orderRouter = {
           .insert(orders)
           .values({
             buyerId: ctx.user.id,
+            paymentModel: "DIRECT_PAY_ON_DELIVERY",
             status: "BROADCASTED",
             items: snapshot,
             foodPrice,
             deliveryFee: config.deliveryFeePaise,
-            platformFee: config.platformFeePaise,
+            platformFee: 0,
+            delivererAllowsPayAtDelivery: true,
             canteenId: canteen.id,
             canteenName: canteen.name,
             canteenLatitude: canteen.latitude,
@@ -472,15 +479,6 @@ export const orderRouter = {
         if (!created) {
           throw new Error("Failed to create order");
         }
-
-        await tx.insert(orderPayments).values({
-          orderId: created.id,
-          buyerId: ctx.user.id,
-          status: "NOT_STARTED",
-          expectedAmount,
-          createdAt: now,
-          updatedAt: now,
-        });
 
         return created;
       });
@@ -583,33 +581,79 @@ export const orderRouter = {
       await requirePaymentSchemaReady();
       await expireStaleOrders();
       const now = new Date();
-      const [cancelled] = await ctx.db
-        .update(orders)
-        .set({
-          status: "CANCELLED",
-          cancelledAt: now,
-          cancelledBy: "BUYER",
-          cancellationReason: "Cancelled by buyer before assignment.",
-          stateExpiresAt: null,
-          updatedAt: now,
-        })
-        .where(
-          and(
-            eq(orders.id, input.orderId),
-            eq(orders.buyerId, ctx.user.id),
-            eq(orders.status, "BROADCASTED"),
-          ),
-        )
-        .returning();
 
-      if (!cancelled) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Buyer cancellation is available only while the order is broadcast.",
-        });
-      }
-      return { success: true };
+      return ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
+        );
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, input.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        if (order.buyerId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the buyer can cancel this order.",
+          });
+        }
+
+        const directPrePurchase =
+          order.paymentModel === "DIRECT_PAY_ON_DELIVERY" &&
+          canBuyerCancelOrder({
+            status: order.status,
+            purchasedAt: order.purchasedAt,
+          });
+        const legacyBroadcast =
+          order.paymentModel === "LEGACY" && order.status === "BROADCASTED";
+        if (!directPrePurchase && !legacyBroadcast) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: order.purchasedAt
+              ? "This order cannot be cancelled normally after the deliverer has paid the canteen."
+              : "This order can no longer be cancelled from the buyer flow.",
+          });
+        }
+
+        const [cancelled] = await tx
+          .update(orders)
+          .set({
+            status: "CANCELLED",
+            cancelledAt: now,
+            cancelledBy: "BUYER",
+            cancellationReason:
+              order.paymentModel === "DIRECT_PAY_ON_DELIVERY"
+                ? "Cancelled by buyer before canteen purchase."
+                : "Cancelled by buyer before assignment.",
+            stateExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(orders.id, order.id),
+              inArray(orders.status, [
+                "BROADCASTED",
+                "ACCEPTED",
+                "ITEM_AVAILABLE",
+              ]),
+              isNull(orders.purchasedAt),
+            ),
+          )
+          .returning({ id: orders.id });
+        if (!cancelled) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Order state changed before cancellation completed.",
+          });
+        }
+        return { success: true };
+      });
     }),
 
   acceptOrder: protectedProcedure
@@ -617,7 +661,9 @@ export const orderRouter = {
       z
         .object({
           orderId: z.string().uuid(),
-          allowPayAtDelivery: z.boolean().default(false),
+          // Retained as an optional compatibility field for older clients.
+          // Direct Pay on Delivery is mandatory for every new order.
+          allowPayAtDelivery: z.boolean().optional(),
           latitude: z.number().finite().min(-90).max(90),
           longitude: z.number().finite().min(-180).max(180),
         })
@@ -639,6 +685,7 @@ export const orderRouter = {
 
         const [candidateOrder] = await tx
           .select({
+            paymentModel: orders.paymentModel,
             status: orders.status,
             canteenId: orders.canteenId,
             canteenLatitude: orders.canteenLatitude,
@@ -647,7 +694,10 @@ export const orderRouter = {
           .from(orders)
           .where(eq(orders.id, input.orderId))
           .limit(1);
-        if (candidateOrder?.status !== "BROADCASTED") {
+        if (
+          candidateOrder?.status !== "BROADCASTED" ||
+          candidateOrder.paymentModel !== "DIRECT_PAY_ON_DELIVERY"
+        ) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "This quest is no longer available.",
@@ -701,7 +751,7 @@ export const orderRouter = {
           .set({
             status: "ACCEPTED",
             delivererId: ctx.user.id,
-            delivererAllowsPayAtDelivery: input.allowPayAtDelivery,
+            delivererAllowsPayAtDelivery: true,
             acceptedAt: now,
             stateExpiresAt: expiresFromNow(config.ttls.accepted, now),
             updatedAt: now,
@@ -710,6 +760,7 @@ export const orderRouter = {
             and(
               eq(orders.id, input.orderId),
               eq(orders.status, "BROADCASTED"),
+              eq(orders.paymentModel, "DIRECT_PAY_ON_DELIVERY"),
               isNull(orders.delivererId),
               ne(orders.buyerId, ctx.user.id),
               gt(orders.stateExpiresAt, now),
@@ -736,9 +787,7 @@ export const orderRouter = {
             {
               to: buyer.pushToken,
               title: "Deliverer assigned",
-              body: input.allowPayAtDelivery
-                ? "Your deliverer can also accept digital payment at delivery."
-                : "Your deliverer requires advance payment before purchasing.",
+              body: "Your deliverer will pay the canteen and collect your full order total directly at handover after OTP verification.",
               data: {
                 orderId: updated.id,
                 type: "ORDER_ACCEPTED",
@@ -795,30 +844,16 @@ export const orderRouter = {
           });
         }
 
-        const [paymentReady] = await tx
-          .update(orderPayments)
-          .set({ status: "AWAITING_SELECTION", updatedAt: now })
-          .where(
-            and(
-              eq(orderPayments.orderId, order.id),
-              eq(orderPayments.status, "NOT_STARTED"),
-            ),
-          )
-          .returning({ id: orderPayments.id });
-        if (!paymentReady) {
-          throw new TRPCError({
-            code: "CONFLICT",
-            message: "Payment state changed before availability confirmation.",
-          });
-        }
-
         const [result] = await tx
           .update(orders)
           .set({
             status: "ITEM_AVAILABLE",
             otp: deliveryOtp,
             itemsAvailableAt: now,
-            stateExpiresAt: expiresFromNow(config.ttls.paymentSelection, now),
+            stateExpiresAt: expiresFromNow(
+              config.ttls.paidAwaitingPurchase,
+              now,
+            ),
             updatedAt: now,
           })
           .where(and(eq(orders.id, order.id), eq(orders.status, "ACCEPTED")))
@@ -843,10 +878,10 @@ export const orderRouter = {
             {
               to: buyer.pushToken,
               title: "Items are available",
-              body: "Choose how you want to pay to continue your order.",
+              body: "Your deliverer is ready to purchase the order. You will pay the full total directly at handover after OTP verification.",
               data: {
                 orderId: updated.id,
-                type: "PAYMENT_SELECTION_REQUIRED",
+                type: "ITEMS_AVAILABLE",
                 url: `/orders/${updated.id}/status`,
               },
               sound: "default",
@@ -899,6 +934,22 @@ export const orderRouter = {
             message:
               "This order cannot be cancelled after the canteen purchase has been confirmed.",
           });
+        }
+
+        if (order.paymentModel === "DIRECT_PAY_ON_DELIVERY") {
+          await tx
+            .update(orders)
+            .set({
+              status: "CANCELLED",
+              cancelledAt: now,
+              cancelledBy: "DELIVERER",
+              cancellationReason:
+                "Deliverer could not fulfil the order before purchasing it.",
+              stateExpiresAt: null,
+              updatedAt: now,
+            })
+            .where(eq(orders.id, order.id));
+          return { success: true, refundRequired: false };
         }
 
         const [payment] = await tx
@@ -994,6 +1045,32 @@ export const orderRouter = {
             code: "BAD_REQUEST",
             message: "The order is not ready to be marked purchased.",
           });
+        }
+
+        if (order.paymentModel === "DIRECT_PAY_ON_DELIVERY") {
+          const [updated] = await tx
+            .update(orders)
+            .set({
+              status: "PURCHASED",
+              purchasedAt: now,
+              stateExpiresAt: null,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(orders.id, order.id),
+                eq(orders.status, "ITEM_AVAILABLE"),
+                isNull(orders.purchasedAt),
+              ),
+            )
+            .returning({ id: orders.id });
+          if (!updated) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Order state changed before purchase confirmation.",
+            });
+          }
+          return { success: true, alreadyPurchased: false };
         }
 
         const [payment] = await tx
@@ -1202,8 +1279,8 @@ export const orderRouter = {
               to: buyer.pushToken,
               title: near ? "Your deliverer is nearby" : "Order on the way",
               body: near
-                ? "Meet your deliverer. Pay digitally first if payment is still pending, then share the handover code."
-                : `Your order from ${order.canteenName} is on the way.`,
+                ? `Meet your deliverer. Share the handover code first, then pay ₹${((order.foodPrice + order.deliveryFee) / 100).toFixed(2)} directly to them.`
+                : `Your order from ${order.canteenName} is on the way. Payment is due only at handover after OTP verification.`,
               data: {
                 orderId: order.id,
                 type: input.status,
@@ -1257,7 +1334,26 @@ export const orderRouter = {
           });
         }
         if (order.status === "DELIVERED") {
-          return { success: true, alreadyCompleted: true, order };
+          return {
+            success: true,
+            alreadyCompleted: true,
+            alreadyVerified: true,
+            paymentDue: false,
+            order,
+          };
+        }
+        if (
+          order.paymentModel === "DIRECT_PAY_ON_DELIVERY" &&
+          order.status === "PAYMENT_DUE" &&
+          order.otpVerifiedAt
+        ) {
+          return {
+            success: true,
+            alreadyCompleted: false,
+            alreadyVerified: true,
+            paymentDue: true,
+            order,
+          };
         }
         if (order.status !== "NEAR_YOU") {
           throw new TRPCError({
@@ -1267,17 +1363,19 @@ export const orderRouter = {
           });
         }
 
-        const [payment] = await tx
-          .select({ status: orderPayments.status })
-          .from(orderPayments)
-          .where(eq(orderPayments.orderId, order.id))
-          .limit(1);
-        if (payment?.status !== "PAID") {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "Payment must be verified before the handover can complete.",
-          });
+        if (order.paymentModel === "LEGACY") {
+          const [payment] = await tx
+            .select({ status: orderPayments.status })
+            .from(orderPayments)
+            .where(eq(orderPayments.orderId, order.id))
+            .limit(1);
+          if (payment?.status !== "PAID") {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "Legacy orders still require their verified payment before handover.",
+            });
+          }
         }
 
         if (
@@ -1314,11 +1412,13 @@ export const orderRouter = {
           };
         }
 
-        const [delivered] = await tx
+        const directPayment = order.paymentModel === "DIRECT_PAY_ON_DELIVERY";
+        const [handover] = await tx
           .update(orders)
           .set({
-            status: "DELIVERED",
-            deliveredAt: now,
+            status: directPayment ? "PAYMENT_DUE" : "DELIVERED",
+            otpVerifiedAt: now,
+            deliveredAt: directPayment ? null : now,
             deliveryOtpFailedAttempts: 0,
             deliveryOtpLockedUntil: null,
             stateExpiresAt: null,
@@ -1326,28 +1426,36 @@ export const orderRouter = {
           })
           .where(and(eq(orders.id, order.id), eq(orders.status, "NEAR_YOU")))
           .returning();
-        if (!delivered) {
+        if (!handover) {
           throw new TRPCError({
             code: "CONFLICT",
             message: "Order state changed.",
           });
         }
 
-        await tx
-          .insert(orderSettlements)
-          .values({
-            orderId: order.id,
-            delivererId: ctx.user.id,
-            foodReimbursement: order.foodPrice,
-            deliveryEarning: order.deliveryFee,
-            amountDue: order.foodPrice + order.deliveryFee,
-            status: "AVAILABLE",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .onConflictDoNothing({ target: orderSettlements.orderId });
+        if (!directPayment) {
+          await tx
+            .insert(orderSettlements)
+            .values({
+              orderId: order.id,
+              delivererId: ctx.user.id,
+              foodReimbursement: order.foodPrice,
+              deliveryEarning: order.deliveryFee,
+              amountDue: order.foodPrice + order.deliveryFee,
+              status: "AVAILABLE",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoNothing({ target: orderSettlements.orderId });
+        }
 
-        return { success: true, alreadyCompleted: false, order: delivered };
+        return {
+          success: true,
+          alreadyCompleted: false,
+          alreadyVerified: false,
+          paymentDue: directPayment,
+          order: handover,
+        };
       });
 
       if ("invalidOtp" in result) {
@@ -1360,7 +1468,7 @@ export const orderRouter = {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid OTP" });
       }
 
-      if (!result.alreadyCompleted) {
+      if (!result.alreadyCompleted && !result.alreadyVerified) {
         try {
           const [buyer, deliverer] = await Promise.all([
             ctx.db.query.profiles.findFirst({
@@ -1376,11 +1484,17 @@ export const orderRouter = {
           if (buyer?.pushToken) {
             messages.push({
               to: buyer.pushToken,
-              title: "Delivery completed",
-              body: `Your order from ${result.order.canteenName} was handed over successfully.`,
+              title: result.paymentDue
+                ? "OTP verified — payment due"
+                : "Delivery completed",
+              body: result.paymentDue
+                ? `Pay ₹${((result.order.foodPrice + result.order.deliveryFee) / 100).toFixed(2)} directly to your deliverer to finish the order.`
+                : `Your order from ${result.order.canteenName} was handed over successfully.`,
               data: {
                 orderId: result.order.id,
-                type: "ORDER_DELIVERED",
+                type: result.paymentDue
+                  ? "DIRECT_PAYMENT_DUE"
+                  : "ORDER_DELIVERED",
                 url: `/orders/${result.order.id}/status`,
               },
               sound: "default",
@@ -1391,12 +1505,18 @@ export const orderRouter = {
           if (deliverer?.pushToken) {
             messages.push({
               to: deliverer.pushToken,
-              title: "Reimbursement ready",
-              body: `₹${((result.order.foodPrice + result.order.deliveryFee) / 100).toFixed(2)} is ready to request from Earnings.`,
+              title: result.paymentDue
+                ? "OTP verified — collect payment"
+                : "Delivery completed",
+              body: result.paymentDue
+                ? `Collect ₹${((result.order.foodPrice + result.order.deliveryFee) / 100).toFixed(2)} directly from the buyer, then confirm payment received.`
+                : "The legacy delivery was completed successfully.",
               data: {
                 orderId: result.order.id,
-                type: "SETTLEMENT_AVAILABLE",
-                url: "/earnings",
+                type: result.paymentDue
+                  ? "DIRECT_PAYMENT_DUE"
+                  : "ORDER_DELIVERED",
+                url: `/orders/${result.order.id}/status`,
               },
               sound: "default",
               priority: "high",
@@ -1411,6 +1531,219 @@ export const orderRouter = {
         }
       }
 
-      return { success: true, alreadyCompleted: result.alreadyCompleted };
+      return {
+        success: true,
+        alreadyCompleted: result.alreadyCompleted,
+        alreadyVerified: result.alreadyVerified,
+        paymentDue: result.paymentDue,
+      };
+    }),
+
+  confirmPaymentReceived: protectedProcedure
+    .input(orderIdInput)
+    .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
+      const now = new Date();
+
+      const result = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
+        );
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, input.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        if (order.paymentModel !== "DIRECT_PAY_ON_DELIVERY") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "This action is only available for direct Pay on Delivery orders.",
+          });
+        }
+        if (order.delivererId !== ctx.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the assigned deliverer can confirm receipt of payment.",
+          });
+        }
+        if (order.status === "DELIVERED" && order.paymentReceivedAt) {
+          return { order, alreadyCompleted: true };
+        }
+        if (order.status !== "PAYMENT_DUE" || !order.otpVerifiedAt) {
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Verify the buyer's handover OTP before collecting payment.",
+          });
+        }
+
+        const [completed] = await tx
+          .update(orders)
+          .set({
+            status: "DELIVERED",
+            paymentReceivedAt: now,
+            deliveredAt: now,
+            paymentIssueResolvedAt: order.paymentIssueAt
+              ? (order.paymentIssueResolvedAt ?? now)
+              : null,
+            paymentIssueResolution: order.paymentIssueAt
+              ? (order.paymentIssueResolution ??
+                "Payment later confirmed received by the deliverer.")
+              : null,
+            stateExpiresAt: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(orders.id, order.id),
+              eq(orders.status, "PAYMENT_DUE"),
+              isNull(orders.paymentReceivedAt),
+            ),
+          )
+          .returning();
+        if (!completed) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Order state changed before payment confirmation completed.",
+          });
+        }
+        return { order: completed, alreadyCompleted: false };
+      });
+
+      if (!result.alreadyCompleted) {
+        try {
+          const buyer = await ctx.db.query.profiles.findFirst({
+            where: eq(profiles.id, result.order.buyerId),
+            columns: { pushToken: true },
+          });
+          if (buyer?.pushToken) {
+            await sendExpoPushNotifications([
+              {
+                to: buyer.pushToken,
+                title: "Order completed",
+                body: `Payment was confirmed. Your order from ${result.order.canteenName} is complete.`,
+                data: {
+                  orderId: result.order.id,
+                  type: "ORDER_DELIVERED",
+                  url: `/orders/${result.order.id}/status`,
+                },
+                sound: "default",
+                priority: "high",
+                channelId: "default",
+              },
+            ]);
+          }
+        } catch (error) {
+          console.error("[confirmPaymentReceived] Push dispatch error:", error);
+        }
+      }
+
+      return {
+        success: true,
+        alreadyCompleted: result.alreadyCompleted,
+        earnedAmount: result.order.deliveryFee,
+        collectedAmount: result.order.foodPrice + result.order.deliveryFee,
+      };
+    }),
+
+  reportPaymentIssue: protectedProcedure
+    .input(
+      z
+        .object({
+          orderId: z.string().uuid(),
+          reason: z.string().trim().min(3).max(300),
+        })
+        .strict(),
+    )
+    .mutation(async ({ ctx, input }) => {
+      await requirePaymentSchemaReady();
+      const now = new Date();
+
+      const updated = await ctx.db.transaction(async (tx) => {
+        await tx.execute(
+          sql`select pg_advisory_xact_lock(hashtextextended(${input.orderId}, 0))`,
+        );
+        const [order] = await tx
+          .select()
+          .from(orders)
+          .where(eq(orders.id, input.orderId))
+          .limit(1);
+        if (!order) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Order not found",
+          });
+        }
+        if (
+          order.paymentModel !== "DIRECT_PAY_ON_DELIVERY" ||
+          !canReportDirectOrderIssue({
+            status: order.status,
+            purchasedAt: order.purchasedAt,
+            paymentReceivedAt: order.paymentReceivedAt,
+          })
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "A handover issue can only be reported after the canteen purchase and before the order is completed.",
+          });
+        }
+        if (
+          order.delivererId !== ctx.user.id &&
+          order.buyerId !== ctx.user.id
+        ) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message:
+              "Only the buyer or assigned deliverer can report a handover payment issue.",
+          });
+        }
+
+        const [result] = await tx
+          .update(orders)
+          .set({
+            paymentIssueAt: order.paymentIssueAt ?? now,
+            paymentIssueReason: input.reason,
+            paymentIssueResolvedAt: null,
+            paymentIssueResolution: null,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(orders.id, order.id),
+              inArray(orders.status, [
+                "PURCHASED",
+                "ON_THE_WAY",
+                "NEAR_YOU",
+                "PAYMENT_DUE",
+              ]),
+              isNotNull(orders.purchasedAt),
+              isNull(orders.paymentReceivedAt),
+            ),
+          )
+          .returning();
+        if (!result) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Order state changed before the issue could be recorded.",
+          });
+        }
+        return result;
+      });
+
+      return {
+        success: true,
+        paymentIssueAt: updated.paymentIssueAt,
+        paymentIssueReason: updated.paymentIssueReason,
+      };
     }),
 } satisfies TRPCRouterRecord;

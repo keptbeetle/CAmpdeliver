@@ -17,7 +17,7 @@ const HERO_BANNERS = [
   {
     id: "b2",
     title: "Earn ₹ by Delivering Quests 🚴",
-    subtitle: "Pick up food for peers on your way back and earn payouts",
+    subtitle: "Pick up food for peers on your way back and earn delivery fees",
     badge: "Side Quest",
     gradient: "from-emerald-900/90 via-teal-900/80 to-zinc-950",
   },
@@ -45,19 +45,19 @@ export function CanteenFeed() {
   );
 
   return (
-    <div className="flex w-full min-w-0 max-w-full flex-col gap-6 px-4 py-4 sm:px-6">
+    <div className="flex w-full max-w-full min-w-0 flex-col gap-6 px-4 py-4 sm:px-6">
       {/* Hero Banner Carousel */}
-      <div className="flex w-full gap-3 overflow-x-auto pb-2 scrollbar-none snap-x snap-mandatory">
+      <div className="scrollbar-none flex w-full snap-x snap-mandatory gap-3 overflow-x-auto pb-2">
         {HERO_BANNERS.map((banner) => (
           <div
             key={banner.id}
-            className={`relative flex min-w-[260px] max-w-[340px] flex-1 snap-start flex-col justify-between overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br ${banner.gradient} p-5 shadow-xl`}
+            className={`relative flex max-w-[340px] min-w-[260px] flex-1 snap-start flex-col justify-between overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br ${banner.gradient} p-5 shadow-xl`}
           >
             <div className="flex items-center justify-between">
               <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-0.5 text-[10px] font-bold text-white uppercase backdrop-blur-md">
                 {banner.badge}
               </span>
-              <Sparkles className="h-4 w-4 text-purple-300 animate-pulse" />
+              <Sparkles className="h-4 w-4 animate-pulse text-purple-300" />
             </div>
 
             <div className="mt-4">
@@ -91,7 +91,7 @@ export function CanteenFeed() {
               key={n}
               className="animate-pulse rounded-3xl border border-zinc-800 bg-zinc-900/50 p-4"
             >
-              <div className="w-full pt-[40.25%] rounded-2xl bg-zinc-800" />
+              <div className="w-full rounded-2xl bg-zinc-800 pt-[40.25%]" />
               <div className="mt-3 h-5 w-3/4 rounded-md bg-zinc-800" />
               <div className="mt-2 h-4 w-1/2 rounded-md bg-zinc-800" />
             </div>
@@ -99,74 +99,76 @@ export function CanteenFeed() {
         </div>
       ) : canteens && canteens.length > 0 ? (
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {canteens.map((canteen: { id: string; name: string }, idx: number) => {
-            const fallbackImg =
-              FALLBACK_THUMBNAILS[idx % FALLBACK_THUMBNAILS.length];
+          {canteens.map(
+            (canteen: { id: string; name: string }, idx: number) => {
+              const fallbackImg =
+                FALLBACK_THUMBNAILS[idx % FALLBACK_THUMBNAILS.length];
 
-            return (
-              <Link
-                key={canteen.id}
-                href={`/canteen/${canteen.id}`}
-                className="group relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 transition-all hover:border-purple-500/50 hover:bg-zinc-900 hover:shadow-xl hover:shadow-purple-950/20 active:scale-[0.99]"
-              >
-                {/* YouTube Video-Card Thumbnail */}
-                <div className="relative w-full pt-[56.25%] overflow-hidden bg-zinc-950">
-                  <img
-                    src={fallbackImg}
-                    alt={canteen.name}
-                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
+              return (
+                <Link
+                  key={canteen.id}
+                  href={`/canteen/${canteen.id}`}
+                  className="group relative overflow-hidden rounded-3xl border border-zinc-800/80 bg-zinc-900/60 transition-all hover:border-purple-500/50 hover:bg-zinc-900 hover:shadow-xl hover:shadow-purple-950/20 active:scale-[0.99]"
+                >
+                  {/* YouTube Video-Card Thumbnail */}
+                  <div className="relative w-full overflow-hidden bg-zinc-950 pt-[56.25%]">
+                    <img
+                      src={fallbackImg}
+                      alt={canteen.name}
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/20 to-transparent" />
 
-                  {/* Status & Prep Time Pills */}
-                  <div className="absolute top-3 right-3 flex items-center gap-2">
-                    <span className="flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-950/80 px-2.5 py-1 text-[11px] font-bold text-emerald-400 backdrop-blur-md">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                      Open Now
-                    </span>
-                  </div>
-
-                  <div className="absolute bottom-3 left-3 flex items-center gap-2">
-                    <span className="flex items-center gap-1 rounded-lg border border-black/40 bg-black/60 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-md">
-                      <Clock className="h-3.5 w-3.5 text-purple-400" />
-                      15 - 20 mins
-                    </span>
-                  </div>
-                </div>
-
-                {/* Video Info Block */}
-                <div className="flex items-start gap-3 p-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-950/50 text-purple-400 font-bold">
-                    <Utensils className="h-5 w-5" />
-                  </div>
-
-                  <div className="flex-1 overflow-hidden">
-                    <h3 className="truncate text-base font-bold text-white group-hover:text-purple-300">
-                      {canteen.name}
-                    </h3>
-                    <div className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
-                      <span className="flex items-center gap-1 truncate text-zinc-400">
-                        <MapPin className="h-3.5 w-3.5 text-zinc-500" />
-                        Campus Landmark Area
+                    {/* Status & Prep Time Pills */}
+                    <div className="absolute top-3 right-3 flex items-center gap-2">
+                      <span className="flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-950/80 px-2.5 py-1 text-[11px] font-bold text-emerald-400 backdrop-blur-md">
+                        <span className="h-1.5 w-1.5 animate-ping rounded-full bg-emerald-400" />
+                        Open Now
                       </span>
-                      <span>•</span>
-                      <span className="font-semibold text-purple-400">
-                        ₹5 Delivery
+                    </div>
+
+                    <div className="absolute bottom-3 left-3 flex items-center gap-2">
+                      <span className="flex items-center gap-1 rounded-lg border border-black/40 bg-black/60 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-md">
+                        <Clock className="h-3.5 w-3.5 text-purple-400" />
+                        15 - 20 mins
                       </span>
                     </div>
                   </div>
-                </div>
-              </Link>
-            );
-          })}
+
+                  {/* Video Info Block */}
+                  <div className="flex items-start gap-3 p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-purple-500/30 bg-purple-950/50 font-bold text-purple-400">
+                      <Utensils className="h-5 w-5" />
+                    </div>
+
+                    <div className="flex-1 overflow-hidden">
+                      <h3 className="truncate text-base font-bold text-white group-hover:text-purple-300">
+                        {canteen.name}
+                      </h3>
+                      <div className="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+                        <span className="flex items-center gap-1 truncate text-zinc-400">
+                          <MapPin className="h-3.5 w-3.5 text-zinc-500" />
+                          Campus Landmark Area
+                        </span>
+                        <span>•</span>
+                        <span className="font-semibold text-purple-400">
+                          ₹5 Delivery
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            },
+          )}
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center rounded-3xl border border-zinc-800 bg-zinc-900/40 p-8 text-center">
-          <Utensils className="h-10 w-10 text-zinc-600 mb-2" />
+          <Utensils className="mb-2 h-10 w-10 text-zinc-600" />
           <p className="text-sm font-semibold text-zinc-400">
             No active canteens found
           </p>
-          <p className="text-xs text-zinc-500 mt-1">
+          <p className="mt-1 text-xs text-zinc-500">
             Canteens will appear here once activated by Admin.
           </p>
         </div>

@@ -4,10 +4,17 @@ import { db } from "@acme/db/client";
 const REQUIRED_ORDER_COLUMNS = [
   "platform_fee",
   "deliverer_allows_pay_at_delivery",
+  "payment_model",
   "state_expires_at",
   "accepted_at",
   "items_available_at",
   "purchased_at",
+  "otp_verified_at",
+  "payment_received_at",
+  "payment_issue_at",
+  "payment_issue_reason",
+  "payment_issue_resolved_at",
+  "payment_issue_resolution",
   "delivered_at",
   "delivery_otp_failed_attempts",
   "delivery_otp_locked_until",
@@ -21,7 +28,7 @@ const READINESS_CACHE_MS = 10_000;
 export interface PaymentSchemaReadiness {
   ready: boolean;
   missing: string[];
-  version: "payment-settlement-security-v3";
+  version: "direct-pay-on-delivery-v5";
 }
 
 let cachedReadiness:
@@ -37,6 +44,14 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
       to_regclass('public.platform_payment_settings') is not null as platform_payment_settings,
       to_regclass('public.platform_payment_settings_history') is not null as platform_payment_settings_history,
       to_regclass('public.payment_admin_action_logs') is not null as payment_admin_action_logs,
+      exists (
+        select 1 from pg_constraint
+        where conname = 'payment_admin_action_logs_action_check'
+          and conrelid = to_regclass('public.payment_admin_action_logs')
+          and pg_get_constraintdef(oid) ilike '%DIRECT_PAYMENT_ISSUE_RESOLVED%'
+          and pg_get_constraintdef(oid) ilike '%DIRECT_ORDER_COMPLETED%'
+          and pg_get_constraintdef(oid) ilike '%DIRECT_ORDER_FAILED%'
+      ) as payment_admin_action_logs_direct_outcomes,
       exists (
         select 1 from pg_constraint
         where conname = 'order_payments_submitted_utr_format'
@@ -129,6 +144,7 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
         platform_payment_settings?: boolean;
         platform_payment_settings_history?: boolean;
         payment_admin_action_logs?: boolean;
+        payment_admin_action_logs_direct_outcomes?: boolean;
         payment_utr_constraint?: boolean;
         refund_reference_constraint?: boolean;
         payout_reference_constraint?: boolean;
@@ -147,41 +163,31 @@ async function loadPaymentSchemaReadiness(): Promise<PaymentSchemaReadiness> {
   const missing = [...(row?.missing_order_columns ?? [])].map(
     (column) => `orders.${column}`,
   );
-  if (!row?.order_payments) missing.push("order_payments");
-  if (!row?.order_settlements) missing.push("order_settlements");
-  if (!row?.platform_payment_settings)
-    missing.push("platform_payment_settings");
-  if (!row?.platform_payment_settings_history)
-    missing.push("platform_payment_settings_history");
+  // Direct Pay on Delivery does not depend on a platform UPI destination,
+  // transaction-reference constraints, refunds, or settlement payout state.
+  // Keep the legacy finance tables available for historical read compatibility,
+  // but only the direct-order columns and append-only admin audit log gate the
+  // current order flow.
+  if (!row?.order_payments) missing.push("order_payments (legacy history)");
+  if (!row?.order_settlements)
+    missing.push("order_settlements (legacy history)");
   if (!row?.payment_admin_action_logs)
     missing.push("payment_admin_action_logs");
-  if (!row?.payment_utr_constraint)
-    missing.push("order_payments.submitted_utr constraint");
-  if (!row?.refund_reference_constraint)
-    missing.push("order_payments.refund_reference constraint");
-  if (!row?.payout_reference_constraint)
-    missing.push("order_settlements.payout_reference constraint");
-  if (!row?.payment_utr_unique_active_only)
-    missing.push("order_payments active UTR uniqueness index");
+  if (!row?.payment_admin_action_logs_direct_outcomes)
+    missing.push("payment_admin_action_logs direct-order outcomes");
   if (!row?.payment_admin_action_logs_rls)
     missing.push("payment_admin_action_logs RLS");
   if (!row?.payment_admin_action_logs_append_only)
     missing.push("payment_admin_action_logs append-only trigger");
-  if (!row?.payment_settings_history_append_only)
-    missing.push("platform_payment_settings_history append-only trigger");
   if (!row?.payment_admin_action_logs_authenticated_select_revoked)
     missing.push("payment_admin_action_logs authenticated SELECT revoke");
   if (!row?.payment_admin_action_logs_anon_select_revoked)
     missing.push("payment_admin_action_logs anon SELECT revoke");
-  if (!row?.payment_destination_upi_id)
-    missing.push("order_payments.destination_upi_id");
-  if (!row?.payment_destination_upi_payee_name)
-    missing.push("order_payments.destination_upi_payee_name");
 
   return {
     ready: missing.length === 0,
     missing,
-    version: "payment-settlement-security-v3",
+    version: "direct-pay-on-delivery-v5",
   };
 }
 

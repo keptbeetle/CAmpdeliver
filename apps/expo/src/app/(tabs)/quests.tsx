@@ -131,7 +131,7 @@ export default function QuestsTab() {
     trpc.order.acceptOrder.mutationOptions(),
   );
 
-  const acceptQuest = async (quest: Quest, allowPayAtDelivery: boolean) => {
+  const acceptQuest = async (quest: Quest) => {
     if (acceptingOrderId) return;
     setAcceptingOrderId(quest.id);
     try {
@@ -142,7 +142,6 @@ export default function QuestsTab() {
       }
       const updatedOrder = await acceptOrderMutation.mutateAsync({
         orderId: quest.id,
-        allowPayAtDelivery,
         latitude: locationState.latitude,
         longitude: locationState.longitude,
       });
@@ -257,7 +256,7 @@ export default function QuestsTab() {
             <EmptyState
               icon="database"
               title="Quest delivery is temporarily paused"
-              copy="The app and backend are online. This build is waiting for the payment/security database migration before students can accept new quests."
+              copy="The app and backend are online. This build is waiting for the direct Pay on Delivery database migration before students can accept new quests."
             />
           ) : locationState.status === "loading" ? (
             <QuestSkeleton />
@@ -295,8 +294,7 @@ export default function QuestsTab() {
               disabled={Boolean(
                 acceptingOrderId && acceptingOrderId !== item.id,
               )}
-              onAcceptAdvance={() => void acceptQuest(item, false)}
-              onAcceptPayAtDelivery={() => void acceptQuest(item, true)}
+              onAccept={() => void acceptQuest(item)}
             />
           </MotionView>
         )}
@@ -331,14 +329,12 @@ function QuestCard({
   quest,
   accepting,
   disabled,
-  onAcceptAdvance,
-  onAcceptPayAtDelivery,
+  onAccept,
 }: {
   quest: Quest;
   accepting: boolean;
   disabled: boolean;
-  onAcceptAdvance: () => void;
-  onAcceptPayAtDelivery: () => void;
+  onAccept: () => void;
 }) {
   return (
     <View style={styles.card}>
@@ -363,46 +359,41 @@ function QuestCard({
           ) : null}
         </View>
         <View style={styles.earningBox}>
-          <Text style={styles.earningLabel}>Delivery fee</Text>
+          <Text style={styles.earningLabel}>Earning</Text>
           <Text style={styles.earningValue}>
-            {formatCurrency(quest.deliveryFee)}
+            +{formatCurrency(quest.deliveryFee)}
           </Text>
         </View>
       </View>
 
       <View style={styles.valueRow}>
         <View>
-          <Text style={styles.valueLabel}>Food value</Text>
+          <Text style={styles.valueLabel}>Pay at canteen</Text>
           <Text style={styles.valueText}>
             {formatCurrency(quest.foodPrice)}
           </Text>
         </View>
         <View style={styles.valueDivider} />
         <View style={styles.valueCopy}>
-          <Text style={styles.valueLabel}>Next step</Text>
-          <Text style={styles.valueText}>Check item availability</Text>
+          <Text style={styles.valueLabel}>Collect from buyer</Text>
+          <Text style={styles.valueText}>
+            {formatCurrency(quest.foodPrice + quest.deliveryFee)}
+          </Text>
         </View>
       </View>
 
       <InlineNotice
-        icon="shield"
-        title="Choose payment support before accepting"
-        copy="Advance only is safer: CAmpDeliver verifies the buyer's payment before you spend. Offer Pay at Delivery only if you are willing to front the canteen cost until handover."
+        icon="info"
+        title="Direct Pay on Delivery"
+        copy="Pay the canteen with your own funds. Collect food price + delivery fee directly from the buyer after delivery OTP verification."
       />
       <View style={styles.acceptActions}>
         <AppButton
-          label={accepting ? "Accepting…" : "Advance only"}
-          icon="shield"
+          label={accepting ? "Accepting…" : "Accept Quest"}
+          icon="check"
           loading={accepting}
           disabled={disabled}
-          onPress={onAcceptAdvance}
-        />
-        <AppButton
-          label="Offer Pay at Delivery"
-          icon="clock"
-          tone="secondary"
-          disabled={disabled || accepting}
-          onPress={onAcceptPayAtDelivery}
+          onPress={onAccept}
         />
       </View>
     </View>

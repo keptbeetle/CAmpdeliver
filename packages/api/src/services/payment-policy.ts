@@ -1,4 +1,5 @@
 import type {
+  OrderPaymentModel,
   OrderStatus,
   PaymentMethod,
   PaymentStatus,
@@ -15,14 +16,26 @@ export function canSubmitPaymentReference(
 }
 
 export function canConfirmCanteenPurchase({
-  method,
-  paymentStatus,
-  delivererAllowsPayAtDelivery,
+  paymentModel,
+  method = null,
+  paymentStatus = null,
+  delivererAllowsPayAtDelivery = false,
 }: {
-  method: PaymentMethod | null;
-  paymentStatus: PaymentStatus | null;
-  delivererAllowsPayAtDelivery: boolean;
+  paymentModel?: OrderPaymentModel;
+  method?: PaymentMethod | null;
+  paymentStatus?: PaymentStatus | null;
+  delivererAllowsPayAtDelivery?: boolean;
 }) {
+  const model =
+    paymentModel ??
+    (method !== null || paymentStatus !== null
+      ? "LEGACY"
+      : "DIRECT_PAY_ON_DELIVERY");
+  if (model === "DIRECT_PAY_ON_DELIVERY") {
+    // Deliverer fronts the canteen cost from their own money.
+    // No buyer payment verification or method selection is required.
+    return true;
+  }
   if (method === "ADVANCE") return paymentStatus === "PAID";
   if (method === "PAY_AT_DELIVERY") return delivererAllowsPayAtDelivery;
   return false;
@@ -30,9 +43,144 @@ export function canConfirmCanteenPurchase({
 
 export function canRevealHandoverOtp(
   orderStatus: OrderStatus,
-  paymentStatus: PaymentStatus | null,
+  paymentStatus: PaymentStatus | null = null,
+  paymentModel?: OrderPaymentModel,
 ) {
+  const model =
+    paymentModel ??
+    (paymentStatus !== null ? "LEGACY" : "DIRECT_PAY_ON_DELIVERY");
+  if (model === "DIRECT_PAY_ON_DELIVERY") {
+    return orderStatus === "NEAR_YOU" || orderStatus === "PAYMENT_DUE";
+  }
   return orderStatus === "NEAR_YOU" && paymentStatus === "PAID";
+}
+
+export function canBuyerCancelOrder({
+  status,
+  purchasedAt,
+}: {
+  status: OrderStatus;
+  purchasedAt: Date | null;
+}) {
+  if (purchasedAt !== null) return false;
+  return (
+    status === "BROADCASTED" ||
+    status === "ACCEPTED" ||
+    status === "ITEM_AVAILABLE"
+  );
+}
+
+export function canDelivererCancelOrder({
+  status,
+  purchasedAt,
+}: {
+  status: OrderStatus;
+  purchasedAt: Date | null;
+}) {
+  if (purchasedAt !== null) return false;
+  return status === "ACCEPTED" || status === "ITEM_AVAILABLE";
+}
+
+export function canVerifyDeliveryOtp(orderStatus: OrderStatus) {
+  return orderStatus === "NEAR_YOU";
+}
+
+export function canConfirmPaymentReceived({
+  status,
+  otpVerifiedAt,
+}: {
+  status: OrderStatus;
+  otpVerifiedAt: Date | null;
+}) {
+  return status === "PAYMENT_DUE" && otpVerifiedAt !== null;
+}
+
+export function directPaymentTotal(foodPrice: number, deliveryFee: number) {
+  if (!Number.isInteger(foodPrice) || foodPrice < 0) {
+    throw new Error("foodPrice must be a nonnegative integer");
+  }
+  if (!Number.isInteger(deliveryFee) || deliveryFee < 0) {
+    throw new Error("deliveryFee must be a nonnegative integer");
+  }
+  return foodPrice + deliveryFee;
+}
+
+export type DirectPaymentConfirmationDisposition =
+  | "CONFIRM"
+  | "ALREADY_COMPLETED"
+  | "INVALID";
+
+export function directPaymentConfirmationDisposition({
+  status,
+  otpVerifiedAt,
+  paymentReceivedAt,
+}: {
+  status: OrderStatus;
+  otpVerifiedAt: Date | null;
+  paymentReceivedAt: Date | null;
+}): DirectPaymentConfirmationDisposition {
+  if (status === "DELIVERED" && paymentReceivedAt) {
+    return "ALREADY_COMPLETED";
+  }
+  if (status === "PAYMENT_DUE" && otpVerifiedAt && !paymentReceivedAt) {
+    return "CONFIRM";
+  }
+  return "INVALID";
+}
+
+const DIRECT_POST_PURCHASE_STATUSES: OrderStatus[] = [
+  "PURCHASED",
+  "ON_THE_WAY",
+  "NEAR_YOU",
+  "PAYMENT_DUE",
+];
+
+export function canReportDirectOrderIssue({
+  status,
+  purchasedAt,
+  paymentReceivedAt,
+}: {
+  status: OrderStatus;
+  purchasedAt: Date | null;
+  paymentReceivedAt: Date | null;
+}) {
+  return (
+    purchasedAt !== null &&
+    DIRECT_POST_PURCHASE_STATUSES.includes(status) &&
+    paymentReceivedAt === null
+  );
+}
+
+export function canAdminCompleteDirectOrder({
+  status,
+  otpVerifiedAt,
+  paymentReceivedAt,
+}: {
+  status: OrderStatus;
+  otpVerifiedAt: Date | null;
+  paymentReceivedAt: Date | null;
+}) {
+  return (
+    status === "PAYMENT_DUE" &&
+    otpVerifiedAt !== null &&
+    paymentReceivedAt === null
+  );
+}
+
+export function canAdminFailDirectOrder({
+  status,
+  purchasedAt,
+  paymentReceivedAt,
+}: {
+  status: OrderStatus;
+  purchasedAt: Date | null;
+  paymentReceivedAt: Date | null;
+}) {
+  return (
+    purchasedAt !== null &&
+    DIRECT_POST_PURCHASE_STATUSES.includes(status) &&
+    paymentReceivedAt === null
+  );
 }
 
 export type DelivererPrePurchaseCancellationMode =

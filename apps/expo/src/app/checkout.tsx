@@ -26,7 +26,6 @@ import { trpc } from "~/utils/api";
 import { showAppAlert } from "~/utils/dialog";
 
 const fallbackDeliveryFee = 500;
-const fallbackPlatformFee = 300;
 
 type CheckoutStage = "idle" | "locating" | "broadcasting";
 
@@ -61,12 +60,10 @@ export default function CheckoutScreen() {
   );
 
   const deliveryFee = paymentConfig?.deliveryFeePaise ?? fallbackDeliveryFee;
-  const platformFee = paymentConfig?.platformFeePaise ?? fallbackPlatformFee;
+  const platformFee = 0;
   const finalAmount = totalPrice + deliveryFee + platformFee;
   const databaseReady = paymentConfig?.databaseReady === true;
-  const paymentDestinationReady =
-    paymentConfig?.paymentDestinationReady === true;
-  const orderReady = databaseReady && paymentDestinationReady;
+  const orderReady = databaseReady;
   const busy = stage !== "idle" || createOrderMutation.isPending;
 
   const placeOrder = async () => {
@@ -75,13 +72,6 @@ export default function CheckoutScreen() {
       showAppAlert(
         "Payment upgrade pending",
         "CAmpDeliver is connected, but new orders are paused until the server database migration is applied.",
-      );
-      return;
-    }
-    if (!paymentDestinationReady) {
-      showAppAlert(
-        "Payments temporarily unavailable",
-        "An administrator has not configured the CAmpDeliver receiving UPI ID yet. Your cart is safe; try again after it is configured.",
       );
       return;
     }
@@ -256,14 +246,7 @@ export default function CheckoutScreen() {
               icon="database"
               tone="warning"
               title="New orders are temporarily paused"
-              copy="This build is connected correctly, but the payment/security database migration has not been applied yet. Your cart is safe; place the order after the server upgrade is complete."
-            />
-          ) : !paymentDestinationReady ? (
-            <InlineNotice
-              icon="credit-card"
-              tone="warning"
-              title="Receiving UPI is not configured"
-              copy="An administrator needs to save the CAmpDeliver receiving UPI ID before new orders can be placed. Your cart is safe."
+              copy="This build is connected correctly, but the direct Pay on Delivery database migration has not been applied yet. Your cart is safe; place the order after the server upgrade is complete."
             />
           ) : null}
 
@@ -339,20 +322,18 @@ export default function CheckoutScreen() {
               label="Delivery fee"
               value={formatCurrency(deliveryFee)}
             />
-            <BillLine
-              label="Platform fee"
-              value={formatCurrency(platformFee)}
-            />
+            <BillLine label="Platform fee" value="Free (₹0.00)" />
             <View style={styles.billDivider} />
             <BillLine
-              label="Estimated total"
+              label="Pay on Delivery Total"
               value={formatCurrency(finalAmount)}
               strong
             />
             <Text style={styles.paymentNote}>
-              No payment is taken at checkout. After a deliverer confirms the
-              items are available, you will pay CAmpDeliver digitally before
-              purchase or at delivery when that deliverer offers the option.
+              Pay on Delivery only. The deliverer pays for food at the canteen
+              with their own funds, and you pay ₹{formatCurrency(finalAmount)}
+              directly to the deliverer only after delivery OTP verification at
+              handover.
             </Text>
           </Section>
         </ScrollView>
@@ -400,15 +381,13 @@ export default function CheckoutScreen() {
                       ? "Payment service unavailable"
                       : !databaseReady
                         ? "Server upgrade pending"
-                        : paymentDestinationReady
-                          ? "Place Order"
-                          : "UPI setup pending"}
+                        : "Place Order (Pay on Delivery)"}
               </Text>
               <Text style={styles.placeSubtext}>
                 {busy
                   ? "Please keep this screen open"
                   : orderReady
-                    ? "Location is checked next"
+                    ? "Pay cash or UPI at delivery"
                     : "Your cart stays unchanged"}
               </Text>
             </View>
